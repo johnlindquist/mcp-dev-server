@@ -40,11 +40,10 @@ const StartProcessParams = z.object(
 			.optional()
 			.default([])
 			.describe("Optional arguments for the command."),
-		cwd: z
+		workingDirectory: z
 			.string()
-			.optional()
 			.describe(
-				"Optional working directory. Defaults to workspace root or process CWD.",
+				"MANDATORY: The **absolute** working directory to run the command from. **Do not use relative paths like '.' or '../'**. Provide the full path (e.g., '/Users/me/myproject'). This setting is required.",
 			),
 		verification_pattern: z
 			.string()
@@ -256,7 +255,7 @@ async function _stopAllProcesses(): Promise<CallToolResult> {
 			);
 			const stopResult = await _stopProcess(label, false);
 			const resultText = getResultText(stopResult) ?? "Unknown stop result";
-			let parsedResult: { status?: ProcessStatus, error?: string } = {};
+			let parsedResult: { status?: ProcessStatus; error?: string } = {};
 			try {
 				parsedResult = JSON.parse(resultText);
 			} catch {
@@ -318,14 +317,22 @@ async function _restartProcess(
 		addLogEntry(label, "Stopping process before restart...");
 		const stopResult = await _stopProcess(label, false);
 		const stopResultText = getResultText(stopResult);
-		let stopResultJson: { status?: ProcessStatus, error?: string } = {};
+		let stopResultJson: { status?: ProcessStatus; error?: string } = {};
 		try {
 			if (stopResultText) stopResultJson = JSON.parse(stopResultText);
 		} catch (e) {
 			log.warn(label, "Could not parse stop result JSON", e);
 		}
 
-		stopStatus = stopResultJson.status ?? "unknown";
+		const potentialStatus = stopResultJson.status;
+		if (potentialStatus && [
+			'starting', 'running', 'stopping', 'stopped', 'crashed', 'error', 'verifying', 'restarting'
+		].includes(potentialStatus)) {
+			stopStatus = potentialStatus as ProcessStatus;
+		} else {
+			stopStatus = 'error';
+			log.warn(label, `Could not determine valid stop status from JSON response. Defaulting to 'error'. Response status: ${potentialStatus}`);
+		}
 
 		if (stopResult.isError) {
 			const stopErrorMsg =
@@ -375,7 +382,7 @@ async function _restartProcess(
 	);
 
 	const startResultText = getResultText(startResult);
-	let startResultJson: { status?: ProcessStatus, error?: string } = {};
+	let startResultJson: { status?: ProcessStatus; error?: string } = {};
 	try {
 		if (startResultText) startResultJson = JSON.parse(startResultText);
 	} catch (e) {
@@ -533,7 +540,7 @@ export function registerToolDefinitions(server: McpServer): void {
 					params.label,
 					params.command,
 					params.args,
-					params.cwd,
+					params.workingDirectory,
 					verificationPattern,
 					params.verification_timeout_ms,
 					params.retry_delay_ms,
