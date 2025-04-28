@@ -11,3 +11,5 @@ main().catch((error) => {
 	log.error(null, "Fatal error during application startup:", error);
 	process.exit(1);
 });
+
+// Trigger release
