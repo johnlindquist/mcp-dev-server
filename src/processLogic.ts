@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as pty from "node-pty";
 import type { IDisposable } from "node-pty"; // Import IDisposable
-import { LOG_LINE_LIMIT } from "./constants.js";
+import { DEFAULT_LOG_LINES } from "./constants.js";
 import {
 	addLogEntry,
 	checkAndUpdateProcessStatus, // Renamed function
@@ -436,7 +436,7 @@ export async function _startProcess(
 						cwd: currentProcessInfo.cwd,
 						logs: formatLogsForResponse(
 							currentProcessInfo.logs.map((l) => l.content),
-							LOG_LINE_LIMIT, // Return standard log lines on start
+							DEFAULT_LOG_LINES, // Return standard log lines on start
 						),
 						monitoring_hint: `Process is ${currentProcessInfo.status}. Use check_process_status with label "${label}" for updates.`,
 					},
@@ -462,7 +462,7 @@ export async function _startProcess(
 					signal: finalInfo?.signal,
 					logs: formatLogsForResponse(
 						finalInfo?.logs?.map((l) => l.content) ?? [],
-						LOG_LINE_LIMIT,
+						DEFAULT_LOG_LINES,
 					),
 				},
 				null,
@@ -515,7 +515,7 @@ export async function _stopProcess(
 					// Map LogEntry[] to string[]
 					logs: formatLogsForResponse(
 						processInfo.logs.map((l) => l.content),
-						LOG_LINE_LIMIT,
+						DEFAULT_LOG_LINES,
 					),
 				}),
 			),
@@ -537,7 +537,7 @@ export async function _stopProcess(
 					// Map LogEntry[] to string[]
 					logs: formatLogsForResponse(
 						processInfo.logs.map((l) => l.content),
-						LOG_LINE_LIMIT,
+						DEFAULT_LOG_LINES,
 					),
 				}),
 			),
@@ -584,7 +584,7 @@ export async function _stopProcess(
 					// Map LogEntry[] to string[]
 					logs: formatLogsForResponse(
 						(postSignalCheck?.logs ?? processInfo.logs).map((l) => l.content),
-						LOG_LINE_LIMIT,
+						DEFAULT_LOG_LINES,
 					),
 				}),
 			),
@@ -606,7 +606,7 @@ export async function _stopProcess(
 					// Map LogEntry[] to string[]
 					logs: formatLogsForResponse(
 						currentProcessInfo.logs.map((l) => l.content),
-						LOG_LINE_LIMIT,
+						DEFAULT_LOG_LINES,
 					),
 					monitoring_hint:
 						"Process is stopping. Use check_process_status for final status.", // Removed template literal

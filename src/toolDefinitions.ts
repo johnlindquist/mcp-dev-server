@@ -1,9 +1,9 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
+	DEFAULT_LOG_LINES,
 	DEFAULT_RETRY_DELAY_MS,
 	DEFAULT_VERIFICATION_TIMEOUT_MS,
-	LOG_LINE_LIMIT,
 	MAX_RETRIES,
 	SERVER_NAME,
 	SERVER_VERSION,
@@ -85,9 +85,9 @@ const CheckProcessStatusParams = z.object(
 		log_lines: z
 			.number()
 			.int()
-			.min(0)
+			.min(DEFAULT_LOG_LINES)
 			.optional()
-			.default(LOG_LINE_LIMIT)
+			.default(DEFAULT_LOG_LINES)
 			.describe("Number of recent log lines to return."),
 	}),
 );
@@ -166,6 +166,13 @@ async function _checkProcessStatus(
 		);
 	}
 
+	const formattedLogs = formatLogsForResponse(
+		processInfo.logs.map((l) => l.content),
+		log_lines,
+	);
+	const actualReturnedLines = formattedLogs.length;
+	const totalStoredLogs = processInfo.logs.length;
+
 	const responsePayload = {
 		label: processInfo.label,
 		status: processInfo.status,
@@ -175,21 +182,25 @@ async function _checkProcessStatus(
 		cwd: processInfo.cwd,
 		exitCode: processInfo.exitCode,
 		signal: processInfo.signal,
-		logs: formatLogsForResponse(
-			processInfo.logs.map((l) => l.content),
-			log_lines,
-		),
+		logs: formattedLogs,
 	};
 
 	let hint = `Process is ${processInfo.status}.`;
 	if (processInfo.status === "restarting") {
-		hint += ` Attempt ${processInfo.restartAttempts}/${processInfo.maxRetries}.`;
+		hint += ` Attempt ${processInfo.restartAttempts ?? "?"}/${processInfo.maxRetries ?? "?"}.`;
 	}
 	if (processInfo.status === "crashed") {
 		hint += ` Exited with code ${processInfo.exitCode ?? "N/A"}${processInfo.signal ? ` (signal ${processInfo.signal})` : ""}. Will ${processInfo.maxRetries && processInfo.maxRetries > 0 ? "attempt restart" : "not restart"}.`;
 	}
 	if (processInfo.status === "error") {
 		hint += " Unrecoverable error occurred. Check logs.";
+	}
+
+	if (log_lines > 0 && totalStoredLogs > actualReturnedLines) {
+		const hiddenLines = totalStoredLogs - actualReturnedLines;
+		hint += ` Returned the latest ${actualReturnedLines} log lines. ${hiddenLines} older lines are available but were not included.`;
+	} else if (log_lines === 0 && totalStoredLogs > 0) {
+		hint += ` ${totalStoredLogs} log lines are available for this process (use log_lines > 0 to retrieve).`;
 	}
 
 	return ok(textPayload(JSON.stringify({ ...responsePayload, hint }, null, 2)));
@@ -207,6 +218,25 @@ async function _listProcesses(
 	for (const label of managedProcesses.keys()) {
 		const processInfo = await checkAndUpdateProcessStatus(label);
 		if (processInfo) {
+			let formattedLogs: string[] | undefined = undefined;
+			let logHint: string | undefined = undefined;
+
+			if (log_lines > 0) {
+				const totalStoredLogs = processInfo.logs.length;
+				formattedLogs = formatLogsForResponse(
+					processInfo.logs.map((l) => l.content),
+					log_lines,
+				);
+				const actualReturnedLines = formattedLogs.length;
+
+				if (totalStoredLogs > actualReturnedLines) {
+					const hiddenLines = totalStoredLogs - actualReturnedLines;
+					logHint = `Returned latest ${actualReturnedLines} lines. ${hiddenLines} older lines hidden.`;
+				}
+			} else if (log_lines === 0 && processInfo.logs.length > 0) {
+				logHint = `${processInfo.logs.length} log lines available (use log_lines > 0 to view).`;
+			}
+
 			processList.push({
 				label: processInfo.label,
 				status: processInfo.status,
@@ -216,20 +246,21 @@ async function _listProcesses(
 				cwd: processInfo.cwd,
 				exitCode: processInfo.exitCode,
 				signal: processInfo.signal,
-				logs:
-					log_lines > 0
-						? formatLogsForResponse(
-								processInfo.logs.map((l) => l.content),
-								log_lines,
-							)
-						: undefined,
+				logs: formattedLogs,
+				log_hint: logHint,
 			});
 		}
 	}
 
 	const message = `Found ${processList.length} managed processes.`;
 	return ok(
-		textPayload(JSON.stringify({ message, processes: processList }, null, 2)),
+		textPayload(
+			JSON.stringify(
+				{ message, processes: processList },
+				(key, value) => (value === undefined ? null : value),
+				2,
+			),
+		),
 	);
 }
 
