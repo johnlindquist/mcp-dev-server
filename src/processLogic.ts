@@ -2,7 +2,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as pty from "node-pty";
 import type { IDisposable } from "node-pty"; // Import IDisposable
-import { DEFAULT_LOG_LINES } from "./constants.js";
+import {
+	DEFAULT_LOG_LINES,
+	LOG_SETTLE_DURATION_MS,
+	OVERALL_LOG_WAIT_TIMEOUT_MS,
+} from "./constants.js";
 import {
 	addLogEntry,
 	checkAndUpdateProcessStatus, // Renamed function
@@ -13,6 +17,100 @@ import {
 import { fail, ok, textPayload } from "./types.js";
 import type { CallToolResult, ProcessInfo } from "./types.ts"; // Renamed types
 import { formatLogsForResponse, log } from "./utils.js";
+
+/**
+ * Waits until logs have settled (no new data for a duration) or an overall timeout is reached.
+ * Listens temporarily to the PTY process data stream.
+ *
+ * @param label Process label for logging.
+ * @param ptyProcess The node-pty process instance.
+ * @returns A promise that resolves when logs settle or timeout occurs.
+ */
+async function _waitForLogSettleOrTimeout(
+	label: string,
+	ptyProcess: pty.IPty,
+): Promise<{ settled: boolean; timedOut: boolean }> {
+	return new Promise((resolve) => {
+		let settleTimerId: NodeJS.Timeout | null = null;
+		let overallTimeoutId: NodeJS.Timeout | null = null;
+		let settled = false;
+		let timedOut = false;
+		let dataListenerDisposable: IDisposable | null = null;
+		let exitListenerDisposable: IDisposable | null = null; // Added exit listener
+
+		const cleanup = () => {
+			if (settleTimerId) clearTimeout(settleTimerId);
+			if (overallTimeoutId) clearTimeout(overallTimeoutId);
+			if (dataListenerDisposable) dataListenerDisposable.dispose();
+			if (exitListenerDisposable) exitListenerDisposable.dispose(); // Dispose exit listener too
+			settleTimerId = null;
+			overallTimeoutId = null;
+			dataListenerDisposable = null;
+			exitListenerDisposable = null; // Clear exit listener
+		};
+
+		const onSettle = () => {
+			if (timedOut) return; // Don't resolve if already timed out
+			log.debug(label, `Logs settled after ${LOG_SETTLE_DURATION_MS}ms pause.`);
+			settled = true;
+			cleanup();
+			resolve({ settled, timedOut });
+		};
+
+		const onOverallTimeout = () => {
+			if (settled) return; // Don't resolve if already settled
+			log.warn(
+				label,
+				`Overall log wait timeout (${OVERALL_LOG_WAIT_TIMEOUT_MS}ms) reached. Proceeding with captured logs.`,
+			);
+			timedOut = true;
+			cleanup();
+			resolve({ settled, timedOut });
+		};
+
+		const onProcessExit = ({
+			exitCode,
+			signal,
+		}: { exitCode: number; signal?: number }) => {
+			if (settled || timedOut) return; // Don't act if already resolved
+			log.warn(
+				label,
+				`Process exited (code: ${exitCode}, signal: ${signal ?? "N/A"}) during log settle wait.`,
+			);
+			// Indicate timeout as the reason for stopping the wait, even though it was an exit
+			timedOut = true;
+			cleanup();
+			resolve({ settled, timedOut });
+		};
+
+		const resetSettleTimer = () => {
+			if (settled || timedOut) return; // Don't reset if already resolved
+			if (settleTimerId) clearTimeout(settleTimerId);
+			settleTimerId = setTimeout(onSettle, LOG_SETTLE_DURATION_MS);
+		};
+
+		// Attach a *temporary* data listener
+		dataListenerDisposable = ptyProcess.onData((data: string) => {
+			// We don't need to process the data here, just reset the timer
+			resetSettleTimer();
+		});
+
+		// Attach a temporary exit listener
+		exitListenerDisposable = ptyProcess.onExit(onProcessExit);
+
+		// Start the timers
+		resetSettleTimer(); // Initial settle timer
+		overallTimeoutId = setTimeout(
+			onOverallTimeout,
+			OVERALL_LOG_WAIT_TIMEOUT_MS,
+		);
+
+		log.debug(
+			label,
+			`Waiting for logs to settle (Pause: ${LOG_SETTLE_DURATION_MS}ms, Timeout: ${OVERALL_LOG_WAIT_TIMEOUT_MS}ms)...`,
+		);
+	});
+}
 
 /**
  * Internal function to start a background process.
@@ -207,64 +305,8 @@ export async function _startProcess(
 	ptyProcess.write(`${fullCommand}\r`); // Send command + Enter
 
 	// --- Verification Logic ---
-	let isVerified = !verificationPattern; // Automatically verified if no pattern
-	let verificationTimerDisposable: NodeJS.Timeout | undefined = undefined; // Renamed
-	let dataListenerDisposable: IDisposable | undefined = undefined; // For data listener
-	let exitListenerDisposable: IDisposable | undefined = undefined; // For exit listener during verification
-
-	const disposeVerificationListeners = () => {
-		if (verificationTimerDisposable) {
-			clearTimeout(verificationTimerDisposable);
-			verificationTimerDisposable = undefined;
-		}
-		if (dataListenerDisposable) {
-			dataListenerDisposable.dispose();
-			dataListenerDisposable = undefined;
-		}
-		if (exitListenerDisposable) {
-			exitListenerDisposable.dispose();
-			exitListenerDisposable = undefined;
-		}
-		// Also clear the timer stored in processInfo
-		if (processInfo.verificationTimer) {
-			clearTimeout(processInfo.verificationTimer);
-			processInfo.verificationTimer = undefined;
-		}
-	};
-
-	const completeVerification = (success: boolean, reason: string): void => {
-		disposeVerificationListeners(); // Clean up all listeners/timers
-		if (processInfo.status === "verifying") {
-			if (success) {
-				log.info(label, `Verification successful: ${reason}`);
-				addLogEntry(label, `Verification successful: ${reason}`);
-				updateProcessStatus(label, "running");
-				isVerified = true; // Ensure flag is set
-			} else {
-				log.error(label, `Verification failed: ${reason}`);
-				addLogEntry(label, `Verification failed: ${reason}`);
-				updateProcessStatus(label, "error");
-				// Optionally kill the process if verification fails critically
-				if (processInfo.process && processInfo.pid) {
-					log.warn(label, "Killing process due to verification failure."); // Removed template literal
-					try {
-						processInfo.process.kill("SIGKILL");
-					} catch (e) {
-						log.error(
-							label,
-							`Error killing process after verification failure: ${e}`,
-						);
-					}
-				}
-			}
-		} else {
-			// Status changed before verification completed (e.g., crashed)
-			log.warn(
-				label,
-				`Verification completion skipped as status is now ${processInfo.status}. Reason: ${reason}`,
-			);
-		}
-	};
+	let isVerified = !verificationPattern;
+	let verificationCompletionPromise: Promise<void> | null = null;
 
 	if (verificationPattern) {
 		const timeoutMessage =
@@ -275,10 +317,7 @@ export async function _startProcess(
 			label,
 			`Verification required: Pattern /${verificationPattern.source}/, ${timeoutMessage}`,
 		);
-		addLogEntry(
-			label,
-			"Status: verifying. Waiting for pattern or timeout.", // Removed template literal
-		);
+		addLogEntry(label, "Status: verifying. Waiting for pattern or timeout.");
 		updateProcessStatus(label, "verifying");
 
 		const dataListener = (data: string): void => {
@@ -286,62 +325,69 @@ export async function _startProcess(
 				if (verificationPattern.test(data)) {
 					if (processInfo.status === "verifying") {
 						// Check status before completing
-						completeVerification(true, "Pattern matched.");
-						// Listener disposed in completeVerification
+						verificationCompletionPromise = Promise.resolve();
 					} else {
 						log.warn(
 							label,
 							`Verification pattern matched, but status is now ${processInfo.status}. Ignoring match.`,
 						);
 						// Listener disposed below if necessary
-						disposeVerificationListeners(); // Dispose if pattern matched but state changed
+						verificationCompletionPromise = null;
 					}
 				}
 			} catch (e: unknown) {
 				log.error(label, "Error during verification data processing", e);
 				if (processInfo.status === "verifying") {
-					completeVerification(
-						false,
-						`Error processing verification pattern: ${e instanceof Error ? e.message : String(e)}`,
-					);
+					verificationCompletionPromise = Promise.resolve();
 				}
 				// Listener disposed in completeVerification
 			}
 		};
-		dataListenerDisposable = ptyProcess.onData(dataListener);
+		ptyProcess.onData(dataListener);
 
 		// Only set timeout if verificationTimeoutMs is provided (not null)
 		if (processInfo.verificationTimeoutMs !== null) {
-			verificationTimerDisposable = setTimeout(() => {
-				if (processInfo.status === "verifying") {
-					// Check status before timeout failure
-					completeVerification(
-						false,
-						`Timeout (${processInfo.verificationTimeoutMs}ms)`,
-					);
-					// Listener disposed in completeVerification
-				} else {
-					log.warn(
-						label,
-						`Verification timeout occurred, but status is now ${processInfo.status}. Ignoring timeout.`,
-					);
-					// Listener might still need cleanup if process exited without data match
-					disposeVerificationListeners(); // Dispose if timeout irrelevant
-				}
-			}, processInfo.verificationTimeoutMs); // Use the actual timeout value
-			// Store the timer in processInfo as well for external access/clearing (e.g., in stopProcess)
-			processInfo.verificationTimer = verificationTimerDisposable;
+			const timeoutMs = processInfo.verificationTimeoutMs;
+			verificationCompletionPromise = new Promise<void>(
+				(resolveVerification) => {
+					setTimeout(() => {
+						if (processInfo.status === "verifying") {
+							// Check status before timeout failure
+							verificationCompletionPromise = Promise.resolve();
+						} else {
+							log.warn(
+								label,
+								`Verification timeout occurred, but status is now ${processInfo.status}. Ignoring timeout.`,
+							);
+							// Listener might still need cleanup if process exited without data match
+							verificationCompletionPromise = null;
+						}
+						resolveVerification();
+					}, timeoutMs);
+					// Store the timer in processInfo as well for external access/clearing (e.g., in stopProcess)
+					processInfo.verificationTimer = setTimeout(() => {
+						if (processInfo.status === "verifying") {
+							// Check status before timeout failure
+							verificationCompletionPromise = Promise.resolve();
+						} else {
+							log.warn(
+								label,
+								`Verification timeout occurred, but status is now ${processInfo.status}. Ignoring timeout.`,
+							);
+							// Listener might still need cleanup if process exited without data match
+							verificationCompletionPromise = null;
+						}
+					}, timeoutMs);
+				},
+			);
 		}
 
 		// Ensure listener is removed on exit if verification didn't complete
-		exitListenerDisposable = ptyProcess.onExit(() => {
+		ptyProcess.onExit(() => {
 			// Use onExit, store disposable
 			if (processInfo.status === "verifying") {
 				log.warn(label, "Process exited during verification phase.");
-				completeVerification(
-					false,
-					"Process exited before verification completed.",
-				);
+				verificationCompletionPromise = null;
 			}
 			// Listener disposed in completeVerification or earlier
 		});
@@ -354,7 +400,7 @@ export async function _startProcess(
 		isVerified = true;
 	}
 
-	// --- Standard Log Handling --- Tidy this up
+	// --- Standard Log Handling ---
 	const mainDataDisposable = ptyProcess.onData((data: string) => {
 		const lines = data.split(/\r?\n/);
 		for (const line of lines) {
@@ -367,78 +413,87 @@ export async function _startProcess(
 	// --- Exit/Error Handling ---
 	const mainExitDisposable = ptyProcess.onExit(({ exitCode, signal }) => {
 		log.debug(label, "Main onExit handler triggered.", { exitCode, signal });
-		// Clean up the main data listener on exit
-		mainDataDisposable.dispose();
-		// If verification was happening, its exit listener should handle it.
-		// If verification is done or wasn't needed, handle the exit normally.
-		if (processInfo.status !== "verifying") {
-			const currentInfo = managedProcesses.get(label); // Get fresh info
-			// Pass numeric signal directly, handleExit now expects string|null
-			// We need to convert the numeric signal code to string name IF possible, else use null or UNKNOWN(num)
-			// For now, pass null as signal interpretation is complex and handleExit accepts null
+		mainDataDisposable.dispose(); // Dispose data listener on exit
+
+		// Get fresh info before calling handleExit
+		const currentInfo = managedProcesses.get(label);
+		if (currentInfo && currentInfo.status !== "verifying") {
+			// Avoid double handling if verification exit listener ran
 			handleExit(
 				label,
 				exitCode ?? null,
 				signal !== undefined ? String(signal) : null,
 			);
 		}
-		// Ensure this listener is also disposed
-		mainExitDisposable.dispose();
+		mainExitDisposable.dispose(); // Dispose self
 	});
 
-	// Don't wait for verification promise here, let it run in background
-	// Return immediately after spawning and setting up listeners/timers
+	// --- Wait for Initial Logs to Settle ---
+	const settleResult = await _waitForLogSettleOrTimeout(label, ptyProcess);
+	// --- End Wait for Initial Logs to Settle ---
 
-	if (!isVerified) {
-		// Wait for verification if it hasn't happened yet (only relevant if verificationPattern exists)
-		await new Promise<void>((resolve) => {
-			const checkInterval = setInterval(() => {
-				if (
-					isVerified ||
-					!["starting", "verifying"].includes(processInfo.status)
-				) {
-					clearInterval(checkInterval);
-					resolve();
-				}
-			}, 100);
-		});
+	// If verification was started, wait for it to complete as well
+	if (verificationCompletionPromise) {
+		log.debug(
+			label,
+			"Waiting for verification process to complete (if running)...",
+		);
+		log.debug(label, "Verification completion awaited (or skipped).");
 	}
 
-	// --- Final Return --- //
-	// Check status again after potential verification wait
-	const currentStatus = managedProcesses.get(label)?.status;
-	if (
-		currentStatus &&
-		["running", "verifying", "starting"].includes(currentStatus)
-	) {
-		const currentProcessInfo = managedProcesses.get(label);
-		if (!currentProcessInfo) {
-			// This should not happen if status was checked, but handle defensively
-			const errorMsg =
-				"Internal error: Process info disappeared after starting.";
-			log.error(label, errorMsg);
-			return fail(
-				textPayload(JSON.stringify({ error: errorMsg, status: "error" })),
-			);
-		}
-		const message = isVerified
-			? `Process "${label}" started successfully (PID: ${currentProcessInfo.pid}). Status: ${currentProcessInfo.status}.`
-			: `Process "${label}" started (PID: ${currentProcessInfo.pid}), verification pending... Status: ${currentProcessInfo.status}.`;
+	// --- Final Return ---
+	const currentInfoAfterWait = await checkAndUpdateProcessStatus(label); // Use check function
 
+	if (!currentInfoAfterWait) {
+		// Process might have exited very quickly and been removed, or internal error
+		const errorMsg = `Internal error: Process info for "${label}" not found after startup wait.`;
+		log.error(label, errorMsg);
+		return fail(
+			textPayload(JSON.stringify({ error: errorMsg, status: "not_found" })), // Use not_found status
+		);
+	}
+
+	// Determine the final status and message
+	const finalStatus = currentInfoAfterWait.status;
+	let message = `Process "${label}" started (PID: ${currentInfoAfterWait.pid}). Status: ${finalStatus}.`;
+
+	if (settleResult.settled) {
+		message += ` Initial logs settled after a ${LOG_SETTLE_DURATION_MS}ms pause.`;
+	} else if (settleResult.timedOut) {
+		message += ` Initial log settling wait timed out after ${OVERALL_LOG_WAIT_TIMEOUT_MS}ms.`;
+	}
+	// Add verification status if applicable (needs integration with verification promise result)
+	// if (verificationSucceeded) message += " Verification successful.";
+	// else if (verificationFailed) message += " Verification failed.";
+
+	message +=
+		" This indicates initial output stability, not necessarily task completion. Use check_process_status for updates.";
+
+	const logsToReturn = formatLogsForResponse(
+		currentInfoAfterWait.logs.map((l) => l.content),
+		DEFAULT_LOG_LINES,
+	);
+
+	log.info(
+		label,
+		`Returning result for start_process. Included ${logsToReturn.length} log lines. Status: ${finalStatus}.`,
+	);
+
+	// Determine if the overall operation should be considered successful for the caller
+	// Generally, if it's starting, running, or verifying, it's okay.
+	// If it crashed or errored during the settle/verification wait, it should fail.
+	if (["starting", "running", "verifying"].includes(finalStatus)) {
 		return ok(
 			textPayload(
 				JSON.stringify(
 					{
 						label: label,
-						message,
-						status: currentProcessInfo.status,
-						pid: currentProcessInfo.pid,
-						cwd: currentProcessInfo.cwd,
-						logs: formatLogsForResponse(
-							currentProcessInfo.logs.map((l) => l.content),
-							DEFAULT_LOG_LINES, // Return standard log lines on start
-						),
-						monitoring_hint: `Process is ${currentProcessInfo.status}. Use check_process_status with label "${label}" for updates.`,
+						message: message, // Use the detailed message
+						status: finalStatus,
+						pid: currentInfoAfterWait.pid,
+						cwd: currentInfoAfterWait.cwd,
+						logs: logsToReturn,
+						monitoring_hint: `Process is ${finalStatus}. Use check_process_status with label "${label}" for updates.`,
 					},
 					null,
 					2,
@@ -447,23 +502,22 @@ export async function _startProcess(
 		);
 	}
 
-	// Process likely failed during verification or exited quickly
-	const finalInfo = await checkAndUpdateProcessStatus(label);
-	const errorMsg = `Process "${label}" failed to start or exited prematurely. Final status: ${finalInfo?.status ?? "unknown"}`;
-	log.error(label, errorMsg);
+	// Process ended up in a terminal state (stopped, crashed, error) during startup
+	const errorMsg = `Process "${label}" failed to stabilize or exited during startup wait. Final status: ${finalStatus}`;
+	log.error(label, errorMsg, {
+		exitCode: currentInfoAfterWait.exitCode,
+		signal: currentInfoAfterWait.signal,
+	});
 	return fail(
 		textPayload(
 			JSON.stringify(
 				{
 					error: errorMsg,
-					status: finalInfo?.status ?? "error",
-					pid: finalInfo?.pid,
-					exitCode: finalInfo?.exitCode,
-					signal: finalInfo?.signal,
-					logs: formatLogsForResponse(
-						finalInfo?.logs?.map((l) => l.content) ?? [],
-						DEFAULT_LOG_LINES,
-					),
+					status: finalStatus,
+					pid: currentInfoAfterWait.pid,
+					exitCode: currentInfoAfterWait.exitCode,
+					signal: currentInfoAfterWait.signal,
+					logs: logsToReturn, // Include logs collected so far
 				},
 				null,
 				2,
@@ -609,7 +663,7 @@ export async function _stopProcess(
 						DEFAULT_LOG_LINES,
 					),
 					monitoring_hint:
-						"Process is stopping. Use check_process_status for final status.", // Removed template literal
+						"Process is stopping. Use check_process_status for final status.",
 				},
 				null,
 				2,
