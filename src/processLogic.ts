@@ -7,7 +7,6 @@ import {
 	DEFAULT_VERIFICATION_TIMEOUT_MS,
 	LOG_LINE_LIMIT,
 	MAX_RETRIES,
-	ZOMBIE_CHECK_INTERVAL_MS, // Use the correct constant name
 } from "./constants.js";
 import {
 	addLogEntry,
@@ -17,7 +16,7 @@ import {
 	updateProcessStatus, // Renamed function
 } from "./state.js";
 import { fail, ok, textPayload } from "./types.js";
-import type { CallToolResult, ProcessInfo, ProcessStatus } from "./types.ts"; // Renamed types
+import type { CallToolResult, ProcessInfo } from "./types.ts"; // Renamed types
 import { formatLogsForResponse, log } from "./utils.js";
 
 /**

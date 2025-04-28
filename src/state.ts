@@ -1,6 +1,3 @@
-// src/state.ts
-
-import type { IPty } from "node-pty";
 import {
 	CRASH_LOOP_DETECTION_WINDOW_MS,
 	DEFAULT_RETRY_DELAY_MS,
@@ -8,7 +5,6 @@ import {
 	MAX_RETRIES,
 } from "./constants.js";
 import { _startProcess } from "./processLogic.js"; // Corrected import path
-import { ok } from "./types.js";
 import type { LogEntry, ProcessInfo, ProcessStatus } from "./types.ts"; // Import LogEntry from types.ts
 import { log } from "./utils.js";
 

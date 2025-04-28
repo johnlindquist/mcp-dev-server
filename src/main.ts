@@ -1,16 +1,11 @@
-// src/main.ts
-
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { z } from "zod";
 import {
 	SERVER_NAME,
 	SERVER_VERSION,
 	ZOMBIE_CHECK_INTERVAL_MS,
 } from "./constants.js";
 import {
-	managedProcesses,
-	reapZombies,
 	setZombieCheckInterval,
 	stopAllProcessesOnExit,
 	zombieCheckIntervalId,

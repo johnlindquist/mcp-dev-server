@@ -1,5 +1,3 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
@@ -15,12 +13,11 @@ import {
 	addLogEntry,
 	checkAndUpdateProcessStatus,
 	managedProcesses,
-	stopAllProcessesOnExit,
 	zombieCheckIntervalId,
 } from "./state.js";
 import { handleToolCall } from "./toolHandler.js";
 import { type CallToolResult, fail, ok, shape, textPayload } from "./types.js";
-import type { ProcessInfo, ProcessStatus } from "./types.ts";
+import type { ProcessStatus } from "./types.ts";
 import { formatLogsForResponse, log } from "./utils.js";
 
 const labelSchema = z
@@ -159,6 +156,7 @@ async function _checkProcessStatus(
 				JSON.stringify({
 					error: `Process with label "${label}" not found.`,
 					status: "not_found",
+					pid: null,
 				}),
 			),
 		);
@@ -237,6 +235,7 @@ async function _stopAllProcesses(): Promise<CallToolResult> {
 		label: string;
 		result: string;
 		status?: ProcessStatus | "not_found";
+		pid?: number | null | undefined;
 	}[] = [];
 	let stoppedCount = 0;
 	let skippedCount = 0;
@@ -255,7 +254,11 @@ async function _stopAllProcesses(): Promise<CallToolResult> {
 			);
 			const stopResult = await _stopProcess(label, false);
 			const resultText = getResultText(stopResult) ?? "Unknown stop result";
-			let parsedResult: { status?: ProcessStatus; error?: string } = {};
+			let parsedResult: {
+				status?: ProcessStatus;
+				error?: string;
+				pid?: number | null;
+			} = {};
 			try {
 				parsedResult = JSON.parse(resultText);
 			} catch {
@@ -265,6 +268,7 @@ async function _stopAllProcesses(): Promise<CallToolResult> {
 				label,
 				result: stopResult.isError ? "Failed" : "SignalSent",
 				status: parsedResult.status ?? processInfo.status,
+				pid: parsedResult.pid ?? processInfo.pid,
 			});
 			if (!stopResult.isError) stoppedCount++;
 		} else {
@@ -273,6 +277,7 @@ async function _stopAllProcesses(): Promise<CallToolResult> {
 				label,
 				result: "Skipped",
 				status: processInfo?.status ?? "not_found",
+				pid: processInfo?.pid,
 			});
 		}
 	}
@@ -299,10 +304,13 @@ async function _restartProcess(
 				JSON.stringify({
 					error: `Process with label "${label}" not found for restart.`,
 					status: "not_found",
+					pid: null,
 				}),
 			),
 		);
 	}
+
+	const originalPid = processInfo.pid;
 
 	let stopStatus: ProcessStatus | "not_needed" = "not_needed";
 	if (
@@ -317,7 +325,11 @@ async function _restartProcess(
 		addLogEntry(label, "Stopping process before restart...");
 		const stopResult = await _stopProcess(label, false);
 		const stopResultText = getResultText(stopResult);
-		let stopResultJson: { status?: ProcessStatus; error?: string } = {};
+		let stopResultJson: {
+			status?: ProcessStatus;
+			error?: string;
+			pid?: number | null;
+		} = {};
 		try {
 			if (stopResultText) stopResultJson = JSON.parse(stopResultText);
 		} catch (e) {
@@ -357,6 +369,7 @@ async function _restartProcess(
 					JSON.stringify({
 						error: `Restart failed: ${stopErrorMsg}`,
 						status: stopStatus,
+						pid: originalPid,
 					}),
 				),
 			);
@@ -395,7 +408,11 @@ async function _restartProcess(
 	);
 
 	const startResultText = getResultText(startResult);
-	let startResultJson: { status?: ProcessStatus; error?: string } = {};
+	let startResultJson: {
+		status?: ProcessStatus;
+		error?: string;
+		pid?: number | null;
+	} = {};
 	try {
 		if (startResultText) startResultJson = JSON.parse(startResultText);
 	} catch (e) {
@@ -412,6 +429,7 @@ async function _restartProcess(
 				JSON.stringify({
 					error: `Restart failed: ${startErrorMsg}`,
 					status: startResultJson.status ?? "error",
+					pid: startResultJson.pid ?? null,
 				}),
 			),
 		);
@@ -448,7 +466,13 @@ async function _waitForProcess(
 			log.error(label, errorMsg);
 			addLogEntry(label, errorMsg);
 			return fail(
-				textPayload(JSON.stringify({ error: errorMsg, status: "not_found" })),
+				textPayload(
+					JSON.stringify({
+						error: errorMsg,
+						status: "not_found",
+						pid: null,
+					}),
+				),
 			);
 		}
 
@@ -470,13 +494,20 @@ async function _waitForProcess(
 			);
 		}
 
-		if (["stopped", "crashed", "error"].includes(processInfo.status)) {
+		if (
+			["stopped", "crashed", "error"].includes(processInfo.status) &&
+			processInfo.status !== target_status
+		) {
 			const abortMsg = `Wait aborted: Process entered terminal state '${processInfo.status}' while waiting for '${target_status}'.`;
 			log.warn(label, abortMsg);
 			addLogEntry(label, abortMsg);
 			return fail(
 				textPayload(
-					JSON.stringify({ error: abortMsg, status: processInfo.status }),
+					JSON.stringify({
+						error: abortMsg,
+						status: processInfo.status,
+						pid: processInfo.pid,
+					}),
 				),
 			);
 		}
@@ -493,6 +524,7 @@ async function _waitForProcess(
 			JSON.stringify({
 				error: timeoutMsg,
 				status: finalInfo?.status ?? "timeout",
+				pid: finalInfo?.pid,
 			}),
 		),
 	);
@@ -639,6 +671,7 @@ function getResultText(result: CallToolResult): string | null {
 		const firstContent = result.content[0];
 		if (
 			firstContent &&
+			typeof firstContent === "object" &&
 			"type" in firstContent &&
 			firstContent.type === "text" &&
 			"text" in firstContent &&
