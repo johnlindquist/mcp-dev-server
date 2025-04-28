@@ -1,387 +1,634 @@
-import { spawn as spawnPty, type IPty } from 'node-pty';
-import fs from 'node:fs';
-import path from 'node:path';
-import { type CallToolResult, ok, fail, textPayload, type ServerInfo, type ServerStatus } from './types.js';
-import { MAX_STORED_LOG_LINES, STARTUP_VERIFICATION_DELAY_MS, MAX_RETRIES, STOP_WAIT_DURATION } from './constants.js';
-import { log, stripAnsiSafe, formatLogsForResponse } from './utils.js';
-import { runningServers, addLogEntry, updateServerStatus, handleExit, doesProcessExist, checkAndUpdateStatus } from './state.js';
+import * as fs from "fs"; // Import fs for directory check
+import * as path from "path"; // Import path module
+import * as pty from "node-pty";
+import type { IPty } from "node-pty"; // Ensure IPty is imported
+import {
+	DEFAULT_RETURN_LOG_LINES,
+	MAX_STORED_LOG_LINES,
+	STOP_WAIT_DURATION,
+	VERIFICATION_PATTERN,
+	VERIFICATION_TIMEOUT,
+} from "./constants.js";
+import {
+	addLogEntry,
+	checkAndUpdateStatus,
+	handleCrashAndRetry,
+	handleExit,
+	runningServers,
+	updateServerStatus,
+} from "./state.js";
+import {
+	type CallToolResult,
+	fail,
+	formatLogsForResponse,
+	ok,
+	textPayload,
+} from "./types.js";
+import type { ServerInfo } from "./types.js";
+import { log, stripAnsiSafe } from "./utils.js";
 
-// --- Internal Core Logic Functions ---
-
+/**
+ * Internal function to start a server process.
+ * Handles process spawning, logging, status updates, and verification.
+ */
 export async function _startServer(
-    label: string,
-    command: string,
-    cwdInput: string | undefined,
-    logLines: number
+	label: string,
+	command: string,
+	workingDirectoryInput: string | undefined, // Renamed from cwd
+	logLines: number,
 ): Promise<CallToolResult> {
+	// Resolve the working directory: Use input, fallback to MCP_WORKSPACE_ROOT, then process CWD
+	const effectiveWorkingDirectory = workingDirectoryInput
+		? path.resolve(workingDirectoryInput) // Resolve relative paths based on current process CWD
+		: process.env.MCP_WORKSPACE_ROOT || process.cwd();
 
-    const effectiveCwd = cwdInput
-        ? path.resolve(cwdInput)
-        : process.env.MCP_WORKSPACE_ROOT || process.cwd();
+	log.info(
+		label,
+		`Starting server process... Command: "${command}", Input Working Dir: "${workingDirectoryInput || "(not provided)"}", Effective Working Dir: "${effectiveWorkingDirectory}"`,
+	);
 
-    log.info(label, `Starting server process... Command: "${command}", CWD Input: "${cwdInput}", Effective CWD: "${effectiveCwd}"`);
+	// Verify the effective working directory exists before attempting to spawn
+	log.debug(
+		label,
+		`Verifying existence of effective working directory: ${effectiveWorkingDirectory}`,
+	);
+	if (!fs.existsSync(effectiveWorkingDirectory)) {
+		const errorMsg = `Working directory does not exist: ${effectiveWorkingDirectory}`;
+		log.error(label, errorMsg);
+		// Update status to error even if the server map entry wasn't fully created yet
+		// Ensure a placeholder ServerInfo exists if this is the first attempt for the label
+		if (!runningServers.has(label)) {
+			runningServers.set(label, {
+				label,
+				command,
+				cwd: effectiveWorkingDirectory,
+				status: "error",
+				error: errorMsg,
+				pid: null,
+				process: null,
+				logs: [],
+				startTime: new Date(),
+				exitCode: null,
+				retryCount: 0,
+				lastCrashTime: null,
+			});
+		} else {
+			updateServerStatus(label, "error", {
+				error: errorMsg,
+				pid: undefined,
+				process: null,
+			});
+		}
+		return fail(
+			textPayload(
+				JSON.stringify(
+					{
+						error: errorMsg,
+						status: "error",
+						cwd: effectiveWorkingDirectory,
+						error_type: "working_directory_not_found",
+					},
+					null,
+					2,
+				),
+			),
+		);
+	}
+	log.debug(
+		label,
+		`Effective working directory verified: ${effectiveWorkingDirectory}`,
+	);
 
-    let existingServer = runningServers.get(label);
-    if (existingServer?.pid && !doesProcessExist(existingServer.pid)) {
-        log.warn(label, `Server entry found, but process PID ${existingServer.pid} does not exist. Clearing stale entry.`);
-        updateServerStatus(label, 'stopped', { error: "Stale process detected during start.", exitCode: null });
-        existingServer = undefined;
-    } else if (existingServer && existingServer.status === 'running') {
-        const errorMsg = `Server with label "${label}" is already running (PID: ${existingServer.pid}).`;
-        log.warn(label, errorMsg);
-        return ok(textPayload(JSON.stringify({
-            warning: errorMsg, status: 'already_running', label: existingServer.label,
-            pid: existingServer.pid, command: existingServer.command, cwd: existingServer.cwd,
-            startTime: existingServer.startTime.toISOString(),
-            logs: formatLogsForResponse(existingServer.logs, Math.min(logLines, MAX_STORED_LOG_LINES)),
-        }, null, 2)));
-    }
-    if (existingServer) {
-        log.warn(label, `Removing previous terminal entry (status: ${existingServer.status}) before starting.`);
-        runningServers.delete(label);
-    }
+	const existingServer = runningServers.get(label);
 
-    let ptyProcess: IPty | null = null; // Changed type
+	// Check if server with this label already exists and is active
+	if (
+		existingServer &&
+		(existingServer.status === "running" ||
+			existingServer.status === "starting" ||
+			existingServer.status === "verifying" ||
+			existingServer.status === "restarting")
+	) {
+		const errorMsg = `Server with label "${label}" is already ${existingServer.status} (PID: ${existingServer.pid}). Use a different label or stop the existing server first.`;
+		log.error(label, errorMsg);
+		return fail(
+			textPayload(
+				JSON.stringify(
+					{
+						error: errorMsg,
+						status: existingServer.status,
+						error_type: "label_conflict",
+					},
+					null,
+					2,
+				),
+			),
+		);
+	}
 
-    log.debug(label, `Verifying existence of cwd: ${effectiveCwd}`);
-    if (!fs.existsSync(effectiveCwd)) {
-        const errorMsg = `Working directory does not exist: ${effectiveCwd}`;
-        log.error(label, errorMsg);
-        return fail(textPayload(JSON.stringify({
-            error: `Failed to start server "${label}": ${errorMsg}`, error_type: "invalid_cwd",
-            status: 'error', retry_hint: "Check the 'cwd' parameter provided. No automatic retry.",
-        }, null, 2)));
-    }
-    log.debug(label, `CWD verified: ${effectiveCwd}`);
+	// If it exists but is stopped/crashed/error, reuse the label but reset state
+	if (existingServer) {
+		log.warn(
+			label,
+			`Reusing label "${label}". Previous instance was ${existingServer.status}. Clearing old state.`,
+		);
+		// Clear logs, reset status etc. Map entry will be overwritten below.
+	}
 
-    const serverInfo: ServerInfo = {
-        label: label, process: null, command: command, cwd: effectiveCwd,
-        startTime: new Date(), status: 'starting', pid: null, logs: [], exitCode: null, error: null,
-        retryCount: 0, lastAttemptTime: Date.now(),
-        workspacePath: effectiveCwd
-    };
-    runningServers.set(label, serverInfo);
-    addLogEntry(label, 'system', `Attempting to start: "${command}" in "${effectiveCwd}"`);
+	const shell =
+		process.env.SHELL ||
+		(process.platform === "win32" ? "powershell.exe" : "bash");
+	let ptyProcess: pty.IPty;
 
-    let startupOutput = ''; // Combined stdout/stderr for pty
-    let closedDuringStartup = false;
-    let closeDetails: { exitCode: number, signal?: number } | null = null; // Use node-pty exit signature
+	try {
+		ptyProcess = pty.spawn(shell, [], {
+			name: "xterm-color",
+			cols: 80,
+			rows: 30,
+			// Use the EFFECTIVE working directory
+			cwd: effectiveWorkingDirectory,
+			env: { ...process.env, FORCE_COLOR: "1", MCP_DEV_SERVER_LABEL: label }, // Force color and add label
+			encoding: "utf8",
+		});
+	} catch (error: unknown) {
+		const errorMsg = `Failed to spawn PTY process: ${error instanceof Error ? error.message : String(error)}`;
+		log.error(label, errorMsg);
+		// Update status to error
+		if (!runningServers.has(label)) {
+			// Ensure entry exists before update
+			runningServers.set(label, {
+				label,
+				command,
+				cwd: effectiveWorkingDirectory,
+				status: "error",
+				error: errorMsg,
+				pid: null,
+				process: null,
+				logs: [],
+				startTime: new Date(),
+				exitCode: null,
+				retryCount: 0,
+				lastCrashTime: null,
+			});
+		} else {
+			updateServerStatus(label, "error", {
+				error: errorMsg,
+				pid: undefined,
+				process: null,
+			});
+		}
+		return fail(
+			textPayload(
+				JSON.stringify(
+					{
+						error: errorMsg,
+						status: "error",
+						cwd: effectiveWorkingDirectory,
+						error_type: "pty_spawn_failed",
+					},
+					null,
+					2,
+				),
+			),
+		);
+	}
 
-    try {
-        // --- Spawn with node-pty ---
-        try {
-            const cmdParts = command.split(' ');
-            const cmdName = cmdParts[0];
-            const cmdArgs = cmdParts.slice(1);
+	// Create the server info entry immediately after successful spawn
+	const serverInfo: ServerInfo = {
+		label,
+		pid: ptyProcess.pid,
+		process: ptyProcess,
+		command,
+		// Store the EFFECTIVE working directory used
+		cwd: effectiveWorkingDirectory,
+		logs: [],
+		status: "starting",
+		startTime: new Date(),
+		exitCode: null,
+		error: null,
+		retryCount: 0, // Initialize retry count
+		lastCrashTime: null, // Initialize last crash time
+	};
+	runningServers.set(label, serverInfo);
+	addLogEntry(
+		label,
+		"system",
+		`Process spawned successfully (PID: ${ptyProcess.pid}) in ${effectiveWorkingDirectory}. Status: starting.`,
+	);
 
-            log.debug(label, `Preparing to spawn with node-pty: '${cmdName}', args: [${cmdArgs.join(', ')}]`, {
-                cwd: effectiveCwd,
-                name: 'xterm-256color', // Standard terminal type
-                cols: 80, // Default size, can be adjusted if needed
-                rows: 24,
-                env: { ...process.env } // Pass environment
-            });
+	// Write command to PTY shell
+	ptyProcess.write(`${command}\r`); // Send command + Enter
 
-            // Use spawnPty from node-pty
-            ptyProcess = spawnPty(cmdName, cmdArgs, {
-                name: 'xterm-256color',
-                cols: 80,
-                rows: 24,
-                cwd: effectiveCwd,
-                env: { ...process.env } as { [key: string]: string }, // node-pty needs string values for env
-            });
-            log.debug(label, `node-pty spawn function called for command: '${cmdName}'. Pty process object created (or threw error).`);
+	// --- Verification Logic ---
+	let verificationTimer: NodeJS.Timeout | null = null;
+	let isVerified = false;
+	const verificationPattern = VERIFICATION_PATTERN; // Configurable pattern
+	const verificationTimeout = VERIFICATION_TIMEOUT; // Configurable timeout
 
-        } catch (spawnError: unknown) {
-            log.error(label, '!!! INNER CATCH BLOCK: node-pty spawn call failed synchronously !!!');
-            log.error(label, 'Spawn Error Object:', spawnError);
-            const spawnErrorMessage = spawnError instanceof Error ? spawnError.message : String(spawnError);
-            const errorMsg = `Failed to spawn command '${command.split(' ')[0]}' using node-pty: ${spawnErrorMessage}`;
-            log.error(label, `Formatted Error Msg: ${errorMsg}`);
+	const verificationPromise = new Promise<boolean>((resolve) => {
+		if (!verificationPattern) {
+			log.info(
+				label,
+				"No verification pattern set. Assuming server is running after spawn.",
+			);
+			resolve(true); // Skip verification if no pattern
+			return;
+		}
 
-            const errorType = "spawn_exception";
-            const hint = "Check command, cwd, PATH, permissions, and node-pty installation. Manual intervention likely required.";
-            // node-pty might not provide specific error codes like ENOENT/EACCES as easily
+		log.info(
+			label,
+			`Setting up verification: waiting for pattern "${verificationPattern.source}" within ${verificationTimeout}ms`,
+		);
+		updateServerStatus(label, "verifying");
+		addLogEntry(
+			label,
+			"system",
+			`Status: verifying. Waiting for log pattern: ${verificationPattern.source}`,
+		);
 
-            const statusBeforeUpdate = runningServers.get(label)?.status;
-            log.debug(label, `Inner Catch: Status before update: ${statusBeforeUpdate}. Updating to 'error'.`);
-            updateServerStatus(label, 'error', { error: errorMsg });
-            const statusAfterUpdate = runningServers.get(label)?.status;
-            log.debug(label, `Inner Catch: Status after update: ${statusAfterUpdate}.`);
+		const onDataForVerification = (data: string) => {
+			const strippedData = stripAnsiSafe(data);
+			if (verificationPattern.test(strippedData)) {
+				log.info(
+					label,
+					`Verification pattern matched: "${verificationPattern.source}". Server marked as running.`,
+				);
+				if (verificationTimer) clearTimeout(verificationTimer);
+				isVerified = true;
+				resolve(true);
+			}
+		};
 
-            const response = fail(textPayload(JSON.stringify({
-                error: `Failed to start server "${label}": ${errorMsg}`, error_type: errorType,
-                status: 'error', retry_hint: hint,
-            }, null, 2)));
-            log.error(label, 'Inner Catch: Returning error response:', response);
-            return response;
-        }
-        // --- End node-pty spawn ---
+		ptyProcess.onData(onDataForVerification);
 
-        if (!ptyProcess || typeof ptyProcess.pid !== 'number') { // Check pid is number
-            const errorMsg = "node-pty spawn seemed to succeed but failed to return a valid process/PID.";
-            log.error(label, errorMsg);
-            updateServerStatus(label, 'error', { error: errorMsg });
-            return fail(textPayload(JSON.stringify({
-                error: `Failed to start server "${label}": ${errorMsg}`, error_type: "spawn_internal_error_no_pid",
-                status: 'error', retry_hint: "Internal error during node-pty spawn. Check logs.",
-            }, null, 2)));
-        }
+		verificationTimer = setTimeout(() => {
+			if (!isVerified) {
+				log.error(
+					label,
+					`Verification timed out after ${verificationTimeout}ms. Pattern "${verificationPattern.source}" not found.`,
+				);
+				ptyProcess.removeListener("data", onDataForVerification); // Clean up listener
+				updateServerStatus(label, "error", {
+					error: "Verification pattern not found within timeout.",
+				});
+				addLogEntry(label, "error", "Verification timed out.");
+				// Attempt to kill the process since it didn't verify
+				try {
+					ptyProcess.kill("SIGTERM");
+				} catch (e) {
+					log.warn(
+						label,
+						`Failed to send SIGTERM after verification timeout: ${e}`,
+					);
+				}
+				resolve(false);
+			}
+		}, verificationTimeout);
 
-        const pid = ptyProcess.pid;
-        serverInfo.process = ptyProcess; // Store the IPty process
-        serverInfo.pid = pid;
-        addLogEntry(label, 'system', `Process spawned with PID: ${pid}`);
+		// Clean up listener when process exits before verification completes
+		ptyProcess.onExit(() => {
+			if (!isVerified) {
+				log.warn(label, "Process exited before verification completed.");
+				if (verificationTimer) clearTimeout(verificationTimer);
+				ptyProcess.removeListener("data", onDataForVerification); // Clean up listener
+				// Status might be set by handleExit/handleCrash, but ensure timer is cleared
+				resolve(false); // Verification failed
+			}
+		});
+	});
 
-        // Temporary listeners for startup phase
-        const tempOutputListener = (data: string): void => { startupOutput += data; addLogEntry(label, 'pty', data); };
-        // node-pty does not have a separate 'error' event like child_process for spawn failures
-        const tempExitListener = (details: { exitCode: number, signal?: number }): void => {
-            closedDuringStartup = true;
-            closeDetails = details;
-        };
+	// --- Standard Log Handling ---
+	ptyProcess.onData((data: string) => {
+		const lines = data.split(/\r?\n/);
+		lines.forEach((line) => {
+			if (line.trim()) {
+				// Avoid logging empty lines
+				addLogEntry(label, "stdout", line);
+				// Minimal logging to server console for visibility
+				// log.info(label, `[stdout] ${stripAnsiSafe(line).substring(0, 100)}`);
+			}
+		});
+	});
 
-        const dataDisposable = ptyProcess.onData(tempOutputListener);
-        const exitDisposable = ptyProcess.onExit(tempExitListener);
+	// --- Exit/Error Handling ---
+	ptyProcess.onExit(({ exitCode, signal }) => {
+		// Ensure verification timer is cleared if exit happens
+		if (verificationTimer && !isVerified) {
+			clearTimeout(verificationTimer);
+			log.warn(label, "Process exited during verification phase.");
+		}
+		const exitReason = `exited with code ${exitCode}${signal ? ` (signal ${signal})` : ""}`;
+		log.info(label, `Process ${exitReason}.`);
 
-        // Verification period
-        updateServerStatus(label, 'verifying');
-        addLogEntry(label, 'system', `Waiting ${STARTUP_VERIFICATION_DELAY_MS}ms for verification...`);
-        await new Promise(resolve => setTimeout(resolve, STARTUP_VERIFICATION_DELAY_MS));
+		// Check if the exit was expected (status 'stopping') or a crash
+		const currentInfo = runningServers.get(label);
+		if (currentInfo?.status === "stopping") {
+			handleExit(label, exitCode, signal);
+		} else {
+			// Treat any other exit (including during 'starting', 'verifying', 'running') as a crash
+			handleCrashAndRetry(
+				label,
+				exitCode,
+				`Process ${exitReason} unexpectedly.`,
+			);
+		}
+	});
 
-        // Remove temporary listeners using disposables
-        dataDisposable.dispose();
-        exitDisposable.dispose();
+	// Wait for verification to complete (or timeout/fail)
+	const verificationSuccess = await verificationPromise;
 
-        // Check for immediate exit during verification period
-        if (closedDuringStartup && closeDetails) {
-            const { exitCode, signal } = closeDetails;
-            const reason = signal !== undefined ? `Process exited during verification (Signal: ${signal})` : `Process exited during verification (Code: ${exitCode})`;
-            const capturedOutput = `Startup PTY Output (last 500 chars):\n${stripAnsiSafe(startupOutput).slice(-500)}`;
-            const finalError = `${reason}\n\n${capturedOutput}`;
+	if (verificationSuccess && !isVerified && verificationPattern) {
+		// This case should ideally not happen if logic is correct, but handles edge cases
+		log.warn(
+			label,
+			"Verification promise resolved true, but verification flag not set. Marking as running tentatively.",
+		);
+		updateServerStatus(label, "running");
+		addLogEntry(label, "system", "Status: running (post-verification phase).");
+	} else if (verificationSuccess && isVerified) {
+		// Explicitly set to running AFTER successful verification
+		updateServerStatus(label, "running");
+		addLogEntry(label, "system", "Status: running (verified).");
+	} else if (!verificationSuccess) {
+		// Verification failed (timeout or process exit)
+		// Status should already be 'error' or 'crashed' set by timer/onExit handlers
+		const finalStatus = runningServers.get(label)?.status || "error"; // Get the most recent status
+		const errorMsg =
+			runningServers.get(label)?.error ||
+			"Verification failed or process exited prematurely.";
+		return fail(
+			textPayload(
+				JSON.stringify(
+					{
+						error: errorMsg,
+						status: finalStatus,
+						pid: serverInfo.pid,
+						cwd: serverInfo.cwd, // Include cwd in failure response
+						logs: formatLogsForResponse(serverInfo.logs, logLines),
+						error_type: "verification_failed",
+					},
+					null,
+					2,
+				),
+			),
+		);
+	} else {
+		// !verificationPattern case (auto-success)
+		updateServerStatus(label, "running");
+		addLogEntry(label, "system", "Status: running (no verification pattern).");
+	}
 
-            updateServerStatus(label, 'crashed', { error: finalError, exitCode: exitCode });
-            const currentServerInfo = runningServers.get(label);
-            const retryHint = currentServerInfo && currentServerInfo.retryCount < MAX_RETRIES
-                ? `Attempting automatic restart (attempt ${currentServerInfo.retryCount + 1}/${MAX_RETRIES})...`
-                : `Retry limit reached (${MAX_RETRIES}). Will not restart automatically.`;
-
-            return fail(textPayload(JSON.stringify({
-                error: `Failed to start server "${label}": ${reason}`, error_type: "startup_crash",
-                status: 'crashed', exitCode: exitCode, signal: signal, retry_hint: retryHint,
-                startup_output_stripped: stripAnsiSafe(startupOutput).slice(-500),
-            }, null, 2)));
-        }
-
-        // If still alive after verification, assume running
-        updateServerStatus(label, 'running', { error: null, exitCode: null });
-        serverInfo.retryCount = 0;
-
-        // Attach persistent listeners
-        ptyProcess.onData((data: string) => addLogEntry(label, 'pty', data));
-        ptyProcess.onExit(({ exitCode, signal }) => {
-            log.info(label, `Process exit event: Code ${exitCode}, Signal ${signal}`);
-            handleExit(label, exitCode, signal);
-        });
-
-        const linesToReturn = Math.min(logLines, MAX_STORED_LOG_LINES);
-        const initialLogs = formatLogsForResponse(serverInfo.logs, linesToReturn);
-
-        log.debug(label, `_startServer: Successfully started and verified server with node-pty. PID: ${pid}`);
-        return ok(textPayload(JSON.stringify({
-            label: label, pid: pid, status: 'running',
-            message: `Development server labeled "${label}" started successfully and is running.`,
-            initialLogs: initialLogs, logLinesReturned: initialLogs.length,
-            monitoring_hint: `Use 'check_dev_server_status' for updates. Max ${MAX_STORED_LOG_LINES} logs stored.`
-        }, null, 2)));
-
-    } catch (error: unknown) { // Outer catch for errors *after* successful spawn call
-        log.error(label, '!!! OUTER CATCH BLOCK: Error occurred after successful node-pty spawn call !!!');
-        log.error(label, 'Outer Catch Error Object:', error);
-        const finalErrorMsg = stripAnsiSafe(error instanceof Error ? error.message : String(error));
-        let currentStatus: ServerStatus = 'error';
-        let errorType = "startup_exception_after_spawn";
-        let retryHint = "Manual intervention likely required.";
-
-        log.error(label, `Formatted Outer Catch Error Msg: ${finalErrorMsg}`);
-
-        if (runningServers.has(label)) {
-            const currentInfo = runningServers.get(label);
-            const statusBeforeUpdate = currentInfo?.status;
-            log.debug(label, `Outer Catch: Status before update: ${statusBeforeUpdate}. Updating to '${currentStatus}'.`);
-            if (currentInfo && (currentInfo.status === 'starting' || currentInfo.status === 'verifying')) {
-                updateServerStatus(label, 'crashed', { error: finalErrorMsg }); // Treat post-spawn errors as crashes for retry
-                currentStatus = runningServers.get(label)?.status ?? 'crashed';
-                const statusAfterUpdate = currentStatus;
-                log.debug(label, `Outer Catch: Status after update: ${statusAfterUpdate}.`);
-
-                if (currentStatus === 'crashed' && currentInfo.retryCount < MAX_RETRIES) {
-                    retryHint = `Startup failed after spawn. Attempting automatic restart (attempt ${currentInfo.retryCount + 1}/${MAX_RETRIES})...`;
-                } else if (currentStatus === 'crashed') {
-                    retryHint = `Startup failed after spawn. Retry limit reached (${MAX_RETRIES}). Will not restart automatically.`;
-                }
-            } else if (currentInfo) {
-                currentStatus = currentInfo.status;
-            }
-        } else {
-            log.error(label, `Outer Catch: Server info missing for label '${label}'. Cannot determine retry status.`);
-            currentStatus = 'error';
-            errorType = "startup_exception_no_info";
-            retryHint = "Startup failed and server info lost. Manual check required.";
-        }
-
-        const response = fail(textPayload(JSON.stringify({
-            error: `Failed to start server with label "${label}". Reason: ${finalErrorMsg}`,
-            error_type: errorType, status: currentStatus, retry_hint: retryHint,
-            startup_output_stripped: stripAnsiSafe(startupOutput).slice(-500),
-        }, null, 2)));
-        log.error(label, 'Outer Catch: Returning error response:', response);
-        return response;
-    }
+	// Return success state
+	const linesToReturn = Math.min(logLines, MAX_STORED_LOG_LINES);
+	const finalServerInfo = runningServers.get(label) as ServerInfo; // Should exist
+	return ok(
+		textPayload(
+			JSON.stringify(
+				{
+					message: `Server "${label}" started successfully.`,
+					status: finalServerInfo.status,
+					pid: finalServerInfo.pid,
+					cwd: finalServerInfo.cwd, // Return the effective working directory
+					logs: formatLogsForResponse(finalServerInfo.logs, linesToReturn),
+					logLinesReturned: Math.min(
+						linesToReturn,
+						finalServerInfo.logs.length,
+					),
+					monitoring_hint: `Server is ${finalServerInfo.status}. Use check_dev_server_status for updates.`,
+				},
+				null,
+				2,
+			),
+		),
+	);
 }
 
+/**
+ * Internal function to stop a server process.
+ * Handles sending signals and updating status.
+ */
 export async function _stopServer(
-    label: string,
-    force: boolean,
-    logLines: number
+	label: string,
+	force: boolean,
+	logLines: number,
 ): Promise<CallToolResult> {
-    let serverInfo = await checkAndUpdateStatus(label);
+	log.info(label, `Attempting to stop server "${label}" (force=${force})...`);
+	// Ensure status is up-to-date before attempting stop
+	const serverInfo = await checkAndUpdateStatus(label);
 
-    if (!serverInfo) {
-        return fail(textPayload(JSON.stringify({ error: `Server with label "${label}" not found.`, error_type: "not_found", status: 'not_found' }, null, 2)));
-    }
-    if (serverInfo.status === 'stopped' || serverInfo.status === 'crashed' || serverInfo.status === 'error') {
-        const linesToReturn = Math.min(logLines, MAX_STORED_LOG_LINES);
-        const finalLogs = formatLogsForResponse(serverInfo.logs, linesToReturn);
-        const message = serverInfo.status === 'stopped'
-            ? `Server "${label}" is already stopped.`
-            : `Server "${label}" is already in a terminal state: ${serverInfo.status}.`;
-        return ok(textPayload(JSON.stringify({ message: message, status: serverInfo.status, exitCode: serverInfo.exitCode, error: serverInfo.error, recentLogs: finalLogs, logLinesReturned: finalLogs.length }, null, 2)));
-    }
-    if (serverInfo.status === 'stopping') {
-        return ok(textPayload(JSON.stringify({ message: `Server "${label}" is already stopping. Check status again shortly.`, status: serverInfo.status, hint: "wait_and_check_status" }, null, 2)));
-    }
-    if (serverInfo.status === 'restarting' || serverInfo.status === 'starting' || serverInfo.status === 'verifying') {
-        return fail(textPayload(JSON.stringify({ error: `Cannot stop server "${label}" while it is ${serverInfo.status}. Wait for it to become stable or use restart.`, status: serverInfo.status, error_type: "invalid_state_for_stop" }, null, 2)));
-    }
-    if (!serverInfo.process || !serverInfo.pid) { // Check both process object and pid
-        const errorMsg = "Cannot stop server: State is active but process handle or PID is missing.";
-        updateServerStatus(label, 'error', { error: errorMsg });
-        return fail(textPayload(JSON.stringify({ error: errorMsg, error_type: "internal_error_no_process_handle", status: 'error' }, null, 2)));
-    }
+	if (!serverInfo) {
+		return fail(
+			textPayload(
+				JSON.stringify(
+					{
+						error: `Server with label "${label}" not found.`,
+						status: "not_found",
+						error_type: "not_found",
+					},
+					null,
+					2,
+				),
+			),
+		);
+	}
 
-    // Use string signal names compatible with node-pty kill
-    const signal: 'SIGTERM' | 'SIGKILL' = force ? 'SIGKILL' : 'SIGTERM';
-    let stopError: string | null = null;
-    let signalSent = false;
-    const initialPid = serverInfo.pid; // Store pid before potentially nulling process handle
+	// Check if already stopped or in a terminal state where stop is irrelevant
+	if (serverInfo.status === "stopped" || serverInfo.status === "crashed") {
+		log.warn(label, `Server is already ${serverInfo.status}.`);
+		return ok(
+			textPayload(
+				JSON.stringify(
+					{
+						message: `Server "${label}" was already ${serverInfo.status}.`,
+						status: serverInfo.status,
+						pid: serverInfo.pid,
+						cwd: serverInfo.cwd,
+						logs: formatLogsForResponse(serverInfo.logs, logLines),
+						logLinesReturned: Math.min(logLines, serverInfo.logs.length),
+					},
+					null,
+					2,
+				),
+			),
+		);
+	}
 
-    try {
-        updateServerStatus(label, 'stopping');
-        addLogEntry(label, 'system', `Sending ${signal} signal.`);
-        if (!doesProcessExist(initialPid)) throw new Error(`Process PID ${initialPid} does not exist (already stopped?).`);
+	if (serverInfo.status === "error" && !serverInfo.pid) {
+		log.warn(
+			label,
+			`Server is in error state without a PID. Cannot send signal, marking as stopped.`,
+		);
+		updateServerStatus(label, "stopped", {
+			error: "Server was in error state with no process to kill.",
+		});
+		return ok(
+			textPayload(
+				JSON.stringify(
+					{
+						message: `Server "${label}" was in error state with no PID. Considered stopped.`,
+						status: "stopped",
+						pid: null,
+						cwd: serverInfo.cwd,
+						error: serverInfo.error,
+						logs: formatLogsForResponse(serverInfo.logs, logLines),
+						logLinesReturned: Math.min(logLines, serverInfo.logs.length),
+					},
+					null,
+					2,
+				),
+			),
+		);
+	}
 
-        // Use node-pty's kill method
-        serverInfo.process.kill(signal);
-        signalSent = true;
-        addLogEntry(label, 'system', `${signal} signal sent successfully.`);
-    } catch (error: unknown) {
-        addLogEntry(label, 'error', `Error sending ${signal} signal: ${error instanceof Error ? error.message : String(error)}`);
-        stopError = `Failed to send ${signal}: ${error instanceof Error ? error.message : String(error)}`;
-        // node-pty kill doesn't throw ESRCH, check existence before sending
-        // If it failed, update status to error
-        updateServerStatus(label, 'error', { error: `Error during stop signal: ${stopError}` });
-    }
+	// Proceed with stop if process exists or might exist
+	if (!serverInfo.process || !serverInfo.pid) {
+		log.error(
+			label,
+			`Cannot stop server: process handle or PID is missing despite status being ${serverInfo.status}. Attempting to mark as error.`,
+		);
+		updateServerStatus(label, "error", {
+			error: `Cannot stop server: process handle or PID missing (status was ${serverInfo.status})`,
+			process: null,
+		});
+		return fail(
+			textPayload(
+				JSON.stringify(
+					{
+						error: `Cannot stop server: process handle or PID missing (status was ${serverInfo.status}).`,
+						status: "error",
+						error_type: "missing_handle_on_stop",
+						pid: serverInfo.pid, // Include last known PID if available
+						cwd: serverInfo.cwd,
+						logs: formatLogsForResponse(serverInfo.logs, logLines),
+						logLinesReturned: Math.min(logLines, serverInfo.logs.length),
+					},
+					null,
+					2,
+				),
+			),
+		);
+	}
 
-    let finalStatus: ServerStatus = serverInfo.status;
-    let verificationMessage = "";
+	const signal: "SIGTERM" | "SIGKILL" = force ? "SIGKILL" : "SIGTERM";
+	log.info(label, `Sending ${signal} to process PID ${serverInfo.pid}...`);
+	addLogEntry(label, "system", `Sending ${signal} signal.`);
+	updateServerStatus(label, "stopping");
 
-    if (signalSent) { // Only wait if signal was actually sent
-        const waitDuration = force ? 100 : STOP_WAIT_DURATION;
-        addLogEntry(label, 'system', `Waiting ${waitDuration}ms for process termination confirmation...`);
-        await new Promise(resolve => setTimeout(resolve, waitDuration));
+	try {
+		serverInfo.process.kill(signal);
+	} catch (error: unknown) {
+		const errorMsg = `Failed to send ${signal} to process PID ${serverInfo.pid}: ${error instanceof Error ? error.message : String(error)}`;
+		log.error(label, errorMsg);
+		addLogEntry(label, "error", `Error sending signal: ${errorMsg}`);
+		// If signal fails, process might already be gone, or permissions issue
+		// Try checking status again, maybe it already exited
+		const postSignalCheck = await checkAndUpdateStatus(label);
+		const currentStatus = postSignalCheck?.status ?? serverInfo.status;
+		const finalError =
+			currentStatus === "stopped" || currentStatus === "crashed"
+				? `Signal ${signal} failed, but process seems to have stopped anyway (${currentStatus}).`
+				: `Failed to send ${signal}. Server status remains ${currentStatus}.`;
 
-        const finalServerInfo = await checkAndUpdateStatus(label);
-        if (finalServerInfo) {
-            serverInfo = finalServerInfo;
-            finalStatus = serverInfo.status;
-            if (finalStatus !== 'stopped' && finalStatus !== 'crashed' && finalStatus !== 'error') {
-                if (!force) {
-                    verificationMessage = `Process (PID: ${initialPid}) status is still '${finalStatus}' after SIGTERM and wait. Consider using 'force: true' (SIGKILL).`;
-                    addLogEntry(label, 'warn', verificationMessage);
-                    stopError = stopError || `Server did not stop gracefully within ${waitDuration}ms. Current status: ${finalStatus}.`;
-                } else {
-                    verificationMessage = `Process (PID: ${initialPid}) status is '${finalStatus}' even after SIGKILL and wait. Manual intervention may be required.`;
-                    addLogEntry(label, 'error', verificationMessage);
-                    stopError = stopError || `Server did not terminate after SIGKILL. Current status: ${finalStatus}.`;
-                    updateServerStatus(label, 'error', { error: stopError });
-                    finalStatus = 'error';
-                }
-            } else {
-                verificationMessage = `Process (PID: ${initialPid}) successfully reached status '${finalStatus}'.`;
-                addLogEntry(label, 'system', verificationMessage);
-                if (finalStatus === 'stopped' || finalStatus === 'crashed' || finalStatus === 'error') {
-                    stopError = null;
-                }
-            }
-        } else {
-            finalStatus = 'stopped';
-            stopError = `${stopError ? `${stopError}; ` : ""}Server info disappeared after stop attempt.`;
-            verificationMessage = "Server info missing after stop attempt. Assuming stopped.";
-            addLogEntry(label, 'warn', verificationMessage);
-        }
-    } else {
-        finalStatus = serverInfo.status;
-        verificationMessage = `Signal sending failed. Reason: ${stopError}`;
-        if ((finalStatus as ServerStatus) !== 'stopped' && (finalStatus as ServerStatus) !== 'crashed') {
-            finalStatus = 'error';
-        }
-    }
+		if (currentStatus !== "stopped" && currentStatus !== "crashed") {
+			updateServerStatus(label, "error", { error: finalError });
+		}
 
-    let responseMessage = '';
-    let isErrorResponse = false;
-    let errorType: string | undefined = undefined;
-    let hint: string | undefined = undefined;
+		return fail(
+			textPayload(
+				JSON.stringify(
+					{
+						error: finalError,
+						status: currentStatus,
+						error_type: "signal_send_failed",
+						pid: serverInfo.pid,
+						cwd: serverInfo.cwd,
+						logs: formatLogsForResponse(
+							postSignalCheck?.logs ?? serverInfo.logs,
+							logLines,
+						),
+						logLinesReturned: Math.min(
+							logLines,
+							(postSignalCheck?.logs ?? serverInfo.logs).length,
+						),
+					},
+					null,
+					2,
+				),
+			),
+		);
+	}
 
-    if (stopError) {
-        responseMessage = `Error stopping server "${label}": ${stopError}`;
-        if (verificationMessage && finalStatus !== 'stopped' && finalStatus !== 'crashed' && finalStatus !== 'error') {
-            responseMessage += ` ${verificationMessage}`;
-            errorType = force ? "stop_sigkill_failed" : "stop_timeout";
-            hint = force ? "check_manual_intervention" : "retry_with_force";
-        } else {
-            errorType = "stop_signal_error";
-            hint = "check_status_and_logs";
-        }
-        isErrorResponse = true;
-    } else {
-        responseMessage = `Stop attempt for server "${label}" (PID: ${initialPid}) processed. Final verified status: ${finalStatus}.`;
-        if (finalStatus === 'stopped') hint = "server_stopped_successfully";
-        else if (finalStatus === 'crashed') hint = "server_crashed_during_stop";
-    }
+	// Wait for the process to exit after sending the signal
+	log.info(
+		label,
+		`Waiting up to ${STOP_WAIT_DURATION}ms for process ${serverInfo.pid} to exit after ${signal}...`,
+	);
+	const stopTimeoutPromise = new Promise((resolve) =>
+		setTimeout(resolve, STOP_WAIT_DURATION),
+	);
+	const exitPromise = new Promise<void>((resolve) => {
+		const checkExit = () => {
+			const currentInfo = runningServers.get(label);
+			// Resolve if server is gone or in a terminal state
+			if (
+				!currentInfo ||
+				currentInfo.status === "stopped" ||
+				currentInfo.status === "crashed" ||
+				currentInfo.status === "error"
+			) {
+				resolve();
+			} else {
+				setTimeout(checkExit, 100); // Check again shortly
+			}
+		};
+		checkExit();
+	});
 
-    const linesToReturn = Math.min(logLines, MAX_STORED_LOG_LINES);
-    // Use final serverInfo if available, otherwise create empty object
-    const logsSource = runningServers.get(label)?.logs ?? serverInfo?.logs ?? [];
-    const finalLogs = formatLogsForResponse(logsSource, linesToReturn);
+	await Promise.race([stopTimeoutPromise, exitPromise]);
 
+	// Final status check after wait
+	const finalInfo = await checkAndUpdateStatus(label);
+	const finalStatus = finalInfo?.status ?? "unknown"; // Use 'unknown' if info somehow disappeared
 
-    const payload = {
-        message: responseMessage,
-        status: finalStatus,
-        label: label,
-        pid: initialPid,
-        exitCode: serverInfo?.exitCode ?? null,
-        error: serverInfo?.error ?? stopError,
-        error_type: errorType,
-        hint: hint,
-        recentLogs: finalLogs,
-        logLinesReturned: finalLogs.length,
-        logLinesHint: `Returned last ${finalLogs.length} log lines (ANSI stripped). Max stored: ${MAX_STORED_LOG_LINES}.`
-    };
-    const result = {
-        content: [textPayload(JSON.stringify(payload, null, 2))],
-        isError: isErrorResponse,
-    };
-    return result;
-} 
+	log.info(label, `Post-stop wait check: Final status is ${finalStatus}`);
+
+	const responsePayload = {
+		message: "",
+		status: finalStatus,
+		pid: finalInfo?.pid ?? serverInfo.pid, // Report last known PID if info disappeared
+		cwd: finalInfo?.cwd ?? serverInfo.cwd,
+		exitCode: finalInfo?.exitCode,
+		error: finalInfo?.error,
+		logs: formatLogsForResponse(finalInfo?.logs ?? serverInfo.logs, logLines),
+		logLinesReturned: Math.min(
+			logLines,
+			(finalInfo?.logs ?? serverInfo.logs).length,
+		),
+	};
+
+	if (finalStatus === "stopped" || finalStatus === "crashed") {
+		responsePayload.message = `Server "${label}" stopped successfully (final status: ${finalStatus}).`;
+		return ok(textPayload(JSON.stringify(responsePayload, null, 2)));
+	} else {
+		const errorMsg = `Server "${label}" did not stop within ${STOP_WAIT_DURATION}ms after ${signal}. Current status: ${finalStatus}.`;
+		responsePayload.message = errorMsg;
+		if (!responsePayload.error) {
+			responsePayload.error = errorMsg;
+		}
+		log.error(label, errorMsg);
+		// If it didn't stop, and wasn't already 'error', mark it as error now
+		if (finalStatus !== "error" && finalInfo) {
+			updateServerStatus(label, "error", { error: errorMsg });
+			responsePayload.status = "error"; // Reflect the update in the response
+		}
+		return fail(
+			textPayload(
+				JSON.stringify(
+					{ ...responsePayload, error_type: "stop_timeout" },
+					null,
+					2,
+				),
+			),
+		);
+	}
+}
