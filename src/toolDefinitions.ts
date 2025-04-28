@@ -815,11 +815,11 @@ export function registerToolDefinitions(server: McpServer): void {
 	);
 
 	server.tool(
-		"getAllLoglines",
-		"Retrieves the complete log history for a specific managed process.",
+		"get_all_loglines",
+		"Retrieves the complete remaining log history for a specific managed process.",
 		shape(GetAllLoglinesParams.shape),
 		(params: z.infer<typeof GetAllLoglinesParams>) =>
-			handleToolCall(params.label, "getAllLoglines", params, () =>
+			handleToolCall(params.label, "get_all_loglines", params, () =>
 				_getAllLoglines(params),
 			),
 	);

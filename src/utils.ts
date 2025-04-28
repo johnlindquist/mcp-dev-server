@@ -76,7 +76,6 @@ export function stripAnsiAndControlChars(input: string): string {
 		// cleanedInput = cleanedInput.replace(/[x00-x08x0Bx0Cx0E-x1Fx7F]/g, ''); // Example, adjust as needed
 
 		return cleanedInput;
-
 	} catch (e: unknown) {
 		log.error(
 			null,
@@ -118,8 +117,8 @@ export function formatLogsForResponse(
 	// Process logs: strip, trim, filter
 	const cleanedLogs = recentRawLogs
 		.map(stripAnsiAndControlChars) // Apply the enhanced stripping function
-		.map(line => line.trim())      // Trim leading/trailing whitespace from each line
-		.filter(line => line.length > 0); // Remove lines that are now empty after stripping/trimming
+		.map((line) => line.trim()) // Trim leading/trailing whitespace from each line
+		.filter((line) => line.length > 0); // Remove lines that are now empty after stripping/trimming
 
 	return cleanedLogs;
 }
