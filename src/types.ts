@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { ZodRawShape } from "zod";
+import type { IPty } from 'node-pty';
 
 /* ------------------------------------------------------------------------ */
 /*  1.  MCP payload primitives                                              */
@@ -108,3 +109,21 @@ export const getResultText = (result: CallToolResult): string | null => {
     }
     return null;
 };
+
+export type ServerStatus = 'starting' | 'verifying' | 'running' | 'stopping' | 'stopped' | 'restarting' | 'crashed' | 'error';
+
+export interface ServerInfo {
+    label: string;
+    process: IPty | null; // Changed from ChildProcess to IPty
+    command: string;
+    cwd: string;
+    startTime: Date;
+    status: ServerStatus;
+    pid: number | null;
+    logs: string[];
+    exitCode: number | null;
+    error: string | null;
+    retryCount: number;
+    lastAttemptTime: number | null;
+    workspacePath: string;
+}

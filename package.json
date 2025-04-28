@@ -7,7 +7,9 @@
 	"bin": {
 		"mcp-dev-server": "./build/index.js"
 	},
-	"files": ["build"],
+	"files": [
+		"build"
+	],
 	"scripts": {
 		"build": "tsc && node -e \"require('fs').chmodSync('build/index.js', '755')\"",
 		"prepare": "npm run build",
@@ -16,6 +18,7 @@
 	},
 	"dependencies": {
 		"@modelcontextprotocol/sdk": "^1.10.2",
+		"node-pty": "^1.1.0-beta34",
 		"strip-ansi": "^7.1.0"
 	},
 	"devDependencies": {

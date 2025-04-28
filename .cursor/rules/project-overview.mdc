@@ -1,0 +1,30 @@
+---
+description:
+globs:
+alwaysApply: always
+---
+# Project Overview: MCP Dev Server
+
+This project implements a **Development Server Manager** using the Model Context Protocol (MCP). It allows an AI agent to start, stop, monitor, and manage background development server processes.
+
+## Key Components
+
+- **`[src/index.ts](mdc:src/index.ts)`:** The main entry point and server logic. It sets up an MCP server using `@modelcontextprotocol/sdk` and defines tools for managing development server processes. It utilizes `node-pty` for robust process management and communication, including handling logs, status tracking, crashes, and retries.
+- **`[src/types.ts](mdc:src/types.ts)`:** Defines TypeScript types and helper functions used throughout the project, particularly for standardizing the `CallToolResult` structure returned by the MCP tools and providing utility functions.
+
+## Functionality
+
+The server exposes the following primary capabilities as MCP tools:
+
+- Starting new development servers (`start_dev_server`).
+- Checking the status and logs of running servers (`check_dev_server_status`).
+- Stopping specific servers (`stop_dev_server`) or all managed servers (`stop_all_dev_servers`).
+- Restarting servers (`restart_dev_server`).
+- Waiting for a server to reach a desired status (`wait_for_dev_server`).
+
+## Technology Stack
+
+- Node.js / TypeScript
+- `@modelcontextprotocol/sdk`: For creating the MCP server and defining tools.
+- `node-pty`: For spawning and managing child processes in pseudo-terminals.
+- `zod`: For schema validation of tool inputs.
