@@ -2,12 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as pty from "node-pty";
 import type { IDisposable } from "node-pty"; // Import IDisposable
-import {
-	DEFAULT_RETRY_DELAY_MS,
-	DEFAULT_VERIFICATION_TIMEOUT_MS,
-	LOG_LINE_LIMIT,
-	MAX_RETRIES,
-} from "./constants.js";
+import { LOG_LINE_LIMIT } from "./constants.js";
 import {
 	addLogEntry,
 	checkAndUpdateProcessStatus, // Renamed function

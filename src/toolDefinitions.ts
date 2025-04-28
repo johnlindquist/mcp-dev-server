@@ -219,9 +219,9 @@ async function _listProcesses(
 				logs:
 					log_lines > 0
 						? formatLogsForResponse(
-							processInfo.logs.map((l) => l.content),
-							log_lines,
-						)
+								processInfo.logs.map((l) => l.content),
+								log_lines,
+							)
 						: undefined,
 			});
 		}
