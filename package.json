@@ -1,6 +1,6 @@
 {
 	"name": "mcp-dev-server",
-	"version": "0.1.0",
+	"version": "0.0.0-placeholder",
 	"description": "A Model Context Protocol server",
 	"private": false,
 	"type": "module",
