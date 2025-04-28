@@ -1,8 +1,8 @@
 import {
 	CRASH_LOOP_DETECTION_WINDOW_MS,
-	DEFAULT_LOG_LINES,
 	DEFAULT_RETRY_DELAY_MS,
 	MAX_RETRIES,
+	MAX_STORED_LOG_LINES,
 } from "./constants.js";
 import { _startProcess } from "./processLogic.js"; // Corrected import path
 import type { LogEntry, ProcessInfo, ProcessStatus } from "./types.ts"; // Import LogEntry from types.ts
@@ -24,8 +24,10 @@ export function addLogEntry(label: string, content: string): void {
 
 	const entry: LogEntry = { timestamp: Date.now(), content };
 	processInfo.logs.push(entry);
-	if (processInfo.logs.length > DEFAULT_LOG_LINES) {
-		processInfo.logs.shift(); // Keep the log buffer trimmed
+
+	// Enforce the maximum log line limit
+	if (processInfo.logs.length > MAX_STORED_LOG_LINES) {
+		processInfo.logs.shift(); // Remove the oldest log entry
 	}
 }
 

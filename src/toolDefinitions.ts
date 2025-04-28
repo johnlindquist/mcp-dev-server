@@ -5,6 +5,7 @@ import {
 	DEFAULT_RETRY_DELAY_MS,
 	DEFAULT_VERIFICATION_TIMEOUT_MS,
 	MAX_RETRIES,
+	MAX_STORED_LOG_LINES,
 	SERVER_NAME,
 	SERVER_VERSION,
 } from "./constants.js";
@@ -18,7 +19,11 @@ import {
 import { handleToolCall } from "./toolHandler.js";
 import { type CallToolResult, fail, ok, shape, textPayload } from "./types.js";
 import type { ProcessStatus } from "./types.ts";
-import { formatLogsForResponse, log } from "./utils.js";
+import {
+	formatLogsForResponse,
+	log,
+	stripAnsiAndControlChars,
+} from "./utils.js";
 
 const labelSchema = z
 	.string()
@@ -85,10 +90,12 @@ const CheckProcessStatusParams = z.object(
 		log_lines: z
 			.number()
 			.int()
-			.min(DEFAULT_LOG_LINES)
+			.min(0)
 			.optional()
 			.default(DEFAULT_LOG_LINES)
-			.describe("Number of recent log lines to return."),
+			.describe(
+				`Number of recent log lines to *request*. Default: ${DEFAULT_LOG_LINES}. Max stored: ${MAX_STORED_LOG_LINES}. Use 'getAllLoglines' for the full stored history (up to ${MAX_STORED_LOG_LINES} lines).`,
+			),
 	}),
 );
 
@@ -148,6 +155,12 @@ const WaitForProcessParams = z.object(
 	}),
 );
 
+const GetAllLoglinesParams = z.object(
+	shape({
+		label: labelSchema,
+	}),
+);
+
 async function _checkProcessStatus(
 	params: z.infer<typeof CheckProcessStatusParams>,
 ): Promise<CallToolResult> {
@@ -196,11 +209,14 @@ async function _checkProcessStatus(
 		hint += " Unrecoverable error occurred. Check logs.";
 	}
 
+	const storedLimitReached = totalStoredLogs >= MAX_STORED_LOG_LINES;
 	if (log_lines > 0 && totalStoredLogs > actualReturnedLines) {
 		const hiddenLines = totalStoredLogs - actualReturnedLines;
-		hint += ` Returned the latest ${actualReturnedLines} log lines. ${hiddenLines} older lines are available but were not included.`;
+		hint += ` Returned the latest ${actualReturnedLines} log lines. ${hiddenLines} older lines exist${storedLimitReached ? ` (storage limit: ${MAX_STORED_LOG_LINES}, older logs may have been discarded)` : ""}. Use 'getAllLoglines' for the full stored history.`;
 	} else if (log_lines === 0 && totalStoredLogs > 0) {
-		hint += ` ${totalStoredLogs} log lines are available for this process (use log_lines > 0 to retrieve).`;
+		hint += ` ${totalStoredLogs} log lines are stored${storedLimitReached ? ` (storage limit: ${MAX_STORED_LOG_LINES})` : ""}. Use 'getAllLoglines' or specify 'log_lines' > 0.`;
+	} else if (log_lines > 0 && totalStoredLogs > 0) {
+		hint += ` Returned all ${actualReturnedLines} stored log lines${storedLimitReached ? ` (storage limit: ${MAX_STORED_LOG_LINES})` : ""}.`;
 	}
 
 	return ok(textPayload(JSON.stringify({ ...responsePayload, hint }, null, 2)));
@@ -228,13 +244,18 @@ async function _listProcesses(
 					log_lines,
 				);
 				const actualReturnedLines = formattedLogs.length;
+				const storedLimitReached = totalStoredLogs >= MAX_STORED_LOG_LINES;
 
 				if (totalStoredLogs > actualReturnedLines) {
 					const hiddenLines = totalStoredLogs - actualReturnedLines;
-					logHint = `Returned latest ${actualReturnedLines} lines. ${hiddenLines} older lines hidden.`;
+					logHint = `Returned latest ${actualReturnedLines} lines. ${hiddenLines} older lines exist${storedLimitReached ? ` (limit: ${MAX_STORED_LOG_LINES})` : ""}. Use 'getAllLoglines'.`;
+				} else if (totalStoredLogs > 0) {
+					logHint = `Returned all ${actualReturnedLines} stored lines${storedLimitReached ? ` (limit: ${MAX_STORED_LOG_LINES})` : ""}.`;
 				}
 			} else if (log_lines === 0 && processInfo.logs.length > 0) {
-				logHint = `${processInfo.logs.length} log lines available (use log_lines > 0 to view).`;
+				const totalStoredLogs = processInfo.logs.length;
+				const storedLimitReached = totalStoredLogs >= MAX_STORED_LOG_LINES;
+				logHint = `${totalStoredLogs} lines stored${storedLimitReached ? ` (limit: ${MAX_STORED_LOG_LINES})` : ""}. Use 'getAllLoglines' or 'log_lines' > 0.`;
 			}
 
 			processList.push({
@@ -565,6 +586,54 @@ async function _waitForProcess(
 	);
 }
 
+async function _getAllLoglines(
+	params: z.infer<typeof GetAllLoglinesParams>,
+): Promise<CallToolResult> {
+	const { label } = params;
+	// Get directly, no need to check OS process status for logs
+	const processInfo = managedProcesses.get(label);
+
+	if (!processInfo) {
+		return fail(
+			textPayload(
+				JSON.stringify({
+					error: `Process with label "${label}" not found.`,
+					status: "not_found",
+				}),
+			),
+		);
+	}
+
+	// Retrieve ALL stored logs
+	const allLogs = processInfo.logs.map((l) => l.content);
+	// Clean them consistently
+	const cleanedLogs = allLogs.map(stripAnsiAndControlChars); // Use your cleaning function
+
+	log.info(
+		label,
+		`getAllLoglines requested. Returning ${cleanedLogs.length} lines.`,
+	);
+
+	const storedLimitReached = cleanedLogs.length >= MAX_STORED_LOG_LINES;
+	const message = `Returned all ${cleanedLogs.length} stored log lines for process "${label}"${storedLimitReached ? ` (storage limit is ${MAX_STORED_LOG_LINES}, older logs may have been discarded)` : ""}.`;
+
+	return ok(
+		textPayload(
+			JSON.stringify(
+				{
+					label: label,
+					total_lines_returned: cleanedLogs.length,
+					storage_limit: MAX_STORED_LOG_LINES,
+					logs: cleanedLogs,
+					message: message,
+				},
+				null,
+				2,
+			),
+		),
+	);
+}
+
 async function _healthCheck(): Promise<CallToolResult> {
 	const activeProcesses = [];
 	let errorCount = 0;
@@ -742,6 +811,16 @@ export function registerToolDefinitions(server: McpServer): void {
 		(params: z.infer<typeof WaitForProcessParams>) =>
 			handleToolCall(params.label, "wait_for_process", params, () =>
 				_waitForProcess(params),
+			),
+	);
+
+	server.tool(
+		"getAllLoglines",
+		"Retrieves the complete log history for a specific managed process.",
+		shape(GetAllLoglinesParams.shape),
+		(params: z.infer<typeof GetAllLoglinesParams>) =>
+			handleToolCall(params.label, "getAllLoglines", params, () =>
+				_getAllLoglines(params),
 			),
 	);
 

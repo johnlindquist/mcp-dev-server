@@ -1,3 +1,9 @@
+---
+description:
+globs:
+alwaysApply: always
+---
+
 # Project Module Structure
 
 This project is structured into several modules within the `src` directory to improve organization and maintainability.
