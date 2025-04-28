@@ -27,7 +27,11 @@ const labelSchema = z
 
 const StartProcessParams = z.object(
 	shape({
-		label: labelSchema,
+		label: labelSchema
+			.optional()
+			.describe(
+				"Optional unique identifier for the process. If omitted, one will be generated based on the working directory and command (e.g., '/path/to/project:npm run dev') and returned.",
+			),
 		command: z
 			.string()
 			.min(1, "Command cannot be empty.")
@@ -575,24 +579,81 @@ export function registerToolDefinitions(server: McpServer): void {
 		"start_process",
 		"Starts a background process (like a dev server or script) and manages it.",
 		shape(StartProcessParams.shape),
-		(params: z.infer<typeof StartProcessParams>) =>
-			handleToolCall(params.label, "start_process", params, async () => {
-				const verificationPattern = params.verification_pattern
-					? new RegExp(params.verification_pattern)
-					: undefined;
+		(params: z.infer<typeof StartProcessParams>) => {
+			const cwdForLabel = params.workingDirectory;
+			const effectiveLabel = params.label || `${cwdForLabel}:${params.command}`;
 
-				return await _startProcess(
-					params.label,
-					params.command,
-					params.args,
-					params.workingDirectory,
-					verificationPattern,
-					params.verification_timeout_ms,
-					params.retry_delay_ms,
-					params.max_retries,
-					false,
-				);
-			}),
+			log.info(
+				effectiveLabel,
+				`Determined label for start_process: ${effectiveLabel}`,
+			);
+
+			return handleToolCall(
+				effectiveLabel,
+				"start_process",
+				params,
+				async () => {
+					const verificationPattern = params.verification_pattern
+						? new RegExp(params.verification_pattern)
+						: undefined;
+
+					return await _startProcess(
+						effectiveLabel,
+						params.command,
+						params.args,
+						params.workingDirectory,
+						verificationPattern,
+						params.verification_timeout_ms,
+						params.retry_delay_ms,
+						params.max_retries,
+						false,
+					);
+				},
+			);
+		},
+		/**
+		 * Example usage: Start a Node.js server
+		 * ```json
+		 * {
+		 *   "label": "my-node-server",
+		 *   "command": "node server.js",
+		 *   "workingDirectory": "/path/to/project",
+		 *   "verification_pattern": "Server running on port",
+		 *   "verification_timeout_ms": 10000
+		 * }
+		 * ```
+		 *
+		 * Example usage: Run tests in watch mode (no label - one will be generated)
+		 * ```json
+		 * {
+		 *   "command": "jest",
+		 *   "args": ["--watch"],
+		 *   "workingDirectory": "/path/to/project"
+		 * }
+		 * ```
+		 *
+		 * Example usage: Compile TypeScript in watch mode
+		 * ```json
+		 * {
+		 *   "label": "tsc-watch",
+		 *   "command": "tsc",
+		 *   "args": ["--watch"],
+		 *   "workingDirectory": "/path/to/ts-project",
+		 *   "verification_pattern": "Watching for file changes"
+		 * }
+		 * ```
+		 *
+		 * Example usage: Start a background Python script
+		 * ```json
+		 * {
+		 *   "label": "data-processor",
+		 *   "command": "python",
+		 *   "args": ["./scripts/data_processor.py"],
+		 *   "workingDirectory": "/path/to/repo",
+		 *   "max_retries": 0
+		 * }
+		 * ```
+		 */
 	);
 
 	server.tool(
@@ -628,10 +689,9 @@ export function registerToolDefinitions(server: McpServer): void {
 	server.tool(
 		"stop_all_processes",
 		"Attempts to gracefully stop all active background processes.",
-		{}, // No parameters for stop_all
-		(
-			params: Record<string, never>, // params will be empty object
-		) => handleToolCall(null, "stop_all_processes", params, _stopAllProcesses),
+		{},
+		(params: Record<string, never>) =>
+			handleToolCall(null, "stop_all_processes", params, _stopAllProcesses),
 	);
 
 	server.tool(
@@ -657,10 +717,9 @@ export function registerToolDefinitions(server: McpServer): void {
 	server.tool(
 		"health_check",
 		"Provides a health status summary of the MCP Process Manager itself.",
-		{}, // No parameters for health_check
-		(
-			params: Record<string, never>, // params will be empty object
-		) => handleToolCall(null, "health_check", params, _healthCheck),
+		{},
+		(params: Record<string, never>) =>
+			handleToolCall(null, "health_check", params, _healthCheck),
 	);
 
 	log.info(null, "Tool definitions registered.");

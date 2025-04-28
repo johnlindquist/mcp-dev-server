@@ -390,21 +390,81 @@ export async function _startProcess(
 	// Don't wait for verification promise here, let it run in background
 	// Return immediately after spawning and setting up listeners/timers
 
-	const currentProcessInfo = managedProcesses.get(label) as ProcessInfo; // Should exist
-	return ok(
+	if (!isVerified) {
+		// Wait for verification if it hasn't happened yet (only relevant if verificationPattern exists)
+		await new Promise<void>((resolve) => {
+			const checkInterval = setInterval(() => {
+				if (
+					isVerified ||
+					!["starting", "verifying"].includes(processInfo.status)
+				) {
+					clearInterval(checkInterval);
+					resolve();
+				}
+			}, 100);
+		});
+	}
+
+	// --- Final Return --- //
+	// Check status again after potential verification wait
+	const currentStatus = managedProcesses.get(label)?.status;
+	if (
+		currentStatus &&
+		["running", "verifying", "starting"].includes(currentStatus)
+	) {
+		const currentProcessInfo = managedProcesses.get(label);
+		if (!currentProcessInfo) {
+			// This should not happen if status was checked, but handle defensively
+			const errorMsg =
+				"Internal error: Process info disappeared after starting.";
+			log.error(label, errorMsg);
+			return fail(
+				textPayload(JSON.stringify({ error: errorMsg, status: "error" })),
+			);
+		}
+		const message = isVerified
+			? `Process "${label}" started successfully (PID: ${currentProcessInfo.pid}). Status: ${currentProcessInfo.status}.`
+			: `Process "${label}" started (PID: ${currentProcessInfo.pid}), verification pending... Status: ${currentProcessInfo.status}.`;
+
+		return ok(
+			textPayload(
+				JSON.stringify(
+					{
+						label: label,
+						message,
+						status: currentProcessInfo.status,
+						pid: currentProcessInfo.pid,
+						cwd: currentProcessInfo.cwd,
+						logs: formatLogsForResponse(
+							currentProcessInfo.logs.map((l) => l.content),
+							LOG_LINE_LIMIT, // Return standard log lines on start
+						),
+						monitoring_hint: `Process is ${currentProcessInfo.status}. Use check_process_status with label "${label}" for updates.`,
+					},
+					null,
+					2,
+				),
+			),
+		);
+	}
+
+	// Process likely failed during verification or exited quickly
+	const finalInfo = await checkAndUpdateProcessStatus(label);
+	const errorMsg = `Process "${label}" failed to start or exited prematurely. Final status: ${finalInfo?.status ?? "unknown"}`;
+	log.error(label, errorMsg);
+	return fail(
 		textPayload(
 			JSON.stringify(
 				{
-					message: `Process "${label}" starting... (PID: ${currentProcessInfo.pid})`,
-					status: currentProcessInfo.status, // Will be 'starting' or 'verifying'
-					pid: currentProcessInfo.pid,
-					cwd: currentProcessInfo.cwd,
-					// Map LogEntry[] to string[] for formatLogsForResponse
+					error: errorMsg,
+					status: finalInfo?.status ?? "error",
+					pid: finalInfo?.pid,
+					exitCode: finalInfo?.exitCode,
+					signal: finalInfo?.signal,
 					logs: formatLogsForResponse(
-						currentProcessInfo.logs.map((l) => l.content),
+						finalInfo?.logs?.map((l) => l.content) ?? [],
 						LOG_LINE_LIMIT,
 					),
-					monitoring_hint: `Process is ${currentProcessInfo.status}. Use check_process_status for updates.`,
 				},
 				null,
 				2,
@@ -414,12 +474,12 @@ export async function _startProcess(
 }
 
 /**
- * Internal function to stop a process.
- * Handles sending signals and updating status.
+ * Internal function to stop a background process.
+ * Handles both graceful termination (SIGTERM) and forceful kill (SIGKILL).
  */
 export async function _stopProcess(
 	label: string,
-	force: boolean,
+	force = false,
 ): Promise<CallToolResult> {
 	log.info(label, `Attempting to stop process "${label}" (force=${force})...`);
 	const processInfo = await checkAndUpdateProcessStatus(label);
