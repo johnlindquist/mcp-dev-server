@@ -1,0 +1,31 @@
+{
+	"name": "mcp-dev-server",
+	"version": "0.1.0",
+	"description": "A Model Context Protocol server",
+	"private": false,
+	"type": "module",
+	"bin": {
+		"mcp-dev-server": "./build/index.js"
+	},
+	"files": ["build"],
+	"scripts": {
+		"build": "tsc && node -e \"require('fs').chmodSync('build/index.js', '755')\"",
+		"prepare": "npm run build",
+		"watch": "tsc --watch",
+		"inspector": "npx @modelcontextprotocol/inspector build/index.js"
+	},
+	"dependencies": {
+		"@modelcontextprotocol/sdk": "^1.10.2",
+		"strip-ansi": "^7.1.0"
+	},
+	"devDependencies": {
+		"@semantic-release/commit-analyzer": "^13.0.1",
+		"@semantic-release/github": "^11.0.2",
+		"@semantic-release/npm": "^12.0.1",
+		"@semantic-release/release-notes-generator": "^14.0.3",
+		"@types/node": "^20.11.24",
+		"conventional-changelog-conventionalcommits": "^8.0.0",
+		"semantic-release": "^24.2.3",
+		"typescript": "^5.3.3"
+	}
+}
