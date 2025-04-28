@@ -1,6 +1,5 @@
 // src/state.ts
 
-import type { IPty } from "node-pty";
 import {
 	BACKOFF_FACTOR,
 	CRASH_LOOP_DETECTION_WINDOW_MS,
@@ -8,12 +7,9 @@ import {
 	INITIAL_RETRY_DELAY_MS,
 	MAX_RETRIES,
 	MAX_STORED_LOG_LINES,
-	RETRY_DELAY,
-	STOP_WAIT_DURATION,
-	ZOMBIE_CHECK_INTERVAL,
 } from "./constants.js";
 import { _startServer } from "./serverLogic.js"; // Import _startServer
-import type { LogEntry, ServerInfo, ServerStatus } from "./types.js";
+import type { /* LogEntry, */ ServerInfo, ServerStatus } from "./types.js"; // Removed LogEntry
 import { log, stripAnsiSafe } from "./utils.js";
 
 // State
