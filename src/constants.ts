@@ -15,5 +15,5 @@ export const CRASH_LOOP_DETECTION_WINDOW_MS = 60000;
 
 export const LOG_LINE_LIMIT = 100;
 export const DEFAULT_RETRY_DELAY_MS = 500;
-export const DEFAULT_VERIFICATION_TIMEOUT_MS = 30000; // 30 seconds
+export const DEFAULT_VERIFICATION_TIMEOUT_MS = -1; // -1 means no verification
 export const ZOMBIE_CHECK_INTERVAL_MS = 60000; // 1 minute

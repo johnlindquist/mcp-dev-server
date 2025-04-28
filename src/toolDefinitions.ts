@@ -219,9 +219,9 @@ async function _listProcesses(
 				logs:
 					log_lines > 0
 						? formatLogsForResponse(
-								processInfo.logs.map((l) => l.content),
-								log_lines,
-							)
+							processInfo.logs.map((l) => l.content),
+							log_lines,
+						)
 						: undefined,
 			});
 		}
@@ -405,8 +405,8 @@ async function _restartProcess(
 		processInfo.args,
 		processInfo.cwd,
 		processInfo.verificationPattern,
-		processInfo.verificationTimeoutMs,
-		processInfo.retryDelayMs,
+		processInfo.verificationTimeoutMs ?? undefined,
+		processInfo.retryDelayMs ?? undefined,
 		processInfo.maxRetries,
 		true,
 	);

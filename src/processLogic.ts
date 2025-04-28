@@ -196,11 +196,10 @@ export async function _startProcess(
 		lastCrashTime: existingProcess?.lastCrashTime, // Preserve crash time on restart
 		restartAttempts: existingProcess?.restartAttempts, // Preserve attempts on restart
 		verificationPattern,
-		verificationTimeoutMs:
-			verificationTimeoutMs ?? DEFAULT_VERIFICATION_TIMEOUT_MS,
+		verificationTimeoutMs: verificationTimeoutMs ?? null, // Default to null (disabled)
 		verificationTimer: undefined,
-		retryDelayMs: retryDelayMs ?? DEFAULT_RETRY_DELAY_MS,
-		maxRetries: maxRetries ?? MAX_RETRIES,
+		retryDelayMs: retryDelayMs ?? null, // Default to null (disabled)
+		maxRetries: maxRetries ?? 0, // Default to 0 (disabled)
 	};
 	managedProcesses.set(label, processInfo);
 	updateProcessStatus(label, "starting"); // Ensure status is set via the function
@@ -217,8 +216,6 @@ export async function _startProcess(
 	let verificationTimerDisposable: NodeJS.Timeout | undefined = undefined; // Renamed
 	let dataListenerDisposable: IDisposable | undefined = undefined; // For data listener
 	let exitListenerDisposable: IDisposable | undefined = undefined; // For exit listener during verification
-	const effectiveVerificationTimeout =
-		processInfo.verificationTimeoutMs ?? DEFAULT_VERIFICATION_TIMEOUT_MS;
 
 	const disposeVerificationListeners = () => {
 		if (verificationTimerDisposable) {
@@ -275,9 +272,13 @@ export async function _startProcess(
 	};
 
 	if (verificationPattern) {
+		const timeoutMessage =
+			processInfo.verificationTimeoutMs !== null
+				? `Timeout ${processInfo.verificationTimeoutMs}ms`
+				: "Timeout disabled";
 		log.info(
 			label,
-			`Verification required: Pattern /${verificationPattern.source}/, Timeout ${effectiveVerificationTimeout}ms`,
+			`Verification required: Pattern /${verificationPattern.source}/, ${timeoutMessage}`,
 		);
 		addLogEntry(
 			label,
@@ -314,25 +315,28 @@ export async function _startProcess(
 		};
 		dataListenerDisposable = ptyProcess.onData(dataListener);
 
-		verificationTimerDisposable = setTimeout(() => {
-			if (processInfo.status === "verifying") {
-				// Check status before timeout failure
-				completeVerification(
-					false,
-					`Timeout (${effectiveVerificationTimeout}ms)`,
-				);
-				// Listener disposed in completeVerification
-			} else {
-				log.warn(
-					label,
-					`Verification timeout occurred, but status is now ${processInfo.status}. Ignoring timeout.`,
-				);
-				// Listener might still need cleanup if process exited without data match
-				disposeVerificationListeners(); // Dispose if timeout irrelevant
-			}
-		}, effectiveVerificationTimeout);
-		// Store the timer in processInfo as well for external access/clearing (e.g., in stopProcess)
-		processInfo.verificationTimer = verificationTimerDisposable;
+		// Only set timeout if verificationTimeoutMs is provided (not null)
+		if (processInfo.verificationTimeoutMs !== null) {
+			verificationTimerDisposable = setTimeout(() => {
+				if (processInfo.status === "verifying") {
+					// Check status before timeout failure
+					completeVerification(
+						false,
+						`Timeout (${processInfo.verificationTimeoutMs}ms)`,
+					);
+					// Listener disposed in completeVerification
+				} else {
+					log.warn(
+						label,
+						`Verification timeout occurred, but status is now ${processInfo.status}. Ignoring timeout.`,
+					);
+					// Listener might still need cleanup if process exited without data match
+					disposeVerificationListeners(); // Dispose if timeout irrelevant
+				}
+			}, processInfo.verificationTimeoutMs); // Use the actual timeout value
+			// Store the timer in processInfo as well for external access/clearing (e.g., in stopProcess)
+			processInfo.verificationTimer = verificationTimerDisposable;
+		}
 
 		// Ensure listener is removed on exit if verification didn't complete
 		exitListenerDisposable = ptyProcess.onExit(() => {

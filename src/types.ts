@@ -135,9 +135,9 @@ export interface ProcessInfo {
 	lastCrashTime?: number; // Timestamp of the last crash
 	restartAttempts?: number; // Number of restart attempts in the current crash loop window
 	verificationPattern?: RegExp; // Optional pattern to verify successful startup
-	verificationTimeoutMs?: number; // Timeout for verification
+	verificationTimeoutMs?: number | null; // Timeout for verification (null means disabled)
 	verificationTimer?: NodeJS.Timeout; // Timer for verification timeout
-	retryDelayMs?: number; // Delay before restarting after a crash
+	retryDelayMs?: number | null; // Delay before restarting after a crash (null means disabled)
 	maxRetries?: number; // Maximum restart attempts before marking as 'error'
 }
 

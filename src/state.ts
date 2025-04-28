@@ -136,8 +136,8 @@ export async function handleCrashAndRetry(label: string): Promise<void> {
 			processInfo.args, // Pass args
 			processInfo.cwd,
 			processInfo.verificationPattern,
-			processInfo.verificationTimeoutMs,
-			processInfo.retryDelayMs, // Pass retry settings
+			processInfo.verificationTimeoutMs ?? undefined, // Convert null to undefined
+			processInfo.retryDelayMs ?? undefined, // Convert null to undefined
 			processInfo.maxRetries, // Pass retry settings
 			true, // Indicate this is a restart
 		);
