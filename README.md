@@ -11,7 +11,7 @@ It allows MCP-compatible clients to start, monitor, retrieve logs from, and stop
 ```json
 "mcp-pm": {
   "command": "npx",
-  "args": ["mcp-pm"]
+  "args": ["mcp-pm@latest"]
 }
 ```
 
