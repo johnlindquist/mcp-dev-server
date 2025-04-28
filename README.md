@@ -6,6 +6,15 @@ A **Model Context Protocol (MCP)** server designed to reliably manage background
 
 It allows MCP-compatible clients to start, monitor, retrieve logs from, and stop long-running tasks in a structured way.
 
+## Add to Cursor
+
+```json
+"mcp-pm": {
+  "command": "npx",
+  "args": ["mcp-pm"]
+}
+```
+
 ## Features
 
 *   **Start Processes:** Launch new background processes using shell commands within specified working directories.
