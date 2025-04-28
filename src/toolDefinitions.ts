@@ -9,12 +9,12 @@ import {
 	SERVER_NAME,
 	SERVER_VERSION,
 } from "./constants.js";
-import { _startProcess, _stopProcess } from "./processLogic.js";
+import { _sendInput, _startProcess, _stopProcess } from "./processLogic.js";
 import {
 	addLogEntry,
 	checkAndUpdateProcessStatus,
+	isZombieCheckActive,
 	managedProcesses,
-	zombieCheckIntervalId,
 } from "./state.js";
 import { handleToolCall } from "./toolHandler.js";
 import { type CallToolResult, fail, ok, shape, textPayload } from "./types.js";
@@ -158,6 +158,20 @@ const WaitForProcessParams = z.object(
 const GetAllLoglinesParams = z.object(
 	shape({
 		label: labelSchema,
+	}),
+);
+
+const SendInputParams = z.object(
+	shape({
+		label: labelSchema.describe("The label of the target process."),
+		input: z.string().describe("The text input to send to the process stdin."),
+		append_newline: z
+			.boolean()
+			.optional()
+			.default(true)
+			.describe(
+				"Whether to automatically append a newline character ('\\r') after the input, simulating pressing Enter. Defaults to true.",
+			),
 	}),
 );
 
@@ -659,7 +673,7 @@ async function _healthCheck(): Promise<CallToolResult> {
 		managed_processes_count: managedProcesses.size,
 		processes_in_error_state: errorCount,
 		processes_in_crashed_state: crashedCount,
-		zombie_check_active: !!zombieCheckIntervalId,
+		zombie_check_active: isZombieCheckActive(),
 		process_details: activeProcesses,
 	};
 
@@ -832,6 +846,16 @@ export function registerToolDefinitions(server: McpServer): void {
 			handleToolCall(null, "health_check", params, _healthCheck),
 	);
 
+	server.tool(
+		"send_input",
+		"Sends input to a specific managed process.",
+		shape(SendInputParams.shape),
+		(params: z.infer<typeof SendInputParams>) =>
+			handleToolCall(params.label, "send_input", params, () =>
+				_sendInput(params),
+			),
+	);
+
 	log.info(null, "Tool definitions registered.");
 }
 
@@ -851,3 +875,5 @@ function getResultText(result: CallToolResult): string | null {
 	}
 	return null;
 }
+
+export { SendInputParams };

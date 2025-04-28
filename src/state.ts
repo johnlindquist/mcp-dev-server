@@ -9,10 +9,10 @@ import type { LogEntry, ProcessInfo, ProcessStatus } from "./types.ts"; // Impor
 import { log } from "./utils.js";
 
 // Renamed Map
-export const managedProcesses: Map<string, ProcessInfo> = new Map();
-export let zombieCheckIntervalId: NodeJS.Timeout | null = null;
+const managedProcesses: Map<string, ProcessInfo> = new Map();
+let zombieCheckIntervalId: NodeJS.Timeout | null = null;
 
-export function addLogEntry(label: string, content: string): void {
+function addLogEntry(label: string, content: string): void {
 	const processInfo = managedProcesses.get(label);
 	if (!processInfo) {
 		log.warn(
@@ -32,7 +32,7 @@ export function addLogEntry(label: string, content: string): void {
 }
 
 // Renamed function
-export function updateProcessStatus(
+function updateProcessStatus(
 	label: string,
 	status: ProcessStatus,
 	exitInfo?: { code: number | null; signal: string | null },
@@ -79,7 +79,7 @@ export function updateProcessStatus(
 }
 
 // Rename _startServer call later
-export async function handleCrashAndRetry(label: string): Promise<void> {
+async function handleCrashAndRetry(label: string): Promise<void> {
 	const processInfo = managedProcesses.get(label);
 	if (!processInfo || processInfo.status !== "crashed") {
 		log.warn(
@@ -146,7 +146,7 @@ export async function handleCrashAndRetry(label: string): Promise<void> {
 	}
 }
 
-export function handleExit(
+function handleExit(
 	label: string,
 	code: number | null,
 	signal: string | null,
@@ -191,7 +191,7 @@ export function handleExit(
 	}
 }
 
-export function doesProcessExist(pid: number): boolean {
+function doesProcessExist(pid: number): boolean {
 	try {
 		// Sending signal 0 doesn't actually send a signal but checks if the process exists.
 		process.kill(pid, 0);
@@ -208,7 +208,7 @@ export function doesProcessExist(pid: number): boolean {
 }
 
 // Renamed function
-export async function checkAndUpdateProcessStatus(
+async function checkAndUpdateProcessStatus(
 	label: string,
 ): Promise<ProcessInfo | null> {
 	const processInfo = managedProcesses.get(label);
@@ -251,7 +251,7 @@ export async function checkAndUpdateProcessStatus(
 
 // --- Zombie Process Handling ---
 
-export async function reapZombies(): Promise<void> {
+async function reapZombies(): Promise<void> {
 	log.debug(null, "Running zombie process check...");
 	let correctedCount = 0;
 	for (const [label, processInfo] of managedProcesses.entries()) {
@@ -294,7 +294,7 @@ export async function reapZombies(): Promise<void> {
 	}
 }
 
-export function setZombieCheckInterval(intervalMs: number): void {
+function setZombieCheckInterval(intervalMs: number): void {
 	if (zombieCheckIntervalId) {
 		clearInterval(zombieCheckIntervalId);
 	}
@@ -306,7 +306,7 @@ export function setZombieCheckInterval(intervalMs: number): void {
 
 // --- Graceful Shutdown ---
 
-export function stopAllProcessesOnExit(): void {
+function stopAllProcessesOnExit(): void {
 	log.info(null, "Stopping all managed processes on exit...");
 	let killCount = 0;
 	const promises: Promise<void>[] = [];
@@ -352,3 +352,30 @@ export function stopAllProcessesOnExit(): void {
 	}
 	managedProcesses.clear(); // Clear the map
 }
+
+function removeProcess(label: string): void {
+	const processInfo = managedProcesses.get(label);
+	// The try...catch block was here, but the try was empty.
+	// If cleanup logic is needed for processInfo.process, it should go here.
+	managedProcesses.delete(label);
+	log.debug(label, "Removed process info from management.");
+}
+
+function isZombieCheckActive(): boolean {
+	return !!zombieCheckIntervalId;
+}
+
+export {
+	managedProcesses,
+	addLogEntry,
+	checkAndUpdateProcessStatus,
+	updateProcessStatus,
+	handleExit,
+	removeProcess,
+	setZombieCheckInterval,
+	stopAllProcessesOnExit,
+	doesProcessExist,
+	handleCrashAndRetry,
+	reapZombies,
+	isZombieCheckActive,
+};

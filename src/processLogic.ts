@@ -1,7 +1,10 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { promisify } from "node:util";
 import * as pty from "node-pty";
 import type { IDisposable } from "node-pty"; // Import IDisposable
+import treeKill from "tree-kill";
+import type { z } from "zod"; // Import zod
 import {
 	DEFAULT_LOG_LINES,
 	LOG_SETTLE_DURATION_MS,
@@ -14,9 +17,12 @@ import {
 	managedProcesses, // Renamed map
 	updateProcessStatus, // Renamed function
 } from "./state.js";
+import type { SendInputParams } from "./toolDefinitions.js"; // Import the schema type
 import { fail, ok, textPayload } from "./types.js";
-import type { CallToolResult, ProcessInfo } from "./types.ts"; // Renamed types
+import type { CallToolResult, ProcessInfo, ProcessStatus } from "./types.ts"; // Renamed types
 import { formatLogsForResponse, log } from "./utils.js";
+
+const killProcessTree = promisify(treeKill);
 
 /**
  * Waits until logs have settled (no new data for a duration) or an overall timeout is reached.
@@ -670,4 +676,112 @@ export async function _stopProcess(
 			),
 		),
 	);
+}
+
+/**
+ * Internal function to send input to a running background process.
+ */
+export async function _sendInput(
+	params: z.infer<typeof SendInputParams>, // Use inferred type from Zod schema
+): Promise<CallToolResult> {
+	const { label, input, append_newline } = params;
+	log.info(label, `Attempting to send input to process "${label}"...`);
+
+	// Use checkAndUpdateProcessStatus to get potentially updated info
+	const processInfo = await checkAndUpdateProcessStatus(label);
+
+	if (!processInfo) {
+		return fail(
+			textPayload(
+				JSON.stringify({
+					error: `Process with label "${label}" not found.`,
+					status: "not_found",
+					error_type: "not_found",
+				}),
+			),
+		);
+	}
+
+	// Check if the process is in a state that can receive input
+	const allowedStates: ProcessStatus[] = ["running", "verifying", "starting"];
+	if (!allowedStates.includes(processInfo.status)) {
+		const errorMsg = `Process "${label}" is not in a state to receive input. Current status: ${processInfo.status}. Required status: ${allowedStates.join(" or ")}.`;
+		log.warn(label, errorMsg);
+		return fail(
+			textPayload(
+				JSON.stringify({
+					error: errorMsg,
+					status: processInfo.status,
+					error_type: "invalid_state_for_input",
+					pid: processInfo.pid,
+					cwd: processInfo.cwd,
+				}),
+			),
+		);
+	}
+
+	if (!processInfo.process) {
+		const errorMsg = `Cannot send input: Process handle is missing for "${label}" despite status being ${processInfo.status}.`;
+		log.error(label, errorMsg);
+		// Consider updating status to 'error' here? Might be too aggressive.
+		return fail(
+			textPayload(
+				JSON.stringify({
+					error: errorMsg,
+					status: processInfo.status, // Report current status
+					error_type: "missing_handle_on_input",
+					pid: processInfo.pid,
+					cwd: processInfo.cwd,
+				}),
+			),
+		);
+	}
+
+	try {
+		const dataToSend = input + (append_newline ? "\\r" : "");
+		log.debug(label, `Writing to PTY: "${dataToSend.replace("\\r", "\r")}"`); // Log escaped newline
+
+		// Send the input via the node-pty process handle
+		processInfo.process.write(dataToSend);
+
+		// Log the action internally for the process
+		const logMessage = `Input sent: "${input}"${append_newline ? " (with newline)" : ""}`;
+		addLogEntry(label, logMessage);
+		log.info(label, logMessage);
+
+		return ok(
+			textPayload(
+				JSON.stringify(
+					{
+						message: `Input successfully sent to process "${label}".`,
+						input_sent: input,
+						newline_appended: append_newline,
+						status: processInfo.status, // Return current status after sending
+						pid: processInfo.pid,
+					},
+					null,
+					2,
+				),
+			),
+		);
+	} catch (error: unknown) {
+		const errorMsg = `Failed to write input to process "${label}": ${error instanceof Error ? error.message : String(error)}`;
+		log.error(label, errorMsg, error);
+		addLogEntry(label, `Error sending input: ${errorMsg}`);
+		// Don't change process status here, as the process itself might still be running
+		return fail(
+			textPayload(
+				JSON.stringify(
+					{
+						error: errorMsg,
+						status: processInfo.status, // Report status at time of error
+						error_type: "write_failed",
+						pid: processInfo.pid,
+					},
+					null,
+					2,
+				),
+			),
+		);
+	}
 }

@@ -23,7 +23,8 @@
 	"dependencies": {
 		"@modelcontextprotocol/sdk": "^1.10.2",
 		"node-pty": "^1.1.0-beta34",
-		"strip-ansi": "^7.1.0"
+		"strip-ansi": "^7.1.0",
+		"tree-kill": "^1.2.2"
 	},
 	"devDependencies": {
 		"@semantic-release/commit-analyzer": "^13.0.1",

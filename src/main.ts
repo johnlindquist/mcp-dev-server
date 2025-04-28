@@ -5,11 +5,7 @@ import {
 	SERVER_VERSION,
 	ZOMBIE_CHECK_INTERVAL_MS,
 } from "./constants.js";
-import {
-	setZombieCheckInterval,
-	stopAllProcessesOnExit,
-	zombieCheckIntervalId,
-} from "./state.js";
+import { setZombieCheckInterval, stopAllProcessesOnExit } from "./state.js";
 import { registerToolDefinitions } from "./toolDefinitions.js";
 import { log } from "./utils.js";
 
@@ -37,9 +33,6 @@ async function main() {
 	// Graceful shutdown
 	const cleanup = async (signal: string) => {
 		log.info(null, `Received ${signal}. Shutting down...`);
-		if (zombieCheckIntervalId) {
-			clearInterval(zombieCheckIntervalId);
-		}
 		stopAllProcessesOnExit();
 		log.info(null, "Attempted final termination for managed processes.");
 		await server.close();

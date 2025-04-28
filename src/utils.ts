@@ -72,9 +72,7 @@ export function stripAnsiAndControlChars(input: string): string {
 		// 5. Final pass to remove any remaining non-printable ASCII chars (optional, but can help)
 		//    This targets characters in the 0-31 range excluding tab (x09), newline (x0A),
 		//    and the ones we explicitly handled or want to keep.
-		// biome-ignore lint/suspicious/noControlCharactersInRegex: Targeting non-printable range
-		// cleanedInput = cleanedInput.replace(/[x00-x08x0Bx0Cx0E-x1Fx7F]/g, ''); // Example, adjust as needed
-
+		// cleanedInput = cleanedInput.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, ''); // Example, adjust as needed
 		return cleanedInput;
 	} catch (e: unknown) {
 		log.error(
@@ -97,11 +95,11 @@ export function stripAnsiAndControlChars(input: string): string {
 }
 
 // biome-ignore lint/suspicious/noControlCharactersInRegex: Need to match backspace for cleanup
-const BACKSPACE_REGEX = /.x08/g; // Match any character followed by ASCII backspace (x08)
+const BACKSPACE_REGEX = /.\x08/g; // Match any character followed by ASCII backspace (x08)
 // Explicitly list troublesome control chars often not part of ANSI sequences handled by strip-ansi
 // Includes carriage return (\r or x0D) and bell (\u0007 or x07)
 // biome-ignore lint/suspicious/noControlCharactersInRegex: Need to match specific control chars
-const OTHER_CONTROL_CHARS_REGEX = /[\rx07]/g;
+const OTHER_CONTROL_CHARS_REGEX = /[\r\x07]/g;
 
 export function formatLogsForResponse(
 	logs: string[],
