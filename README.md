@@ -66,7 +66,7 @@ If you want to modify the server or contribute to its development:
 
 1.  **Clone the repository:**
     ```bash
-    git clone https://github.com/your-username/mcp-pm.git # Replace with actual repo URL
+    git clone https://github.com/johnlindquist/mcp-pm.git # Replace with actual repo URL
     cd mcp-pm
     ```
 

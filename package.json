@@ -5,6 +5,10 @@
 	"private": false,
 	"type": "module",
 	"main": "build/index.js",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/johnlindquist/mcp-pm.git"
+	},
 	"bin": {
 		"mcp-pm": "./build/index.js"
 	},
