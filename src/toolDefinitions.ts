@@ -18,7 +18,7 @@ import {
 } from "./state.js";
 import { handleToolCall } from "./toolHandler.js";
 import { type CallToolResult, fail, ok, shape, textPayload } from "./types.js";
-import type { ProcessStatus } from "./types.ts";
+import type { LogEntry, ProcessStatus } from "./types.ts";
 import {
 	formatLogsForResponse,
 	log,
@@ -175,6 +175,37 @@ const SendInputParams = z.object(
 	}),
 );
 
+// Define response types (can move to types.ts)
+interface CheckStatusResponsePayload {
+	label: string;
+	status: ProcessStatus;
+	pid: number | undefined;
+	command: string;
+	args: string[];
+	cwd: string;
+	exitCode: number | null;
+	signal: string | null;
+	logs: string[];
+	log_file_path: string | null | undefined;
+	tail_command: string | null | undefined;
+	hint?: string; // Keep hint optional
+}
+
+interface ListProcessDetail {
+	label: string;
+	status: ProcessStatus;
+	pid: number | undefined;
+	command: string;
+	args: string[];
+	cwd: string;
+	exitCode: number | null;
+	signal: string | null;
+	logs: string[];
+	log_hint: string | null; // Keep log_hint
+	log_file_path: string | null | undefined;
+	tail_command: string | null | undefined;
+}
+
 async function _checkProcessStatus(
 	params: z.infer<typeof CheckProcessStatusParams>,
 ): Promise<CallToolResult> {
@@ -182,25 +213,18 @@ async function _checkProcessStatus(
 	const processInfo = await checkAndUpdateProcessStatus(label);
 
 	if (!processInfo) {
-		return fail(
-			textPayload(
-				JSON.stringify({
-					error: `Process with label "${label}" not found.`,
-					status: "not_found",
-					pid: null,
-				}),
-			),
-		);
+		return fail(textPayload(`Process with label "${label}" not found.`));
 	}
 
+	// Pass logs array to formatLogsForResponse
 	const formattedLogs = formatLogsForResponse(
-		processInfo.logs.map((l) => l.content),
-		log_lines,
+		processInfo.logs.map((l: LogEntry) => l.content),
+		log_lines ?? DEFAULT_LOG_LINES,
 	);
-	const actualReturnedLines = formattedLogs.length;
-	const totalStoredLogs = processInfo.logs.length;
+	// Remove generateLogHint and logHint variable
+	// const logHint = generateLogHint(processInfo, log_lines ?? DEFAULT_LOG_LINES);
 
-	const responsePayload = {
+	const responsePayload: CheckStatusResponsePayload = {
 		label: processInfo.label,
 		status: processInfo.status,
 		pid: processInfo.pid,
@@ -210,69 +234,53 @@ async function _checkProcessStatus(
 		exitCode: processInfo.exitCode,
 		signal: processInfo.signal,
 		logs: formattedLogs,
+		log_file_path: processInfo.logFilePath,
+		tail_command: processInfo.logFilePath
+			? `tail -f "${processInfo.logFilePath}"`
+			: null,
 	};
 
-	let hint = `Process is ${processInfo.status}.`;
-	if (processInfo.status === "restarting") {
-		hint += ` Attempt ${processInfo.restartAttempts ?? "?"}/${processInfo.maxRetries ?? "?"}.`;
-	}
-	if (processInfo.status === "crashed") {
-		hint += ` Exited with code ${processInfo.exitCode ?? "N/A"}${processInfo.signal ? ` (signal ${processInfo.signal})` : ""}. Will ${processInfo.maxRetries && processInfo.maxRetries > 0 ? "attempt restart" : "not restart"}.`;
-	}
-	if (processInfo.status === "error") {
-		hint += " Unrecoverable error occurred. Check logs.";
-	}
-
-	const storedLimitReached = totalStoredLogs >= MAX_STORED_LOG_LINES;
-	if (log_lines > 0 && totalStoredLogs > actualReturnedLines) {
-		const hiddenLines = totalStoredLogs - actualReturnedLines;
-		hint += ` Returned the latest ${actualReturnedLines} log lines. ${hiddenLines} older lines exist${storedLimitReached ? ` (storage limit: ${MAX_STORED_LOG_LINES}, older logs may have been discarded)` : ""}. Use 'getAllLoglines' for the full stored history.`;
-	} else if (log_lines === 0 && totalStoredLogs > 0) {
-		hint += ` ${totalStoredLogs} log lines are stored${storedLimitReached ? ` (storage limit: ${MAX_STORED_LOG_LINES})` : ""}. Use 'getAllLoglines' or specify 'log_lines' > 0.`;
-	} else if (log_lines > 0 && totalStoredLogs > 0) {
-		hint += ` Returned all ${actualReturnedLines} stored log lines${storedLimitReached ? ` (storage limit: ${MAX_STORED_LOG_LINES})` : ""}.`;
+	// Simple hint based on log lines (replace generateLogHint logic)
+	const totalStoredLogs = processInfo.logs.length;
+	const requestedLines = log_lines ?? DEFAULT_LOG_LINES;
+	if (requestedLines > 0 && totalStoredLogs > formattedLogs.length) {
+		const hiddenLines = totalStoredLogs - formattedLogs.length;
+		const limitReached = totalStoredLogs >= MAX_STORED_LOG_LINES;
+		responsePayload.hint = `Returned latest ${formattedLogs.length} lines. ${hiddenLines} older lines stored${limitReached ? ` (limit: ${MAX_STORED_LOG_LINES})` : ""}.`;
+	} else if (requestedLines === 0 && totalStoredLogs > 0) {
+		responsePayload.hint = `Logs are stored (${totalStoredLogs} lines). Specify 'log_lines > 0' to view.`;
 	}
 
-	return ok(textPayload(JSON.stringify({ ...responsePayload, hint }, null, 2)));
+	return ok(textPayload(JSON.stringify(responsePayload, null, 2)));
 }
 
 async function _listProcesses(
 	params: z.infer<typeof ListProcessesParams>,
 ): Promise<CallToolResult> {
 	const { log_lines } = params;
-	if (managedProcesses.size === 0) {
-		return ok(textPayload("No background processes are currently managed."));
-	}
+	const processList: ListProcessDetail[] = []; // Use defined type
 
-	const processList = [];
 	for (const label of managedProcesses.keys()) {
 		const processInfo = await checkAndUpdateProcessStatus(label);
 		if (processInfo) {
-			let formattedLogs: string[] | undefined = undefined;
-			let logHint: string | undefined = undefined;
-
-			if (log_lines > 0) {
-				const totalStoredLogs = processInfo.logs.length;
-				formattedLogs = formatLogsForResponse(
-					processInfo.logs.map((l) => l.content),
-					log_lines,
-				);
-				const actualReturnedLines = formattedLogs.length;
-				const storedLimitReached = totalStoredLogs >= MAX_STORED_LOG_LINES;
-
-				if (totalStoredLogs > actualReturnedLines) {
-					const hiddenLines = totalStoredLogs - actualReturnedLines;
-					logHint = `Returned latest ${actualReturnedLines} lines. ${hiddenLines} older lines exist${storedLimitReached ? ` (limit: ${MAX_STORED_LOG_LINES})` : ""}. Use 'getAllLoglines'.`;
-				} else if (totalStoredLogs > 0) {
-					logHint = `Returned all ${actualReturnedLines} stored lines${storedLimitReached ? ` (limit: ${MAX_STORED_LOG_LINES})` : ""}.`;
-				}
-			} else if (log_lines === 0 && processInfo.logs.length > 0) {
-				const totalStoredLogs = processInfo.logs.length;
-				const storedLimitReached = totalStoredLogs >= MAX_STORED_LOG_LINES;
-				logHint = `${totalStoredLogs} lines stored${storedLimitReached ? ` (limit: ${MAX_STORED_LOG_LINES})` : ""}. Use 'getAllLoglines' or 'log_lines' > 0.`;
+			// Pass logs array
+			const formattedLogs = formatLogsForResponse(
+				processInfo.logs.map((l: LogEntry) => l.content),
+				log_lines ?? DEFAULT_LOG_LINES, // Use DEFAULT_LOG_LINES
+			);
+			// Remove generateLogHint
+			// const logHint = generateLogHint(processInfo, log_lines ?? DEFAULT_LOG_LINES);
+			let logHint: string | null = null; // Replace generateLogHint logic
+			const totalStoredLogs = processInfo.logs.length;
+			const requestedLines = log_lines ?? 0; // Default to 0 for list
+			if (requestedLines > 0 && totalStoredLogs > formattedLogs.length) {
+				const hiddenLines = totalStoredLogs - formattedLogs.length;
+				logHint = `Showing ${formattedLogs.length} lines. ${hiddenLines} older stored.`;
+			} else if (requestedLines === 0 && totalStoredLogs > 0) {
+				logHint = `${totalStoredLogs} lines stored.`;
 			}
 
-			processList.push({
+			const processDetail: ListProcessDetail = {
 				label: processInfo.label,
 				status: processInfo.status,
 				pid: processInfo.pid,
@@ -282,21 +290,17 @@ async function _listProcesses(
 				exitCode: processInfo.exitCode,
 				signal: processInfo.signal,
 				logs: formattedLogs,
-				log_hint: logHint,
-			});
+				log_hint: logHint, // Assign generated hint
+				log_file_path: processInfo.logFilePath,
+				tail_command: processInfo.logFilePath
+					? `tail -f "${processInfo.logFilePath}"`
+					: null,
+			};
+			processList.push(processDetail);
 		}
 	}
 
-	const message = `Found ${processList.length} managed processes.`;
-	return ok(
-		textPayload(
-			JSON.stringify(
-				{ message, processes: processList },
-				(key, value) => (value === undefined ? null : value),
-				2,
-			),
-		),
-	);
+	return ok(textPayload(JSON.stringify(processList, null, 2)));
 }
 
 async function _stopAllProcesses(): Promise<CallToolResult> {
@@ -619,7 +623,7 @@ async function _getAllLoglines(
 	}
 
 	// Retrieve ALL stored logs
-	const allLogs = processInfo.logs.map((l) => l.content);
+	const allLogs = processInfo.logs.map((l: LogEntry) => l.content);
 	// Clean them consistently
 	const cleanedLogs = allLogs.map(stripAnsiAndControlChars); // Use your cleaning function
 

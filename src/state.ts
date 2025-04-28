@@ -1,3 +1,5 @@
+import { promisify } from "node:util"; // Add import
+import treeKill from "tree-kill"; // Add import
 import {
 	CRASH_LOOP_DETECTION_WINDOW_MS,
 	DEFAULT_RETRY_DELAY_MS,
@@ -9,30 +11,50 @@ import type { LogEntry, ProcessInfo, ProcessStatus } from "./types.ts"; // Impor
 import { log } from "./utils.js";
 
 // Renamed Map
-const managedProcesses: Map<string, ProcessInfo> = new Map();
-let zombieCheckIntervalId: NodeJS.Timeout | null = null;
+export const managedProcesses: Map<string, ProcessInfo> = new Map();
+export let zombieCheckIntervalId: NodeJS.Timeout | null = null; // Export directly
 
-function addLogEntry(label: string, content: string): void {
+const killProcessTree = promisify(treeKill); // Define killProcessTree here
+
+export function addLogEntry(label: string, content: string): void {
 	const processInfo = managedProcesses.get(label);
 	if (!processInfo) {
-		log.warn(
-			label,
-			`Attempted to add log but process info missing for label: ${label}`,
-		);
+		// Log warning removed for brevity, handled elsewhere if needed
 		return;
 	}
 
 	const entry: LogEntry = { timestamp: Date.now(), content };
 	processInfo.logs.push(entry);
 
-	// Enforce the maximum log line limit
+	// Enforce the maximum in-memory log line limit
 	if (processInfo.logs.length > MAX_STORED_LOG_LINES) {
-		processInfo.logs.shift(); // Remove the oldest log entry
+		processInfo.logs.shift();
 	}
+
+	// --- Write to file stream ---
+	// Use optional chaining where appropriate, but keep explicit check for write logic
+	if (processInfo.logFileStream?.writable) {
+		try {
+			// Write the raw content + newline. Error handled by stream 'error' listener.
+			processInfo.logFileStream.write(`${content}\n`); // Use template literal
+		} catch (writeError) {
+			// This catch might not be strictly necessary due to the async nature
+			// and the 'error' listener, but added for robustness.
+			log.error(
+				label,
+				`Direct error writing to log stream for ${label}`,
+				writeError,
+			);
+			processInfo.logFileStream?.end(); // Attempt to close on direct error (optional chain)
+			processInfo.logFileStream = null;
+			processInfo.logFilePath = null; // Mark as unusable
+		}
+	}
+	// --- End write to file stream ---
 }
 
 // Renamed function
-function updateProcessStatus(
+export function updateProcessStatus(
 	label: string,
 	status: ProcessStatus,
 	exitInfo?: { code: number | null; signal: string | null },
@@ -79,7 +101,7 @@ function updateProcessStatus(
 }
 
 // Rename _startServer call later
-async function handleCrashAndRetry(label: string): Promise<void> {
+export async function handleCrashAndRetry(label: string): Promise<void> {
 	const processInfo = managedProcesses.get(label);
 	if (!processInfo || processInfo.status !== "crashed") {
 		log.warn(
@@ -146,7 +168,7 @@ async function handleCrashAndRetry(label: string): Promise<void> {
 	}
 }
 
-function handleExit(
+export function handleExit(
 	label: string,
 	code: number | null,
 	signal: string | null,
@@ -157,14 +179,27 @@ function handleExit(
 		return;
 	}
 
-	const status = processInfo.status;
-	const exitCode = code ?? -1; // Use -1 if code is null
-	const signalDesc = signal ? ` (signal ${signal})` : "";
-	const logMessage = `Process exited with code ${exitCode}${signalDesc}.`;
-	log.info(label, logMessage);
-	addLogEntry(label, logMessage);
+	// --- Close Log Stream ---
+	if (processInfo.logFileStream) {
+		log.debug(label, `Closing log file stream for ${label} due to exit.`);
+		addLogEntry(
+			label,
+			`--- Process Exited (Code: ${code ?? "N/A"}, Signal: ${signal ?? "N/A"}) ---`,
+		); // Log exit marker before closing
+		processInfo.logFileStream.end(() => {
+			log.debug(
+				label,
+				`Log file stream for ${label} finished writing and closed.`,
+			);
+		});
+		processInfo.logFileStream = null; // Nullify immediately
+		// Keep logFilePath even after closing for reference in check_status
+	}
+	// --- End Close Log Stream ---
 
-	// Determine if it's a crash or a clean stop
+	const status = processInfo.status;
+
+	// If the process was explicitly stopped, don't treat it as a crash
 	if (status === "stopping") {
 		updateProcessStatus(label, "stopped", { code, signal });
 	} else if (status !== "stopped" && status !== "error") {
@@ -191,7 +226,7 @@ function handleExit(
 	}
 }
 
-function doesProcessExist(pid: number): boolean {
+export function doesProcessExist(pid: number): boolean {
 	try {
 		// Sending signal 0 doesn't actually send a signal but checks if the process exists.
 		process.kill(pid, 0);
@@ -208,7 +243,7 @@ function doesProcessExist(pid: number): boolean {
 }
 
 // Renamed function
-async function checkAndUpdateProcessStatus(
+export async function checkAndUpdateProcessStatus(
 	label: string,
 ): Promise<ProcessInfo | null> {
 	const processInfo = managedProcesses.get(label);
@@ -251,7 +286,7 @@ async function checkAndUpdateProcessStatus(
 
 // --- Zombie Process Handling ---
 
-async function reapZombies(): Promise<void> {
+export async function reapZombies(): Promise<void> {
 	log.debug(null, "Running zombie process check...");
 	let correctedCount = 0;
 	for (const [label, processInfo] of managedProcesses.entries()) {
@@ -294,7 +329,7 @@ async function reapZombies(): Promise<void> {
 	}
 }
 
-function setZombieCheckInterval(intervalMs: number): void {
+export function setZombieCheckInterval(intervalMs: number): void {
 	if (zombieCheckIntervalId) {
 		clearInterval(zombieCheckIntervalId);
 	}
@@ -306,54 +341,72 @@ function setZombieCheckInterval(intervalMs: number): void {
 
 // --- Graceful Shutdown ---
 
-function stopAllProcessesOnExit(): void {
+export function stopAllProcessesOnExit(): void {
 	log.info(null, "Stopping all managed processes on exit...");
-	let killCount = 0;
-	const promises: Promise<void>[] = [];
+	const stopPromises: Promise<void>[] = [];
 
 	managedProcesses.forEach((processInfo, label) => {
-		if (
-			processInfo.process &&
-			processInfo.pid &&
-			(processInfo.status === "running" ||
-				processInfo.status === "starting" ||
-				processInfo.status === "verifying" ||
-				processInfo.status === "restarting")
-		) {
-			log.info(label, `Sending SIGTERM to PID ${processInfo.pid} on exit.`);
-			try {
-				// Use the process handle if available, otherwise PID
-				if (processInfo.process) {
-					processInfo.process.kill("SIGTERM"); // node-pty uses kill method
-				} else if (processInfo.pid) {
-					process.kill(processInfo.pid, "SIGTERM");
+		log.info(
+			label,
+			`Attempting to stop process ${label} (PID: ${processInfo.pid})...`,
+		);
+		if (processInfo.process && processInfo.pid) {
+			updateProcessStatus(label, "stopping");
+			// Create a promise for each stop operation
+			const stopPromise = new Promise<void>((resolve) => {
+				// Add null check for pid
+				if (processInfo.pid) {
+					// promisify(treeKill) expects only pid
+					killProcessTree(processInfo.pid)
+						.then(() => {
+							// Resolve after successful kill
+							resolve();
+						})
+						.catch((err: Error | null) => {
+							if (err) {
+								log.error(
+									label,
+									`Error stopping process tree for ${label}:`,
+									err,
+								);
+							}
+							// Resolve regardless of error to not block shutdown
+							resolve();
+						});
+				} else {
+					log.warn(label, "Cannot kill process tree, PID is missing.");
+					resolve(); // Resolve anyway
 				}
-				updateProcessStatus(label, "stopping");
-				killCount++;
-				// We might not be able to wait for confirmation here during exit
-			} catch (err: unknown) {
-				log.error(
-					label,
-					`Error sending SIGTERM on exit: ${err instanceof Error ? err.message : String(err)}`,
-				);
-			}
+			});
+			stopPromises.push(stopPromise);
+		} else {
+			log.warn(label, `Process ${label} has no active process or PID to stop.`);
 		}
+
+		// --- Close Log Stream on Shutdown ---
+		if (processInfo.logFileStream) {
+			log.info(
+				label,
+				`Closing log stream for ${label} during server shutdown.`,
+			);
+			processInfo.logFileStream.end();
+			processInfo.logFileStream = null; // Nullify
+		}
+		// --- End Close Log Stream ---
 	});
 
-	if (killCount > 0) {
-		log.info(null, `Attempted final termination for ${killCount} processes.`);
-	} else {
-		log.info(null, "No active processes needed termination on exit.");
-	}
-	// Clear the interval on exit
-	if (zombieCheckIntervalId) {
-		clearInterval(zombieCheckIntervalId);
-		zombieCheckIntervalId = null;
-	}
-	managedProcesses.clear(); // Clear the map
+	// Clear the map *before* awaiting promises, as handleExit might be called
+	// managedProcesses.clear(); // Let handleExit clear individual entries
+
+	// Optionally wait for all stop commands to be issued (not necessarily completed)
+	// await Promise.all(stopPromises); // Doesn't guarantee processes are dead
+
+	// For a more robust shutdown, might need a timeout or check loop here
+	log.info(null, "Issued stop commands for all processes.");
+	managedProcesses.clear(); // Clear the map finally
 }
 
-function removeProcess(label: string): void {
+export function removeProcess(label: string): void {
 	const processInfo = managedProcesses.get(label);
 	// The try...catch block was here, but the try was empty.
 	// If cleanup logic is needed for processInfo.process, it should go here.
@@ -361,21 +414,6 @@ function removeProcess(label: string): void {
 	log.debug(label, "Removed process info from management.");
 }
 
-function isZombieCheckActive(): boolean {
+export function isZombieCheckActive(): boolean {
 	return !!zombieCheckIntervalId;
 }
-
-export {
-	managedProcesses,
-	addLogEntry,
-	checkAndUpdateProcessStatus,
-	updateProcessStatus,
-	handleExit,
-	removeProcess,
-	setZombieCheckInterval,
-	stopAllProcessesOnExit,
-	doesProcessExist,
-	handleCrashAndRetry,
-	reapZombies,
-	isZombieCheckActive,
-};

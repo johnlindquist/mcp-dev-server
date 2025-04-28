@@ -4,6 +4,7 @@ import stripAnsi from "strip-ansi";
 import { SERVER_NAME } from "./constants.js";
 // Import MAX_STORED_LOG_LINES if needed for formatLogsForResponse logic refinement
 // import { MAX_STORED_LOG_LINES } from "./constants.js";
+// import * as path from 'node:path'; // Remove unused import
 
 // Logging
 export const log = {
@@ -119,4 +120,22 @@ export function formatLogsForResponse(
 		.filter((line) => line.length > 0); // Remove lines that are now empty after stripping/trimming
 
 	return cleanedLogs;
+}
+
+/**
+ * Replaces characters unsafe for filenames with underscores.
+ */
+export function sanitizeLabelForFilename(label: string): string {
+	// Replace common problematic characters: / \ : * ? " < > |
+	// Also replace spaces for better compatibility, though not strictly necessary everywhere.
+	let sanitized = label.replace(/[\\/:*?"<>| ]/g, "_");
+	// Reduce multiple consecutive underscores to a single one
+	sanitized = sanitized.replace(/_{2,}/g, "_");
+	// Trim leading/trailing underscores that might result
+	sanitized = sanitized.replace(/^_+|_+$/g, "");
+	// Handle potential empty string after sanitization
+	if (!sanitized) {
+		return `process_${Date.now()}`; // Fallback name
+	}
+	return `${sanitized}.log`; // Use template literal
 }

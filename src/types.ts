@@ -1,3 +1,4 @@
+import type * as fs from "node:fs";
 import type { IPty } from "node-pty";
 import type { ZodRawShape } from "zod";
 
@@ -132,6 +133,8 @@ export interface ProcessInfo {
 	status: ProcessStatus;
 	exitCode: number | null;
 	signal: string | null;
+	logFilePath: string | null; // Path to the persistent log file
+	logFileStream: fs.WriteStream | null; // Writable stream for the log file
 	lastCrashTime?: number; // Timestamp of the last crash
 	restartAttempts?: number; // Number of restart attempts in the current crash loop window
 	verificationPattern?: RegExp; // Optional pattern to verify successful startup

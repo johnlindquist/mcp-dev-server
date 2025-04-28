@@ -10,6 +10,7 @@ import {
 	LOG_SETTLE_DURATION_MS,
 	OVERALL_LOG_WAIT_TIMEOUT_MS,
 } from "./constants.js";
+import { serverLogDirectory } from "./main.js"; // Import the log dir path
 import {
 	addLogEntry,
 	checkAndUpdateProcessStatus, // Renamed function
@@ -19,8 +20,14 @@ import {
 } from "./state.js";
 import type { SendInputParams } from "./toolDefinitions.js"; // Import the schema type
 import { fail, ok, textPayload } from "./types.js";
-import type { CallToolResult, ProcessInfo, ProcessStatus } from "./types.ts"; // Renamed types
+import type {
+	CallToolResult,
+	LogEntry,
+	ProcessInfo,
+	ProcessStatus,
+} from "./types.ts"; // Renamed types
 import { formatLogsForResponse, log } from "./utils.js";
+import { sanitizeLabelForFilename } from "./utils.js"; // Import sanitizer
 
 const killProcessTree = promisify(treeKill);
 
@@ -164,6 +171,8 @@ export async function _startProcess(
 				verificationTimeoutMs,
 				retryDelayMs,
 				maxRetries,
+				logFilePath: null,
+				logFileStream: null,
 			});
 		}
 		updateProcessStatus(label, "error"); // Simplified update
@@ -233,6 +242,57 @@ export async function _startProcess(
 	let ptyProcess: pty.IPty;
 	const fullCommand = [command, ...args].join(" "); // Combine command and args for PTY
 
+	// --- Log File Setup ---
+	let logFilePath: string | null = null;
+	let logFileStream: fs.WriteStream | null = null;
+
+	if (serverLogDirectory) {
+		try {
+			const safeFilename = sanitizeLabelForFilename(label);
+			logFilePath = path.join(serverLogDirectory, safeFilename);
+
+			// Create/Open the stream in append mode. Truncate if restarting.
+			const fileExists = fs.existsSync(logFilePath);
+			const flags = isRestart && fileExists ? "w" : "a"; // 'w' (write/truncate) on restart, 'a' (append) otherwise
+
+			logFileStream = fs.createWriteStream(logFilePath, {
+				flags: flags,
+				encoding: "utf8",
+			});
+
+			logFileStream.on("error", (err) => {
+				log.error(label, `Error writing to log file ${logFilePath}:`, err);
+				// Optionally try to close/nullify the stream here?
+				if (managedProcesses.has(label)) {
+					const info = managedProcesses.get(label);
+					if (info) {
+						info.logFileStream?.end(); // Attempt to close
+						info.logFileStream = null; // Prevent further writes
+						info.logFilePath = null; // Clear path as it's unusable
+					}
+				}
+			});
+			log.info(
+				label,
+				`Logging process output to: ${logFilePath} (mode: ${flags})`,
+			);
+			addLogEntry(
+				label,
+				`--- Process Started (${new Date().toISOString()}) ---`,
+			); // Add start marker to file too
+		} catch (error) {
+			log.error(label, "Failed to create or open log file stream", error);
+			logFilePath = null; // Ensure path is null if setup failed
+			logFileStream = null;
+		}
+	} else {
+		log.warn(
+			label,
+			"Log directory not configured, persistent file logging disabled.",
+		);
+	}
+	// --- End Log File Setup ---
+
 	try {
 		ptyProcess = pty.spawn(shell, [], {
 			name: "xterm-color",
@@ -265,9 +325,12 @@ export async function _startProcess(
 				verificationTimeoutMs,
 				retryDelayMs,
 				maxRetries,
+				logFilePath: null,
+				logFileStream: null,
 			});
 		}
 		updateProcessStatus(label, "error");
+		logFileStream?.end(); // Close stream if spawn fails
 		return fail(
 			textPayload(
 				JSON.stringify({
@@ -299,6 +362,8 @@ export async function _startProcess(
 		verificationTimer: undefined,
 		retryDelayMs: retryDelayMs ?? null, // Default to null (disabled)
 		maxRetries: maxRetries ?? 0, // Default to 0 (disabled)
+		logFilePath: logFilePath, // <-- STORED
+		logFileStream: logFileStream, // <-- STORED
 	};
 	managedProcesses.set(label, processInfo);
 	updateProcessStatus(label, "starting"); // Ensure status is set via the function
@@ -476,7 +541,7 @@ export async function _startProcess(
 		" This indicates initial output stability, not necessarily task completion. Use check_process_status for updates.";
 
 	const logsToReturn = formatLogsForResponse(
-		currentInfoAfterWait.logs.map((l) => l.content),
+		currentInfoAfterWait.logs.map((l: LogEntry) => l.content),
 		DEFAULT_LOG_LINES,
 	);
 
@@ -489,47 +554,71 @@ export async function _startProcess(
 	// Generally, if it's starting, running, or verifying, it's okay.
 	// If it crashed or errored during the settle/verification wait, it should fail.
 	if (["starting", "running", "verifying"].includes(finalStatus)) {
-		return ok(
-			textPayload(
-				JSON.stringify(
-					{
-						label: label,
-						message: message, // Use the detailed message
-						status: finalStatus,
-						pid: currentInfoAfterWait.pid,
-						cwd: currentInfoAfterWait.cwd,
-						logs: logsToReturn,
-						monitoring_hint: `Process is ${finalStatus}. Use check_process_status with label "${label}" for updates.`,
-					},
-					null,
-					2,
-				),
-			),
-		);
+		message = `Process is ${finalStatus}.`;
+		if (finalStatus === "running")
+			message += ` PID: ${currentInfoAfterWait.pid}`;
+		if (finalStatus === "verifying") message += " Verification in progress...";
+
+		// Define a more specific type (can be moved to types.ts later)
+		interface StartSuccessPayload {
+			label: string;
+			message: string;
+			status: ProcessStatus;
+			pid: number | undefined;
+			cwd: string;
+			logs: string[];
+			monitoring_hint: string;
+			log_file_path?: string | null;
+			tail_command?: string | null;
+		}
+
+		const successPayload: StartSuccessPayload = {
+			label: label,
+			message: message,
+			status: finalStatus,
+			pid: currentInfoAfterWait.pid,
+			cwd: currentInfoAfterWait.cwd,
+			logs: logsToReturn,
+			monitoring_hint: `Process is ${finalStatus}. Use check_process_status with label "${label}" for updates.`,
+		};
+		if (currentInfoAfterWait.logFilePath) {
+			successPayload.log_file_path = currentInfoAfterWait.logFilePath;
+			successPayload.tail_command = `tail -f "${currentInfoAfterWait.logFilePath}"`;
+		}
+		return ok(textPayload(JSON.stringify(successPayload, null, 2)));
 	}
 
 	// Process ended up in a terminal state (stopped, crashed, error) during startup
+	// Define error payload type
+	interface StartErrorPayload {
+		error: string;
+		status: ProcessStatus;
+		pid?: number | undefined;
+		exitCode: number | null;
+		signal: string | null;
+		logs: string[];
+		log_file_path?: string | null;
+	}
+
 	const errorMsg = `Process "${label}" failed to stabilize or exited during startup wait. Final status: ${finalStatus}`;
 	log.error(label, errorMsg, {
 		exitCode: currentInfoAfterWait.exitCode,
 		signal: currentInfoAfterWait.signal,
 	});
-	return fail(
-		textPayload(
-			JSON.stringify(
-				{
-					error: errorMsg,
-					status: finalStatus,
-					pid: currentInfoAfterWait.pid,
-					exitCode: currentInfoAfterWait.exitCode,
-					signal: currentInfoAfterWait.signal,
-					logs: logsToReturn, // Include logs collected so far
-				},
-				null,
-				2,
-			),
-		),
-	);
+	logFileStream?.end(); // Close stream on startup failure
+
+	const errorPayload: StartErrorPayload = {
+		error: errorMsg,
+		status: finalStatus,
+		pid: currentInfoAfterWait.pid,
+		exitCode: currentInfoAfterWait.exitCode,
+		signal: currentInfoAfterWait.signal,
+		logs: logsToReturn,
+	};
+	if (currentInfoAfterWait.logFilePath) {
+		errorPayload.log_file_path = currentInfoAfterWait.logFilePath;
+	}
+	return fail(textPayload(JSON.stringify(errorPayload, null, 2)));
 }
 
 /**
@@ -574,7 +663,7 @@ export async function _stopProcess(
 					signal: processInfo.signal,
 					// Map LogEntry[] to string[]
 					logs: formatLogsForResponse(
-						processInfo.logs.map((l) => l.content),
+						processInfo.logs.map((l: LogEntry) => l.content),
 						DEFAULT_LOG_LINES,
 					),
 				}),
@@ -596,7 +685,7 @@ export async function _stopProcess(
 					cwd: processInfo.cwd,
 					// Map LogEntry[] to string[]
 					logs: formatLogsForResponse(
-						processInfo.logs.map((l) => l.content),
+						processInfo.logs.map((l: LogEntry) => l.content),
 						DEFAULT_LOG_LINES,
 					),
 				}),
@@ -643,7 +732,9 @@ export async function _stopProcess(
 					cwd: processInfo.cwd,
 					// Map LogEntry[] to string[]
 					logs: formatLogsForResponse(
-						(postSignalCheck?.logs ?? processInfo.logs).map((l) => l.content),
+						(postSignalCheck?.logs ?? processInfo.logs).map(
+							(l: LogEntry) => l.content,
+						),
 						DEFAULT_LOG_LINES,
 					),
 				}),
