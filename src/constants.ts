@@ -1,5 +1,5 @@
 // src/constants.ts
-import packageInfo from "../package.json";
+import packageInfo from "../package.json" with { type: "json" };
 
 export const MAX_STORED_LOG_LINES = 1000;
 export const DEFAULT_RETURN_LOG_LINES = 50;
