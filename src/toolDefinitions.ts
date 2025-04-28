@@ -217,9 +217,9 @@ async function _listProcesses(
 				logs:
 					log_lines > 0
 						? formatLogsForResponse(
-							processInfo.logs.map((l) => l.content),
-							log_lines,
-						)
+								processInfo.logs.map((l) => l.content),
+								log_lines,
+							)
 						: undefined,
 			});
 		}
@@ -325,13 +325,26 @@ async function _restartProcess(
 		}
 
 		const potentialStatus = stopResultJson.status;
-		if (potentialStatus && [
-			'starting', 'running', 'stopping', 'stopped', 'crashed', 'error', 'verifying', 'restarting'
-		].includes(potentialStatus)) {
+		if (
+			potentialStatus &&
+			[
+				"starting",
+				"running",
+				"stopping",
+				"stopped",
+				"crashed",
+				"error",
+				"verifying",
+				"restarting",
+			].includes(potentialStatus)
+		) {
 			stopStatus = potentialStatus as ProcessStatus;
 		} else {
-			stopStatus = 'error';
-			log.warn(label, `Could not determine valid stop status from JSON response. Defaulting to 'error'. Response status: ${potentialStatus}`);
+			stopStatus = "error";
+			log.warn(
+				label,
+				`Could not determine valid stop status from JSON response. Defaulting to 'error'. Response status: ${potentialStatus}`,
+			);
 		}
 
 		if (stopResult.isError) {
