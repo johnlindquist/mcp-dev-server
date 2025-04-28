@@ -1,386 +1,356 @@
 // src/state.ts
 
+import type { IPty } from "node-pty";
 import {
-	BACKOFF_FACTOR,
 	CRASH_LOOP_DETECTION_WINDOW_MS,
-	DEFAULT_RETURN_LOG_LINES,
-	INITIAL_RETRY_DELAY_MS,
+	DEFAULT_RETRY_DELAY_MS,
+	LOG_LINE_LIMIT,
 	MAX_RETRIES,
-	MAX_STORED_LOG_LINES,
 } from "./constants.js";
-import { _startServer } from "./serverLogic.js"; // Import _startServer
-import type { /* LogEntry, */ ServerInfo, ServerStatus } from "./types.js"; // Removed LogEntry
-import { log, stripAnsiSafe } from "./utils.js";
+import { _startProcess } from "./processLogic.js"; // Corrected import path
+import { ok } from "./types.js";
+import type { LogEntry, ProcessInfo, ProcessStatus } from "./types.ts"; // Import LogEntry from types.ts
+import { log } from "./utils.js";
 
-// State
-export const runningServers: Map<string, ServerInfo> = new Map();
-let _zombieCheckIntervalId: NodeJS.Timeout | null = null;
+// Renamed Map
+export const managedProcesses: Map<string, ProcessInfo> = new Map();
+export let zombieCheckIntervalId: NodeJS.Timeout | null = null;
 
-export function getZombieCheckIntervalId(): NodeJS.Timeout | null {
-	return _zombieCheckIntervalId;
-}
-
-export function setZombieCheckIntervalId(id: NodeJS.Timeout | null): void {
-	_zombieCheckIntervalId = id;
-}
-
-// State Management Functions
-
-export function addLogEntry(
-	label: string,
-	source: "stdout" | "stderr" | "system" | "warn" | "error",
-	message: string,
-): void {
-	const serverInfo = runningServers.get(label);
-	const trimmedLog = message.trim();
-	if (!trimmedLog) return;
-
-	const timestampedLog = `[${new Date().toISOString()}] [${source}] ${trimmedLog}`;
-
-	if (serverInfo) {
-		serverInfo.logs.push(timestampedLog);
-		if (serverInfo.logs.length > MAX_STORED_LOG_LINES) {
-			serverInfo.logs.shift();
-		}
-		if (source === "system" || source === "error" || source === "warn") {
-			const strippedMessage = stripAnsiSafe(trimmedLog);
-			if (source === "error") log.error(label, strippedMessage);
-			else if (source === "warn") log.warn(label, strippedMessage);
-			else log.info(label, strippedMessage);
-		}
-	} else {
+export function addLogEntry(label: string, content: string): void {
+	const processInfo = managedProcesses.get(label);
+	if (!processInfo) {
 		log.warn(
 			label,
-			`Attempted to add log but server info missing: ${timestampedLog}`,
+			`Attempted to add log but process info missing for label: ${label}`,
 		);
+		return;
+	}
+
+	const entry: LogEntry = { timestamp: Date.now(), content };
+	processInfo.logs.push(entry);
+	if (processInfo.logs.length > LOG_LINE_LIMIT) {
+		processInfo.logs.shift(); // Keep the log buffer trimmed
 	}
 }
 
-export function updateServerStatus(
+// Renamed function
+export function updateProcessStatus(
 	label: string,
-	status: ServerStatus,
-	updates: Partial<Omit<ServerInfo, "label" | "logs" | "startTime">> = {},
-): void {
-	const serverInfo = runningServers.get(label);
-	if (serverInfo) {
-		const oldStatus = serverInfo.status;
-		const strippedError = updates.error
-			? stripAnsiSafe(updates.error)
-			: undefined;
-
-		if (oldStatus !== status) {
-			log.info(
-				label,
-				`Status changing from ${oldStatus} to ${status}`,
-				updates.exitCode !== undefined ? { exitCode: updates.exitCode } : {},
-			);
-			addLogEntry(
-				label,
-				"system",
-				`Status changed to ${status}${strippedError ? ` (Error: ${strippedError})` : updates.exitCode !== null && updates.exitCode !== undefined ? ` (Exit Code: ${updates.exitCode})` : ""}`,
-			);
-		}
-
-		serverInfo.status = status;
-		serverInfo.process = updates.process ?? serverInfo.process;
-		serverInfo.command = updates.command ?? serverInfo.command;
-		serverInfo.cwd = updates.cwd ?? serverInfo.cwd;
-		if (updates.exitCode !== undefined) serverInfo.exitCode = updates.exitCode;
-		if (updates.error !== undefined) serverInfo.error = strippedError ?? null;
-		serverInfo.retryCount = updates.retryCount ?? serverInfo.retryCount;
-
-		if (status === "stopped" || status === "crashed" || status === "error") {
-			serverInfo.process = null;
-			serverInfo.pid = null;
-		}
-
-		if (status === "running" && oldStatus !== "running") {
-			serverInfo.retryCount = 0;
-			serverInfo.lastAttemptTime = null;
-			addLogEntry(
-				label,
-				"system",
-				"Server reached stable running state, retry count reset.",
-			);
-		}
-
-		if (status === "crashed" && oldStatus !== "crashed") {
-			handleCrashAndRetry(label);
-		}
-	} else {
-		log.warn(
-			label,
-			`Attempted to update status to ${status}, but server info not found.`,
-		);
+	status: ProcessStatus,
+	exitInfo?: { code: number | null; signal: string | null },
+): ProcessInfo | undefined {
+	const processInfo = managedProcesses.get(label);
+	if (!processInfo) {
+		log.warn(label, "Attempted to update status but process info missing.");
+		return undefined;
 	}
+
+	const oldStatus = processInfo.status;
+	if (oldStatus === status) return processInfo; // No change
+
+	processInfo.status = status;
+	if (exitInfo) {
+		processInfo.exitCode = exitInfo.code;
+		processInfo.signal = exitInfo.signal;
+	} else {
+		// Reset exit info if moving to a non-terminal state
+		processInfo.exitCode = null;
+		processInfo.signal = null;
+	}
+
+	log.info(label, `Status changing from ${oldStatus} to ${status}`);
+	addLogEntry(label, `Status changed to ${status}`);
+
+	// Clear verification timer if process moves out of 'verifying' state
+	if (
+		oldStatus === "verifying" &&
+		status !== "verifying" &&
+		processInfo.verificationTimer
+	) {
+		clearTimeout(processInfo.verificationTimer);
+		processInfo.verificationTimer = undefined;
+	}
+
+	// Log when reaching stable running state
+	if (status === "running" && oldStatus !== "running") {
+		log.info(label, "Process reached stable running state.");
+		addLogEntry(label, "Process reached stable running state.");
+	}
+
+	return processInfo;
 }
 
-export function handleCrashAndRetry(label: string): void {
-	const serverInfo = runningServers.get(label);
-	if (!serverInfo || serverInfo.status !== "crashed") {
+// Rename _startServer call later
+export async function handleCrashAndRetry(label: string): Promise<void> {
+	const processInfo = managedProcesses.get(label);
+	if (!processInfo || processInfo.status !== "crashed") {
 		log.warn(
 			label,
-			`handleCrashAndRetry called but server not found or not in crashed state (${serverInfo?.status}).`,
+			"handleCrashAndRetry called but process not found or not in crashed state.",
 		);
 		return;
 	}
 
 	const now = Date.now();
-	let isRapidCrash = false;
+	const maxRetries = processInfo.maxRetries ?? MAX_RETRIES;
+	const retryDelay = processInfo.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
+
+	// Reset restart attempts if outside the crash loop window
 	if (
-		serverInfo.lastAttemptTime &&
-		now - serverInfo.lastAttemptTime < CRASH_LOOP_DETECTION_WINDOW_MS
+		processInfo.lastCrashTime &&
+		now - processInfo.lastCrashTime > CRASH_LOOP_DETECTION_WINDOW_MS
 	) {
-		isRapidCrash = true;
-		// Note: isRapidCrash is calculated but not currently used in the logic below.
-		// Consider adding logic here if needed, e.g., increasing delay or stopping retries.
-		log.debug(label, "Rapid crash detected.", {
-			lastAttemptTime: serverInfo.lastAttemptTime,
-			now,
-			window: CRASH_LOOP_DETECTION_WINDOW_MS,
-		});
+		log.info(label, "Resetting restart attempts, outside crash loop window.");
+		processInfo.restartAttempts = 0;
 	}
 
-	if (serverInfo.retryCount < MAX_RETRIES) {
-		serverInfo.retryCount++;
-		const delay =
-			INITIAL_RETRY_DELAY_MS * BACKOFF_FACTOR ** (serverInfo.retryCount - 1);
-		addLogEntry(
-			label,
-			"warn",
-			`Crash detected (attempt ${serverInfo.retryCount}/${MAX_RETRIES}). Retrying in ${delay}ms...`,
-		);
-		updateServerStatus(label, "restarting");
-		serverInfo.lastAttemptTime = Date.now();
+	processInfo.lastCrashTime = now;
+	processInfo.restartAttempts = (processInfo.restartAttempts ?? 0) + 1;
 
-		setTimeout(async () => {
-			const currentInfo = runningServers.get(label);
-			if (currentInfo && currentInfo.status === "restarting") {
-				log.info(
-					label,
-					`Executing scheduled restart (attempt ${currentInfo.retryCount}).`,
-				);
-				if (currentInfo.command && currentInfo.cwd) {
-					// TODO: Call _startServer - requires importing or passing it
-					// This will cause a runtime error until serverLogic.ts is created and imported
-					// log.error(label, "_startServer call is currently commented out in state.ts handleCrashAndRetry"); // Remove TODO comment
-					await _startServer(
-						label,
-						currentInfo.command,
-						currentInfo.cwd,
-						DEFAULT_RETURN_LOG_LINES,
-					); // Uncomment the call
-				} else {
-					log.error(
-						label,
-						"Cannot execute scheduled restart: original command or cwd missing.",
-					);
-					updateServerStatus(label, "error", {
-						error: "Cannot restart: missing original command/cwd.",
-					});
-				}
-			} else {
-				log.warn(
-					label,
-					`Scheduled restart for ${label} skipped, status is now ${currentInfo?.status ?? "not found"}.`,
-				);
-			}
-		}, delay);
-	} else {
+	if (processInfo.restartAttempts > maxRetries) {
+		log.error(
+			label,
+			`Crash detected. Process exceeded max retries (${maxRetries}). Marking as error.`,
+		);
 		addLogEntry(
 			label,
-			"error",
-			`Crash detected, but retry limit (${MAX_RETRIES}) reached. Server will not be restarted automatically.`,
+			`Crash detected. Exceeded max retries (${maxRetries}). Marking as error.`,
 		);
-		updateServerStatus(label, "error", {
-			error: `Retry limit reached (${MAX_RETRIES}). Last error: ${serverInfo.error}`,
-		});
+		updateProcessStatus(label, "error");
+		// Consider cleanup or final notification here
+	} else {
+		log.warn(
+			label,
+			`Crash detected. Attempting restart ${processInfo.restartAttempts}/${maxRetries} after ${retryDelay}ms...`,
+		);
+		addLogEntry(
+			label,
+			`Crash detected. Attempting restart ${processInfo.restartAttempts}/${maxRetries}...`,
+		);
+		updateProcessStatus(label, "restarting");
+
+		// Use await with setTimeout for delay
+		await new Promise((resolve) => setTimeout(resolve, retryDelay));
+
+		log.info(label, "Initiating restart...");
+		// Re-use original start parameters, including verification settings
+		await _startProcess(
+			label,
+			processInfo.command,
+			processInfo.args, // Pass args
+			processInfo.cwd,
+			processInfo.verificationPattern,
+			processInfo.verificationTimeoutMs,
+			processInfo.retryDelayMs, // Pass retry settings
+			processInfo.maxRetries, // Pass retry settings
+			true, // Indicate this is a restart
+		);
 	}
 }
 
 export function handleExit(
 	label: string,
-	exitCode: number,
-	signal?: number,
+	code: number | null,
+	signal: string | null,
 ): void {
-	const serverInfo = runningServers.get(label);
-	if (!serverInfo) {
-		log.error(label, "handleExit called but server info not found.");
+	const processInfo = managedProcesses.get(label);
+	if (!processInfo) {
+		log.warn(label, "handleExit called but process info not found.");
 		return;
 	}
-	// Prevent duplicate processing if exit is handled close to a manual stop/crash update
-	if (
-		serverInfo.status === "stopped" ||
-		serverInfo.status === "crashed" ||
-		serverInfo.status === "error"
-	) {
+
+	const status = processInfo.status;
+	const exitCode = code ?? -1; // Use -1 if code is null
+	const signalDesc = signal ? ` (signal ${signal})` : "";
+	const logMessage = `Process exited with code ${exitCode}${signalDesc}.`;
+	log.info(label, logMessage);
+	addLogEntry(label, logMessage);
+
+	// Determine if it's a crash or a clean stop
+	if (status === "stopping") {
+		updateProcessStatus(label, "stopped", { code, signal });
+	} else if (status !== "stopped" && status !== "error") {
+		// Any other unexpected exit is treated as a crash
+		updateProcessStatus(label, "crashed", { code, signal });
+		// Don't retry immediately here, let checkAndUpdateProcessStatus or explicit restart handle it
+		// Check if retry is configured and appropriate
+		if (
+			processInfo.maxRetries !== undefined &&
+			processInfo.maxRetries > 0 &&
+			processInfo.retryDelayMs !== undefined
+		) {
+			// Use void to explicitly ignore the promise for fire-and-forget
+			void handleCrashAndRetry(label);
+		} else {
+			log.info(label, "Process crashed, but no retry configured.");
+			addLogEntry(label, "Process crashed. No retry configured.");
+		}
+	} else {
 		log.info(
 			label,
-			`handleExit: Exit detected but status already terminal (${serverInfo.status}). Ignoring.`,
+			`Process exited but was already in state ${status}. No status change.`,
 		);
-		return;
 	}
-
-	const exitReason =
-		signal !== undefined ? `Signal ${signal}` : `Exit code ${exitCode}`; // Use signal number if present
-	const logMsg = `Process exited (${exitReason})`;
-	addLogEntry(label, "system", logMsg);
-
-	let finalStatus: ServerStatus;
-	let errorMsg: string | null = serverInfo.error; // Preserve existing error if any
-
-	if (serverInfo.status === "stopping") {
-		finalStatus = "stopped";
-		// Only log as warning if exit was non-zero and not due to standard termination signals
-		if (
-			exitCode !== 0 &&
-			signal !== 15 /* SIGTERM */ &&
-			signal !== 2 /* SIGINT */ &&
-			signal !== 9 /* SIGKILL */
-		) {
-			errorMsg = errorMsg || `Exited abnormally during stop (${exitReason})`;
-			addLogEntry(
-				label,
-				"warn",
-				`Process exited non-gracefully during stopping phase (${exitReason}).`,
-			);
-		}
-	} else if (
-		exitCode === 0 ||
-		signal === 15 /* SIGTERM */ ||
-		signal === 2 /* SIGINT */ ||
-		signal === 9 /* SIGKILL */
-	) {
-		// Consider clean exit if code is 0 or terminated by standard signals
-		finalStatus = "stopped";
-	} else {
-		finalStatus = "crashed";
-		errorMsg = errorMsg || `Process exited unexpectedly (${exitReason})`;
-	}
-
-	updateServerStatus(label, finalStatus, {
-		exitCode: exitCode,
-		error: errorMsg,
-	});
 }
 
-// Uses process.kill, which works for pty processes too
 export function doesProcessExist(pid: number): boolean {
 	try {
-		// Signal 0 just checks existence without sending a signal
+		// Sending signal 0 doesn't actually send a signal but checks if the process exists.
 		process.kill(pid, 0);
 		return true;
 	} catch (e: unknown) {
-		// Check for specific error codes indicating the process doesn't exist
-		// or we lack permission (which implies it exists)
-		if (typeof e === "object" && e !== null) {
-			const code = (e as { code?: string }).code;
-			if (code === "ESRCH") return false; // No such process
-			if (code === "EPERM") return true; // Operation not permitted, but process exists
+		// Check for specific error codes
+		if (e && typeof e === "object" && "code" in e) {
+			if (e.code === "ESRCH") return false; // No such process
+			if (e.code === "EPERM") return true; // Operation not permitted, but process exists
 		}
-		// Rethrow unexpected errors
-		// log.error(null, `Unexpected error in doesProcessExist for PID ${pid}`, e);
-		return false; // Assume false on other errors
+		// Assume false for other errors or if error structure is unexpected
+		return false;
 	}
 }
 
-export async function checkAndUpdateStatus(
+// Renamed function
+export async function checkAndUpdateProcessStatus(
 	label: string,
-): Promise<ServerInfo | null> {
-	const serverInfo = runningServers.get(label);
-	if (!serverInfo) return null;
+): Promise<ProcessInfo | null> {
+	const processInfo = managedProcesses.get(label);
+	if (!processInfo) {
+		return null;
+	}
 
-	// Only check if process existence matters (i.e., expected to be running/starting/stopping)
+	// If process has a PID, check if it's still running
 	if (
-		serverInfo.pid &&
-		(serverInfo.status === "running" ||
-			serverInfo.status === "starting" ||
-			serverInfo.status === "stopping" || // Include stopping
-			serverInfo.status === "verifying" ||
-			serverInfo.status === "restarting")
+		processInfo.pid &&
+		(processInfo.status === "running" ||
+			processInfo.status === "starting" ||
+			processInfo.status === "verifying" ||
+			processInfo.status === "restarting")
 	) {
-		if (!doesProcessExist(serverInfo.pid)) {
-			const errorMsg =
-				serverInfo.error || "Process termination detected externally.";
+		if (!doesProcessExist(processInfo.pid)) {
 			log.warn(
 				label,
-				`Correcting status: Process PID ${serverInfo.pid} not found, but status was '${serverInfo.status}'.`,
+				`Correcting status: Process PID ${processInfo.pid} not found, but status was '${processInfo.status}'. Marking as crashed.`,
 			);
 			addLogEntry(
 				label,
-				"system",
-				`External termination detected (PID ${serverInfo.pid}).`,
+				`Detected process PID ${processInfo.pid} no longer exists.`,
 			);
-
-			// If it was stopping, it's now stopped. Otherwise, crashed.
-			const newStatus: ServerStatus =
-				serverInfo.status === "stopping" ? "stopped" : "crashed";
-			updateServerStatus(label, newStatus, {
-				error: errorMsg,
-				exitCode: serverInfo.exitCode ?? null,
-			});
-			return runningServers.get(label) ?? null; // Return updated info
-		}
-	}
-	// Return current (potentially updated) info
-	return serverInfo;
-}
-
-export function reapZombies(): void {
-	log.debug(null, "Running zombie check...");
-	for (const [label, serverInfo] of runningServers.entries()) {
-		// Check potentially active states where a PID should exist
-		if (
-			serverInfo.pid &&
-			(serverInfo.status === "running" ||
-				serverInfo.status === "starting" ||
-				serverInfo.status === "verifying" ||
-				serverInfo.status === "restarting") // Consider restarting state too
-		) {
-			if (!doesProcessExist(serverInfo.pid)) {
-				const errorMsg =
-					"Process termination detected externally (zombie reaper).";
-				log.warn(
-					label,
-					`Correcting status via zombie check: Process PID ${serverInfo.pid} not found, but status was '${serverInfo.status}'. Marking as crashed.`,
-				);
-				addLogEntry(label, "system", errorMsg);
-				// Treat unexpected disappearance as a crash
-				updateServerStatus(label, "crashed", {
-					error: errorMsg,
-					exitCode: null,
-				});
+			// Treat as a crash if it disappeared unexpectedly
+			updateProcessStatus(label, "crashed", { code: -1, signal: null }); // Use a conventional code for "disappeared"
+			// Trigger retry if configured
+			if (
+				processInfo.maxRetries !== undefined &&
+				processInfo.maxRetries > 0 &&
+				processInfo.retryDelayMs !== undefined
+			) {
+				void handleCrashAndRetry(label); // Fire and forget retry
 			}
 		}
 	}
+
+	return processInfo;
 }
 
-// Added function to handle cleanup
-export function stopAllProcessesOnExit(): void {
-	log.warn(null, "Stopping all managed dev servers on exit...");
-	let killCount = 0;
-	for (const [label, serverInfo] of runningServers.entries()) {
+// --- Zombie Process Handling ---
+
+export async function reapZombies(): Promise<void> {
+	log.debug(null, "Running zombie process check...");
+	let correctedCount = 0;
+	for (const [label, processInfo] of managedProcesses.entries()) {
 		if (
-			serverInfo.process &&
-			serverInfo.pid &&
-			doesProcessExist(serverInfo.pid)
+			processInfo.pid &&
+			(processInfo.status === "running" ||
+				processInfo.status === "starting" ||
+				processInfo.status === "verifying" ||
+				processInfo.status === "restarting")
 		) {
-			// Check handle and existence
-			try {
+			if (!doesProcessExist(processInfo.pid)) {
 				log.warn(
 					label,
-					`Stopping PID ${serverInfo.pid} on exit with SIGKILL...`,
+					`Correcting status via zombie check: Process PID ${processInfo.pid} not found, but status was '${processInfo.status}'. Marking as crashed.`,
 				);
-				serverInfo.process.kill("SIGKILL"); // Use node-pty kill, force kill on exit
+				addLogEntry(
+					label,
+					`Zombie check detected process PID ${processInfo.pid} no longer exists.`,
+				);
+				updateProcessStatus(label, "crashed", { code: -1, signal: null });
+				correctedCount++;
+				// Trigger retry if configured
+				if (
+					processInfo.maxRetries !== undefined &&
+					processInfo.maxRetries > 0 &&
+					processInfo.retryDelayMs !== undefined
+				) {
+					void handleCrashAndRetry(label); // Fire and forget retry
+				}
+			}
+		}
+	}
+	if (correctedCount > 0) {
+		log.info(
+			null,
+			`Zombie check completed. Corrected status for ${correctedCount} processes.`,
+		);
+	} else {
+		log.debug(null, "Zombie check completed. No zombie processes found.");
+	}
+}
+
+export function setZombieCheckInterval(intervalMs: number): void {
+	if (zombieCheckIntervalId) {
+		clearInterval(zombieCheckIntervalId);
+	}
+	log.info(null, `Setting zombie process check interval to ${intervalMs}ms.`);
+	zombieCheckIntervalId = setInterval(() => {
+		void reapZombies(); // Use void for fire-and-forget async call
+	}, intervalMs);
+}
+
+// --- Graceful Shutdown ---
+
+export function stopAllProcessesOnExit(): void {
+	log.info(null, "Stopping all managed processes on exit...");
+	let killCount = 0;
+	const promises: Promise<void>[] = [];
+
+	managedProcesses.forEach((processInfo, label) => {
+		if (
+			processInfo.process &&
+			processInfo.pid &&
+			(processInfo.status === "running" ||
+				processInfo.status === "starting" ||
+				processInfo.status === "verifying" ||
+				processInfo.status === "restarting")
+		) {
+			log.info(label, `Sending SIGTERM to PID ${processInfo.pid} on exit.`);
+			try {
+				// Use the process handle if available, otherwise PID
+				if (processInfo.process) {
+					processInfo.process.kill("SIGTERM"); // node-pty uses kill method
+				} else if (processInfo.pid) {
+					process.kill(processInfo.pid, "SIGTERM");
+				}
+				updateProcessStatus(label, "stopping");
 				killCount++;
-			} catch (e: unknown) {
-				// Log error but continue
+				// We might not be able to wait for confirmation here during exit
+			} catch (err: unknown) {
 				log.error(
 					label,
-					`Error stopping PID ${serverInfo.pid} on exit: ${e instanceof Error ? e.message : String(e)}`,
+					`Error sending SIGTERM on exit: ${err instanceof Error ? err.message : String(err)}`,
 				);
 			}
 		}
+	});
+
+	if (killCount > 0) {
+		log.info(null, `Attempted final termination for ${killCount} processes.`);
+	} else {
+		log.info(null, "No active processes needed termination on exit.");
 	}
-	log.warn(null, `Attempted final termination for ${killCount} servers.`);
+	// Clear the interval on exit
+	if (zombieCheckIntervalId) {
+		clearInterval(zombieCheckIntervalId);
+		zombieCheckIntervalId = null;
+	}
+	managedProcesses.clear(); // Clear the map
 }

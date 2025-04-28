@@ -1,8 +1,3 @@
----
-description:
-globs:
-alwaysApply: true
----
 # Project Module Structure
 
 This project is structured into several modules within the `src` directory to improve organization and maintainability.
@@ -12,8 +7,8 @@ This project is structured into several modules within the `src` directory to im
 - **[constants.ts](mdc:src/constants.ts)**: Defines shared constant values used throughout the application (e.g., log line limits, retry delays, server name/version).
 - **[types.ts](mdc:src/types.ts)**: Contains TypeScript type definitions and interfaces, including `ServerStatus`, `ServerInfo`, and re-exports common MCP types from `types.js`.
 - **[utils.ts](mdc:src/utils.ts)**: Provides utility functions, including the shared `log` object for logging and helper functions like `stripAnsiSafe` and `formatLogsForResponse`.
-- **[state.ts](mdc:src/state.ts)**: Manages the application's state, primarily the `runningServers` map and the `zombieCheckIntervalId`. It includes functions for manipulating this state, such as `addLogEntry`, `updateServerStatus`, `handleCrashAndRetry`, `handleExit`, `doesProcessExist`, `checkAndUpdateStatus`, `reapZombies`, and `stopAllProcessesOnExit`.
-- **[serverLogic.ts](mdc:src/serverLogic.ts)**: Encapsulates the core logic for interacting with development server processes, specifically the internal `_startServer` and `_stopServer` functions that handle spawning and terminating `node-pty` processes.
+- **[state.ts](mdc:src/state.ts)**: Manages the application's state, primarily the `managedProcesses` map and the `zombieCheckIntervalId`. It includes functions for manipulating this state, such as `addLogEntry`, `updateProcessStatus`, `handleCrashAndRetry`, `handleExit`, `doesProcessExist`, `checkAndUpdateProcessStatus`, `reapZombies`, and `stopAllProcessesOnExit`.
+- **[serverLogic.ts](mdc:src/serverLogic.ts)**: Encapsulates the core logic for interacting with managed background processes, specifically the internal `_startProcess` and `_stopProcess` functions that handle spawning and terminating `node-pty` processes.
 - **[toolHandler.ts](mdc:src/toolHandler.ts)**: Contains the generic `handleToolCall` wrapper function used by all tool definitions to provide consistent logging and error handling.
-- **[toolDefinitions.ts](mdc:src/toolDefinitions.ts)**: Defines all the MCP tools exposed by this server. It includes Zod schemas for parameters, helper functions containing the specific logic for each tool (e.g., `_checkDevServerStatus`, `_listDevServers`), and uses `handleToolCall` to register them with the MCP server via the exported `registerToolDefinitions` function.
+- **[toolDefinitions.ts](mdc:src/toolDefinitions.ts)**: Defines all the MCP tools exposed by this server. It includes Zod schemas for parameters, helper functions containing the specific logic for each tool (e.g., `_checkProcessStatus`, `_listProcesses`), and uses `handleToolCall` to register them with the MCP server via the exported `registerToolDefinitions` function.
 - **[types.js](mdc:src/types.js)**: (Original file) Provides foundational MCP payload primitives and helper functions like `ok`, `fail`, `textPayload`. It is re-exported by `types.ts`.

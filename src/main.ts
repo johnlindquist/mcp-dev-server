@@ -2,67 +2,62 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { z } from "zod";
 import {
 	SERVER_NAME,
 	SERVER_VERSION,
-	ZOMBIE_CHECK_INTERVAL,
+	ZOMBIE_CHECK_INTERVAL_MS,
 } from "./constants.js";
 import {
-	getZombieCheckIntervalId,
+	managedProcesses,
 	reapZombies,
-	setZombieCheckIntervalId,
+	setZombieCheckInterval,
 	stopAllProcessesOnExit,
+	zombieCheckIntervalId,
 } from "./state.js";
 import { registerToolDefinitions } from "./toolDefinitions.js";
 import { log } from "./utils.js";
 
-// MCP Server Setup
-const server = new McpServer({
-	name: SERVER_NAME,
-	version: SERVER_VERSION,
-});
+async function main() {
+	log.info(null, "MCP Process Manager Tool running...");
+	log.info(null, `Version: ${SERVER_VERSION}`);
 
-// --- Server Start and Cleanup ---
-
-export async function main() {
-	if (getZombieCheckIntervalId())
-		clearInterval(getZombieCheckIntervalId() as NodeJS.Timeout);
-	setZombieCheckIntervalId(setInterval(reapZombies, ZOMBIE_CHECK_INTERVAL));
-	log.info(
-		null,
-		`Started zombie process check interval (${ZOMBIE_CHECK_INTERVAL}ms).`,
-	);
+	const server = new McpServer({
+		name: SERVER_NAME,
+		version: SERVER_VERSION,
+		noAutoExit: true,
+	});
 
 	// Register tools
 	registerToolDefinitions(server);
 
-	// Connect transport
+	// Setup zombie process check interval
+	setZombieCheckInterval(ZOMBIE_CHECK_INTERVAL_MS);
+
+	// Start listening
 	const transport = new StdioServerTransport();
 	await server.connect(transport);
-	log.info(null, "MCP Dev Server Manager Tool running on stdio");
-}
+	log.info(null, "MCP Server connected and listening via stdio.");
 
-export function cleanup(signal: string) {
-	log.warn(null, `Received ${signal}. Shutting down...`);
-	const intervalId = getZombieCheckIntervalId();
-	if (intervalId) {
-		clearInterval(intervalId);
-		setZombieCheckIntervalId(null);
-		log.info(null, "Stopped zombie check interval.");
-	}
+	// Graceful shutdown
+	const cleanup = async (signal: string) => {
+		log.info(null, `Received ${signal}. Shutting down...`);
+		if (zombieCheckIntervalId) {
+			clearInterval(zombieCheckIntervalId);
+		}
+		stopAllProcessesOnExit();
+		log.info(null, "Attempted final termination for managed processes.");
+		await server.close();
+		log.info(null, "MCP Process Manager process exiting.");
+		process.exit(0);
+	};
 
-	stopAllProcessesOnExit(); // Use the extracted state function
-	log.warn(null, "Attempted final termination for managed servers. Exiting.");
-	process.exit(0);
-}
-
-// Setup Signal Handlers
-export function setupSignalHandlers() {
 	process.on("SIGINT", () => cleanup("SIGINT"));
 	process.on("SIGTERM", () => cleanup("SIGTERM"));
-	process.on("exit", (code) => {
-		log.info(null, `MCP Server process exiting with code ${code}.`);
-		const intervalId = getZombieCheckIntervalId();
-		if (intervalId) clearInterval(intervalId); // Clear interval on exit too
-	});
+	process.on("exit", () => log.info(null, "Process exiting..."));
 }
+
+main().catch((error) => {
+	log.error(null, "Unhandled error in main function", error);
+	process.exit(1);
+});

@@ -3,24 +3,43 @@ description:
 globs:
 alwaysApply: always
 ---
-# Project Overview: MCP Dev Server
+mdc
+title: Project Overview: MCP Process Manager
+description: >
+  This document provides an overview of the MCP Process Manager project.
+  It implements a Background Process Manager using the Model Context Protocol (MCP).
+  The goal is to provide a reliable way for AI agents to manage background processes
+  (like dev servers, test watchers, build scripts, etc.) on the user's machine.
 
-This project implements a **Development Server Manager** using the Model Context Protocol (MCP). It allows an AI agent to start, stop, monitor, and manage background development server processes.
-
-## Key Components
-
-- **`[src/index.ts](mdc:src/index.ts)`:** The main entry point and server logic. It sets up an MCP server using `@modelcontextprotocol/sdk` and defines tools for managing development server processes. It utilizes `node-pty` for robust process management and communication, including handling logs, status tracking, crashes, and retries.
-- **`[src/types.ts](mdc:src/types.ts)`:** Defines TypeScript types and helper functions used throughout the project, particularly for standardizing the `CallToolResult` structure returned by the MCP tools and providing utility functions.
+# MCP Process Manager
 
 ## Functionality
 
-The server exposes the following primary capabilities as MCP tools:
+This MCP server allows an AI agent to:
 
-- Starting new development servers (`start_dev_server`).
-- Checking the status and logs of running servers (`check_dev_server_status`).
-- Stopping specific servers (`stop_dev_server`) or all managed servers (`stop_all_dev_servers`).
-- Restarting servers (`restart_dev_server`).
-- Waiting for a server to reach a desired status (`wait_for_dev_server`).
+- **Start Processes:** Initiate new background processes with a given command and working directory.
+- **Check Status:** Query the status (starting, running, stopped, crashed, etc.) of managed processes.
+- **View Logs:** Retrieve recent logs for a specific process.
+- **Stop Processes:** Terminate a specific process or all managed processes.
+- **Restart Processes:** Stop and then restart a specific process.
+- **Wait for Processes:** Pause execution until a specific process reaches a stable 'running' state.
+- **Health Check:** Get an overall status of the process manager itself.
+
+## Available Tools
+
+- `start_process`
+- `check_process_status`
+- `stop_process`
+- `list_processes`
+- `stop_all_processes`
+- `restart_process`
+- `wait_for_process`
+- `health_check`
+
+## Key Components
+
+- **`[src/index.ts](mdc:src/index.ts)**: The main entry point and server logic. It sets up an MCP server using `@modelcontextprotocol/sdk` and defines tools for managing development server processes. It utilizes `node-pty` for robust process management and communication, including handling logs, status tracking, crashes, and retries.
+- **`[src/types.ts](mdc:src/types.ts)**: Defines TypeScript types and helper functions used throughout the project, particularly for standardizing the `CallToolResult` structure returned by the MCP tools and providing utility functions.
 
 ## Technology Stack
 

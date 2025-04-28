@@ -2,7 +2,7 @@ import type { IPty } from "node-pty";
 import type { ZodRawShape } from "zod";
 
 /* ------------------------------------------------------------------------ */
-/*  1.  MCP payload primitives                                              */
+/*  1.  MCP payload primitives - RESTORED LOCAL DEFINITIONS                 */
 /* ------------------------------------------------------------------------ */
 export interface TextContent {
 	readonly type: "text";
@@ -14,7 +14,9 @@ export interface ImageContent {
 	readonly type: "image";
 	/** base-64 payload */
 	data: string;
+	// Reverting to mandatory mimeType based on original code and SDK error
 	mimeType: string;
+	// Removed optional contentType and caption based on original
 	[key: string]: unknown;
 }
 
@@ -22,10 +24,13 @@ export interface AudioContent {
 	readonly type: "audio";
 	/** base-64 payload */
 	data: string;
+	// Reverting to mandatory mimeType based on original code and SDK error
 	mimeType: string;
+	// Removed optional contentType and caption based on original
 	[key: string]: unknown;
 }
 
+// Keep local TextResource/BlobResource as they weren't part of the failed SDK import attempt
 export interface TextResource {
 	/** raw text representation of the resource */
 	text: string;
@@ -42,9 +47,12 @@ export interface BlobResource {
 	[key: string]: unknown;
 }
 
+// Restore local ResourceContent (using Text/BlobResource)
 export interface ResourceContent {
 	readonly type: "resource";
+	// Reverting to original structure with mandatory resource field
 	resource: TextResource | BlobResource;
+	// Removed optional caption based on original
 	[key: string]: unknown;
 }
 
@@ -55,8 +63,7 @@ export type ToolContent =
 	| ResourceContent;
 
 /* ------------------------------------------------------------------------ */
-/*  2.  Strongly-typed CallToolResult                                       */
-/*      – fixes all "resource missing" & literal-widening errors            */
+/*  2.  Strongly-typed CallToolResult - RESTORED LOCAL DEFINITION           */
 /* ------------------------------------------------------------------------ */
 export interface CallToolResult {
 	/** Actual tool output; at least one payload required. */
@@ -83,12 +90,11 @@ export const fail = (...c: readonly ToolContent[]): CallToolResult => ({
 
 /* ------------------------------------------------------------------------ */
 /*  4.  Zod helpers – give server.tool what it actually wants               */
-/*      – fixes every `ZodObject … not assignable to ZodRawShape` (2345)    */
 /* ------------------------------------------------------------------------ */
-export const shape = <S extends ZodRawShape>(s: S): S => s;
+export const shape = <T extends ZodRawShape>(x: T) => x;
 
 /* ------------------------------------------------------------------------ */
-/*  5.  Utility guards (optional but nice)                                  */
+/*  5.  Utility guards (optional but nice) - RESTORED from original         */
 /* ------------------------------------------------------------------------ */
 export const safeSubstring = (v: unknown, len = 100): string =>
 	typeof v === "string" ? v.substring(0, len) : "";
@@ -96,47 +102,54 @@ export const safeSubstring = (v: unknown, len = 100): string =>
 export const isRunning = (status: string) =>
 	status === "running" || status === "verifying";
 
-// Helper to safely get text from CallToolResult for JSON parsing
+/** Utility fn to extract string content from a CallToolResult, or null */
 export const getResultText = (result: CallToolResult): string | null => {
-	if (result.content && result.content.length > 0) {
-		const firstContent = result.content[0];
-		// Check if it's a TextContent object and has a text property
-		if (
-			firstContent &&
-			"type" in firstContent &&
-			firstContent.type === "text" &&
-			"text" in firstContent &&
-			typeof firstContent.text === "string"
-		) {
-			return firstContent.text;
+	for (const item of result.content) {
+		if (item.type === "text") {
+			return item.text;
 		}
 	}
 	return null;
 };
 
-export type ServerStatus =
-	| "starting"
-	| "verifying"
-	| "running"
-	| "stopping"
-	| "stopped"
-	| "restarting"
-	| "crashed"
-	| "error";
-
-export interface ServerInfo {
-	label: string;
-	process: IPty | null; // Changed from ChildProcess to IPty
-	command: string;
-	cwd: string;
-	startTime: Date;
-	status: ServerStatus;
-	pid: number | null;
-	logs: string[];
-	exitCode: number | null;
-	error: string | null;
-	retryCount: number;
-	lastAttemptTime: number | null;
-	lastCrashTime: Date | null;
-	workspacePath: string;
+// Define LogEntry structure based on usage in state.ts
+export interface LogEntry {
+	timestamp: number;
+	content: string;
 }
+
+/**
+ * Contains information about a managed background process.
+ */
+export interface ProcessInfo {
+	label: string; // User-defined identifier
+	process: IPty | null; // The node-pty process instance
+	command: string; // The command used to start the process
+	args: string[]; // Arguments for the command
+	cwd: string; // Working directory
+	pid: number | undefined; // Process ID
+	logs: LogEntry[]; // Ring buffer of recent log entries
+	status: ProcessStatus;
+	exitCode: number | null;
+	signal: string | null;
+	lastCrashTime?: number; // Timestamp of the last crash
+	restartAttempts?: number; // Number of restart attempts in the current crash loop window
+	verificationPattern?: RegExp; // Optional pattern to verify successful startup
+	verificationTimeoutMs?: number; // Timeout for verification
+	verificationTimer?: NodeJS.Timeout; // Timer for verification timeout
+	retryDelayMs?: number; // Delay before restarting after a crash
+	maxRetries?: number; // Maximum restart attempts before marking as 'error'
+}
+
+/**
+ * Represents the possible states of a managed background process.
+ */
+export type ProcessStatus =
+	| "starting"
+	| "running" // Stable state, optionally after verification
+	| "stopping"
+	| "stopped" // Clean exit
+	| "crashed" // Unexpected exit, potentially restarting
+	| "error" // Unrecoverable error during start or operation
+	| "verifying" // Optional state after process starts, before confirming 'running'
+	| "restarting"; // Actively attempting to restart after a crash

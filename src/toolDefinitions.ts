@@ -1,968 +1,631 @@
-import * as process from "node:process";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
-	DEFAULT_RETURN_LOG_LINES,
+	DEFAULT_RETRY_DELAY_MS,
+	DEFAULT_VERIFICATION_TIMEOUT_MS,
+	LOG_LINE_LIMIT,
 	MAX_RETRIES,
-	MAX_STORED_LOG_LINES,
-	STOP_WAIT_DURATION,
-	ZOMBIE_CHECK_INTERVAL,
+	SERVER_NAME,
+	SERVER_VERSION,
 } from "./constants.js";
-import { _startServer, _stopServer } from "./serverLogic.js";
+import { _startProcess, _stopProcess } from "./processLogic.js";
 import {
 	addLogEntry,
-	checkAndUpdateStatus,
-	doesProcessExist,
-	getZombieCheckIntervalId,
-	runningServers,
-	updateServerStatus,
+	checkAndUpdateProcessStatus,
+	managedProcesses,
+	stopAllProcessesOnExit,
+	zombieCheckIntervalId,
 } from "./state.js";
 import { handleToolCall } from "./toolHandler.js";
 import { type CallToolResult, fail, ok, shape, textPayload } from "./types.js";
-import type { ServerStatus } from "./types.js";
+import type { ProcessInfo, ProcessStatus } from "./types.ts";
 import { formatLogsForResponse, log } from "./utils.js";
 
-async function _checkDevServerStatus(
-	label: string,
-	logLines: number,
-): Promise<CallToolResult> {
-	const serverInfo = await checkAndUpdateStatus(label);
+const labelSchema = z
+	.string()
+	.min(1, "Label cannot be empty.")
+	.describe("A unique identifier for the process.");
 
-	if (!serverInfo) {
+const StartProcessParams = z.object(
+	shape({
+		label: labelSchema,
+		command: z
+			.string()
+			.min(1, "Command cannot be empty.")
+			.describe("The command to execute (e.g., 'npm run dev')."),
+		args: z
+			.array(z.string())
+			.optional()
+			.default([])
+			.describe("Optional arguments for the command."),
+		cwd: z
+			.string()
+			.optional()
+			.describe(
+				"Optional working directory. Defaults to workspace root or process CWD.",
+			),
+		verification_pattern: z
+			.string()
+			.optional()
+			.describe(
+				"Optional regex pattern (JS syntax) to verify successful startup from stdout.",
+			),
+		verification_timeout_ms: z
+			.number()
+			.int()
+			.positive()
+			.optional()
+			.describe(
+				`Optional timeout for verification in milliseconds (default: ${DEFAULT_VERIFICATION_TIMEOUT_MS}ms).`,
+			),
+		retry_delay_ms: z
+			.number()
+			.int()
+			.positive()
+			.optional()
+			.describe(
+				`Optional delay before restarting a crashed process in milliseconds (default: ${DEFAULT_RETRY_DELAY_MS}ms).`,
+			),
+		max_retries: z
+			.number()
+			.int()
+			.min(0)
+			.optional()
+			.describe(
+				`Optional maximum number of restart attempts for a crashed process (default: ${MAX_RETRIES}). 0 disables restarts.`,
+			),
+	}),
+);
+
+const CheckProcessStatusParams = z.object(
+	shape({
+		label: labelSchema,
+		log_lines: z
+			.number()
+			.int()
+			.min(0)
+			.optional()
+			.default(LOG_LINE_LIMIT)
+			.describe("Number of recent log lines to return."),
+	}),
+);
+
+const StopProcessParams = z.object(
+	shape({
+		label: labelSchema,
+		force: z
+			.boolean()
+			.optional()
+			.default(false)
+			.describe(
+				"Force kill (SIGKILL) the process instead of graceful termination (SIGTERM).",
+			),
+	}),
+);
+
+const ListProcessesParams = z.object(
+	shape({
+		log_lines: z
+			.number()
+			.int()
+			.min(0)
+			.optional()
+			.default(0)
+			.describe(
+				"Number of recent log lines to include for each process (0 for none).",
+			),
+	}),
+);
+
+const RestartProcessParams = z.object(
+	shape({
+		label: labelSchema,
+	}),
+);
+
+const WaitForProcessParams = z.object(
+	shape({
+		label: labelSchema,
+		target_status: z
+			.enum(["running", "stopped", "crashed", "error"])
+			.optional()
+			.default("running")
+			.describe("The target status to wait for."),
+		timeout_seconds: z
+			.number()
+			.positive()
+			.optional()
+			.default(60)
+			.describe("Maximum time to wait in seconds."),
+		check_interval_seconds: z
+			.number()
+			.positive()
+			.optional()
+			.default(2)
+			.describe("Interval between status checks in seconds."),
+	}),
+);
+
+async function _checkProcessStatus(
+	params: z.infer<typeof CheckProcessStatusParams>,
+): Promise<CallToolResult> {
+	const { label, log_lines } = params;
+	const processInfo = await checkAndUpdateProcessStatus(label);
+
+	if (!processInfo) {
 		return fail(
 			textPayload(
-				JSON.stringify(
-					{
-						error: `Server with label "${label}" not found or was never started.`,
-						status: "not_found",
-						error_type: "not_found",
-					},
-					null,
-					2,
-				),
+				JSON.stringify({
+					error: `Process with label "${label}" not found.`,
+					status: "not_found",
+				}),
 			),
 		);
 	}
-
-	const linesToReturn = Math.min(logLines, MAX_STORED_LOG_LINES);
-	const returnedLogs = formatLogsForResponse(serverInfo.logs, linesToReturn);
-	let hint = "Server status retrieved.";
-	if (serverInfo.status === "restarting") {
-		hint = `Server is restarting (attempt ${serverInfo.retryCount + 1}/${MAX_RETRIES}). Check back shortly.`;
-	} else if (serverInfo.status === "crashed") {
-		hint =
-			serverInfo.retryCount < MAX_RETRIES
-				? `Server crashed. Automatic restart pending (attempt ${serverInfo.retryCount + 1}/${MAX_RETRIES}).`
-				: `Server crashed. Retry limit reached (${MAX_RETRIES}). Will not restart automatically.`;
-	} else if (serverInfo.status === "error") {
-		hint = `Server is in unrecoverable error state. ${serverInfo.error || "Manual intervention likely required."}`;
-	}
-
-	const payload = {
-		label: serverInfo.label,
-		pid: serverInfo.pid,
-		command: serverInfo.command,
-		workingDirectory: serverInfo.cwd,
-		startTime: serverInfo.startTime.toISOString(),
-		status: serverInfo.status,
-		exitCode: serverInfo.exitCode,
-		error: serverInfo.error,
-		retryCount: serverInfo.retryCount,
-		hint: hint,
-		logs: returnedLogs,
-		logLinesReturned: returnedLogs.length,
-		monitoring_hint: `Returning last ${returnedLogs.length} log lines (ANSI stripped). Max stored is ${MAX_STORED_LOG_LINES}.`,
-	};
-	const result = {
-		content: [textPayload(JSON.stringify(payload, null, 2))],
-		isError: serverInfo.status === "error" || serverInfo.status === "crashed",
-	};
-	return result;
-}
-
-async function _listDevServers(): Promise<CallToolResult> {
-	if (runningServers.size === 0) {
-		return ok(
-			textPayload(
-				JSON.stringify(
-					{
-						message: "No development servers are currently being managed.",
-						servers: [],
-					},
-					null,
-					2,
-				),
-			),
-		);
-	}
-
-	for (const label of runningServers.keys()) {
-		await checkAndUpdateStatus(label);
-	}
-
-	const serverList = Array.from(runningServers.values()).map((info) => ({
-		label: info.label,
-		pid: info.pid,
-		command: info.command,
-		workingDirectory: info.cwd,
-		status: info.status,
-		startTime: info.startTime.toISOString(),
-		error: info.error,
-		exitCode: info.exitCode,
-		retryCount: info.retryCount,
-	}));
-
-	return ok(
-		textPayload(
-			JSON.stringify(
-				{
-					message: `Found ${serverList.length} managed servers.`,
-					servers: serverList,
-				},
-				null,
-				2,
-			),
-		),
-	);
-}
-
-async function _stopAllDevServers(force: boolean): Promise<CallToolResult> {
-	const results: {
-		label: string;
-		pid: number | null;
-		initialStatus: ServerStatus;
-		signalSent: boolean;
-		error?: string;
-		finalStatus?: ServerStatus;
-	}[] = [];
-	const signal: "SIGTERM" | "SIGKILL" = force ? "SIGKILL" : "SIGTERM";
-	const activeLabels: string[] = [];
-
-	log.info(null, `Attempting to stop all active servers with ${signal}...`);
-
-	for (const [label, serverInfo] of runningServers.entries()) {
-		let sentSignal = false;
-		let signalError: string | undefined = undefined;
-		const isActive =
-			serverInfo.status === "running" ||
-			serverInfo.status === "starting" ||
-			serverInfo.status === "verifying" ||
-			serverInfo.status === "stopping" ||
-			serverInfo.status === "restarting";
-
-		if (isActive && serverInfo.process && serverInfo.pid) {
-			activeLabels.push(label);
-			try {
-				updateServerStatus(label, "stopping");
-				addLogEntry(label, "system", `Sending ${signal} signal (stop_all).`);
-				if (doesProcessExist(serverInfo.pid)) {
-					serverInfo.process.kill(signal);
-					sentSignal = true;
-				} else {
-					signalError = `Process PID ${serverInfo.pid} not found when attempting stop_all.`;
-					addLogEntry(label, "warn", signalError);
-					updateServerStatus(label, "stopped", { error: signalError });
-				}
-			} catch (error: unknown) {
-				addLogEntry(
-					label,
-					"error",
-					`Error sending ${signal} signal (stop_all): ${error instanceof Error ? error.message : String(error)}`,
-				);
-				signalError = `Failed to send ${signal}: ${error instanceof Error ? error.message : String(error)}`;
-				updateServerStatus(label, "error", { error: signalError });
-			}
-		} else if (isActive && (!serverInfo.process || !serverInfo.pid)) {
-			addLogEntry(
-				label,
-				"warn",
-				`Server ${label} is active (${serverInfo.status}) but process handle/PID missing. Cannot stop.`,
-			);
-			signalError = "Process handle or PID missing for active server.";
-			updateServerStatus(label, "error", { error: signalError });
-		}
-		results.push({
-			label,
-			pid: serverInfo.pid,
-			initialStatus: serverInfo.status,
-			signalSent: sentSignal,
-			error: signalError,
-		});
-	}
-
-	if (activeLabels.length > 0) {
-		log.info(null, `Waiting ${STOP_WAIT_DURATION}ms after sending signals...`);
-		await new Promise((resolve) => setTimeout(resolve, STOP_WAIT_DURATION));
-		log.info(null, "Finished waiting. Checking final statuses...");
-	} else {
-		log.info(null, "No active servers found to stop.");
-	}
-
-	for (const result of results) {
-		if (result.error && result.finalStatus === "error") continue;
-
-		const finalInfo = await checkAndUpdateStatus(result.label);
-		if (finalInfo) {
-			result.finalStatus = finalInfo.status;
-			if (finalInfo.error && !result.error) {
-				result.error = finalInfo.error;
-			}
-			if (
-				result.signalSent &&
-				finalInfo.status !== "stopped" &&
-				finalInfo.status !== "crashed" &&
-				finalInfo.status !== "error" &&
-				!result.error
-			) {
-				result.error = `Process still ${finalInfo.status} after ${signal} and wait.`;
-			}
-		} else {
-			result.finalStatus = result.signalSent ? "stopped" : "error";
-			result.error = `${result.error ? `${result.error}; ` : ""}Server info disappeared after stop_all attempt.`;
-		}
-	}
-
-	const summary = results.reduce(
-		(acc, r) => {
-			const status = r.finalStatus ?? r.initialStatus;
-			if (status === "stopped") acc.stopped++;
-			else if (status === "crashed") acc.crashed++;
-			else if (status === "error" || r.error) acc.failed++;
-			else if (
-				status === "running" ||
-				status === "stopping" ||
-				status === "restarting" ||
-				status === "verifying" ||
-				status === "starting"
-			)
-				acc.stillActive++;
-			else acc.other++;
-			return acc;
-		},
-		{
-			totalAttempted: results.length,
-			stopped: 0,
-			crashed: 0,
-			failed: 0,
-			stillActive: 0,
-			other: 0,
-		},
-	);
-
-	const message =
-		`Stop all attempt finished. Servers processed: ${summary.totalAttempted}. ` +
-		`Stopped: ${summary.stopped}, Crashed: ${summary.crashed}, Failed/Error: ${summary.failed}, Still Active: ${summary.stillActive}, Other: ${summary.other}.`;
-	log.info(null, message);
-
-	const payload = {
-		message: message,
-		summary: summary,
-		details: results.map((r) => ({
-			label: r.label,
-			pid: r.pid,
-			initialStatus: r.initialStatus,
-			signalSent: r.signalSent,
-			finalStatus: r.finalStatus,
-			error: r.error,
-		})),
-	};
-	const result = {
-		content: [textPayload(JSON.stringify(payload, null, 2))],
-		isError: summary.failed > 0 || summary.stillActive > 0,
-	};
-	return result;
-}
-
-async function _restartDevServer(
-	label: string,
-	force: boolean,
-	logLines: number,
-): Promise<CallToolResult> {
-	let startResult: CallToolResult | null = null;
-	let stopErrorMsg: string | null = null;
-	let startErrorMsg: string | null = null;
-	let finalMessage = "";
-	let originalCommand: string | null = null;
-	let originalWorkingDirectory: string | null = null;
-	type StopResultPayload = {
-		status?: ServerStatus | "not_found" | "already_stopped";
-		error?: string | null;
-		message?: string;
-	};
-	let stopResultJson: StopResultPayload | null = null;
-	let stopStatus: ServerStatus | "not_found" | "already_stopped" | "error" =
-		"not_found";
-
-	addLogEntry(label, "system", `Restart requested (force=${force}).`);
-
-	const serverInfo = runningServers.get(label);
-
-	if (serverInfo) {
-		originalCommand = serverInfo.command;
-		originalWorkingDirectory = serverInfo.cwd;
-
-		if (
-			serverInfo.status === "running" ||
-			serverInfo.status === "starting" ||
-			serverInfo.status === "verifying" ||
-			serverInfo.status === "stopping" ||
-			serverInfo.status === "restarting" ||
-			serverInfo.status === "crashed"
-		) {
-			addLogEntry(
-				label,
-				"system",
-				`Stopping server (status: ${serverInfo.status}) before restart...`,
-			);
-			const stopResponse = await _stopServer(label, force, 0);
-
-			try {
-				const responseText =
-					stopResponse.content[0]?.type === "text"
-						? stopResponse.content[0].text
-						: null;
-				if (!responseText)
-					throw new Error("Stop response content is missing or not text");
-				stopResultJson = JSON.parse(responseText) as StopResultPayload;
-				stopStatus = stopResultJson?.status ?? "error";
-				stopErrorMsg = stopResultJson?.error ?? null;
-
-				if (stopResponse.isError && !stopErrorMsg) {
-					stopErrorMsg =
-						stopResultJson?.message || "Unknown stop error during restart";
-				}
-
-				if (
-					stopStatus === "stopped" ||
-					stopStatus === "crashed" ||
-					stopStatus === "error"
-				) {
-					addLogEntry(
-						label,
-						"system",
-						`Stop phase completed, final status: ${stopStatus}.`,
-					);
-				} else {
-					stopErrorMsg =
-						stopErrorMsg ||
-						`Server status is still '${stopStatus}' after stop attempt. Cannot proceed with restart.`;
-					addLogEntry(label, "warn", stopErrorMsg);
-					stopStatus = "error";
-				}
-			} catch (e) {
-				stopErrorMsg = `Failed to process stop server response during restart. ${e instanceof Error ? e.message : String(e)}`;
-				stopStatus = "error";
-				addLogEntry(label, "error", stopErrorMsg);
-			}
-		} else {
-			stopStatus = "already_stopped";
-			addLogEntry(
-				label,
-				"system",
-				`Server was already ${serverInfo.status}. Skipping stop signal phase.`,
-			);
-		}
-	} else {
-		stopStatus = "not_found";
-		stopErrorMsg = `Server with label "${label}" not found. Cannot restart.`;
-		addLogEntry(label, "warn", stopErrorMsg);
-	}
-
-	const canStart =
-		(stopStatus === "stopped" ||
-			stopStatus === "crashed" ||
-			stopStatus === "already_stopped") &&
-		originalCommand &&
-		originalWorkingDirectory !== null;
-
-	if (canStart) {
-		addLogEntry(label, "system", "Starting server after stop/check phase...");
-		startResult = await _startServer(
-			label,
-			originalCommand as string,
-			originalWorkingDirectory as string,
-			logLines,
-		);
-
-		if (startResult.isError) {
-			const responseText =
-				startResult.content[0]?.type === "text"
-					? startResult.content[0].text
-					: null;
-			try {
-				startErrorMsg = responseText
-					? ((JSON.parse(responseText) as { error?: string }).error ??
-						"Unknown start error")
-					: "Unknown start error";
-			} catch {
-				startErrorMsg = "Failed to parse start error response.";
-			}
-			addLogEntry(
-				label,
-				"error",
-				`Start phase failed during restart: ${startErrorMsg}`,
-			);
-			finalMessage = `Restart failed: Server stopped (or was already stopped) but failed to start. Reason: ${startErrorMsg}`;
-		} else {
-			addLogEntry(label, "system", "Start phase successful.");
-			return startResult;
-		}
-	} else {
-		if (!originalCommand || originalWorkingDirectory === null) {
-			startErrorMsg = `Cannot start server "${label}" as original command or working directory was not found (server might not have existed or info was lost).`;
-			addLogEntry(label, "error", startErrorMsg);
-			finalMessage = `Restart failed: ${startErrorMsg}`;
-		} else {
-			finalMessage = `Restart aborted: Stop phase did not result in a state allowing restart. Final stop status: ${stopStatus}. Error: ${stopErrorMsg || "Unknown stop phase issue."}`;
-		}
-	}
-
-	return fail(
-		textPayload(
-			JSON.stringify(
-				{
-					error: finalMessage,
-					stopPhase: {
-						status: stopStatus,
-						error: stopErrorMsg,
-						hint:
-							stopStatus === "error"
-								? "check_stop_logs"
-								: stopStatus !== "stopped" &&
-										stopStatus !== "crashed" &&
-										stopStatus !== "already_stopped"
-									? "retry_stop_with_force"
-									: "stop_phase_ok",
-					},
-					startPhase: {
-						attempted: canStart,
-						error: startErrorMsg,
-						hint: startErrorMsg ? "check_start_logs" : undefined,
-					},
-					finalStatus: runningServers.get(label)?.status ?? stopStatus,
-				},
-				null,
-				2,
-			),
-		),
-	);
-}
-
-async function _waitForDevServer(
-	label: string,
-	timeoutSeconds: number,
-	checkIntervalSeconds: number,
-	targetStatus: string,
-	logLines: number,
-): Promise<CallToolResult> {
-	const startTime = Date.now();
-	const endTime = startTime + timeoutSeconds * 1000;
-	const targetStatusTyped = targetStatus as ServerStatus;
-
-	addLogEntry(
-		label,
-		"system",
-		`Waiting up to ${timeoutSeconds}s for status '${targetStatus}' (checking every ${checkIntervalSeconds}s).`,
-	);
-
-	let serverInfo = await checkAndUpdateStatus(label);
-	if (!serverInfo) {
-		return fail(
-			textPayload(
-				JSON.stringify(
-					{
-						error: `Server with label "${label}" not found.`,
-						status: "not_found",
-						error_type: "not_found",
-					},
-					null,
-					2,
-				),
-			),
-		);
-	}
-
-	let timedOut = false;
-	let achievedTargetStatus = serverInfo.status === targetStatusTyped;
-	let finalHint = "";
-	let terminalStateReached = false;
-
-	while (
-		!achievedTargetStatus &&
-		Date.now() < endTime &&
-		!terminalStateReached
-	) {
-		await new Promise((resolve) =>
-			setTimeout(resolve, checkIntervalSeconds * 1000),
-		);
-		serverInfo = await checkAndUpdateStatus(label);
-		if (!serverInfo) {
-			addLogEntry(
-				label,
-				"error",
-				`Server info for "${label}" disappeared during wait.`,
-			);
-			return fail(
-				textPayload(
-					JSON.stringify(
-						{
-							error: `Server with label "${label}" disappeared during wait. Cannot determine status.`,
-							status: "unknown",
-							error_type: "disappeared_during_wait",
-						},
-						null,
-						2,
-					),
-				),
-			);
-		}
-		achievedTargetStatus = serverInfo.status === targetStatusTyped;
-
-		if (
-			serverInfo.status === "crashed" ||
-			serverInfo.status === "error" ||
-			serverInfo.status === "stopped"
-		) {
-			if (serverInfo.status !== targetStatusTyped) {
-				terminalStateReached = true;
-				addLogEntry(
-					label,
-					"warn",
-					`Wait aborted: Server entered terminal state '${serverInfo.status}' while waiting for '${targetStatus}'.`,
-				);
-			}
-		}
-	}
-
-	if (achievedTargetStatus) {
-		addLogEntry(
-			label,
-			"system",
-			`Successfully reached target status '${targetStatus}'.`,
-		);
-		finalHint = `Wait successful. Server reached target status '${targetStatus}'.`;
-	} else if (terminalStateReached) {
-		finalHint = `Wait ended prematurely. Server reached terminal state '${serverInfo.status}' instead of target '${targetStatus}'.`;
-	} else if (Date.now() >= endTime) {
-		timedOut = true;
-		addLogEntry(
-			label,
-			"warn",
-			`Timed out after ${timeoutSeconds}s waiting for status '${targetStatus}'. Current status: '${serverInfo.status}'.`,
-		);
-		finalHint = `Wait timed out after ${timeoutSeconds}s. Server is currently ${serverInfo.status}.`;
-	} else {
-		finalHint = `Wait ended unexpectedly. Current status: '${serverInfo.status}', Target: '${targetStatus}'.`;
-	}
-
-	const linesToReturn = Math.min(logLines, MAX_STORED_LOG_LINES);
-	const latestServerInfo = runningServers.get(label);
-	const finalLogs = formatLogsForResponse(
-		latestServerInfo?.logs ?? serverInfo.logs,
-		linesToReturn,
-	);
-	const finalServerStatus = latestServerInfo?.status ?? serverInfo.status;
 
 	const responsePayload = {
-		label: serverInfo.label,
-		pid: serverInfo.pid,
-		command: serverInfo.command,
-		workingDirectory: serverInfo.cwd,
-		startTime: serverInfo.startTime.toISOString(),
-		status: finalServerStatus,
-		targetStatus: targetStatus,
-		waitResult: achievedTargetStatus
-			? "success"
-			: terminalStateReached
-				? "wrong_state"
-				: timedOut
-					? "timed_out"
-					: "unknown",
-		exitCode: serverInfo.exitCode,
-		error: serverInfo.error,
-		hint: finalHint,
-		waitedSeconds: ((Date.now() - startTime) / 1000).toFixed(2),
-		timeoutSetting: timeoutSeconds,
-		logs: finalLogs,
-		logLinesReturned: finalLogs.length,
-		monitoring_hint: `Wait complete. Final status: '${finalServerStatus}'. ${finalHint}`,
+		label: processInfo.label,
+		status: processInfo.status,
+		pid: processInfo.pid,
+		command: processInfo.command,
+		args: processInfo.args,
+		cwd: processInfo.cwd,
+		exitCode: processInfo.exitCode,
+		signal: processInfo.signal,
+		logs: formatLogsForResponse(
+			processInfo.logs.map((l) => l.content),
+			log_lines,
+		),
 	};
 
-	const result = {
-		content: [textPayload(JSON.stringify(responsePayload, null, 2))],
-		isError:
-			(timedOut &&
-				targetStatusTyped !== "stopped" &&
-				targetStatusTyped !== "crashed" &&
-				targetStatusTyped !== "error") ||
-			terminalStateReached ||
-			finalServerStatus === "error" ||
-			finalServerStatus === "crashed",
-	};
-	return result;
+	let hint = `Process is ${processInfo.status}.`;
+	if (processInfo.status === "restarting") {
+		hint += ` Attempt ${processInfo.restartAttempts}/${processInfo.maxRetries}.`;
+	}
+	if (processInfo.status === "crashed") {
+		hint += ` Exited with code ${processInfo.exitCode ?? "N/A"}${processInfo.signal ? ` (signal ${processInfo.signal})` : ""}. Will ${processInfo.maxRetries && processInfo.maxRetries > 0 ? "attempt restart" : "not restart"}.`;
+	}
+	if (processInfo.status === "error") {
+		hint += " Unrecoverable error occurred. Check logs.";
+	}
+
+	return ok(textPayload(JSON.stringify({ ...responsePayload, hint }, null, 2)));
+}
+
+async function _listProcesses(
+	params: z.infer<typeof ListProcessesParams>,
+): Promise<CallToolResult> {
+	const { log_lines } = params;
+	if (managedProcesses.size === 0) {
+		return ok(textPayload("No background processes are currently managed."));
+	}
+
+	const processList = [];
+	for (const label of managedProcesses.keys()) {
+		const processInfo = await checkAndUpdateProcessStatus(label);
+		if (processInfo) {
+			processList.push({
+				label: processInfo.label,
+				status: processInfo.status,
+				pid: processInfo.pid,
+				command: processInfo.command,
+				args: processInfo.args,
+				cwd: processInfo.cwd,
+				exitCode: processInfo.exitCode,
+				signal: processInfo.signal,
+				logs:
+					log_lines > 0
+						? formatLogsForResponse(
+							processInfo.logs.map((l) => l.content),
+							log_lines,
+						)
+						: undefined,
+			});
+		}
+	}
+
+	const message = `Found ${processList.length} managed processes.`;
+	return ok(
+		textPayload(JSON.stringify({ message, processes: processList }, null, 2)),
+	);
+}
+
+async function _stopAllProcesses(): Promise<CallToolResult> {
+	log.info(null, "Attempting to stop all active processes...");
+	const results: {
+		label: string;
+		result: string;
+		status?: ProcessStatus | "not_found";
+	}[] = [];
+	let stoppedCount = 0;
+	let skippedCount = 0;
+
+	for (const label of managedProcesses.keys()) {
+		const processInfo = await checkAndUpdateProcessStatus(label);
+		if (
+			processInfo &&
+			["starting", "running", "verifying", "restarting"].includes(
+				processInfo.status,
+			)
+		) {
+			log.info(
+				label,
+				`Process ${label} is active (${processInfo.status}), attempting stop.`,
+			);
+			const stopResult = await _stopProcess(label, false);
+			const resultText = getResultText(stopResult) ?? "Unknown stop result";
+			let parsedResult: { status?: ProcessStatus, error?: string } = {};
+			try {
+				parsedResult = JSON.parse(resultText);
+			} catch {
+				/* ignore */
+			}
+			results.push({
+				label,
+				result: stopResult.isError ? "Failed" : "SignalSent",
+				status: parsedResult.status ?? processInfo.status,
+			});
+			if (!stopResult.isError) stoppedCount++;
+		} else {
+			skippedCount++;
+			results.push({
+				label,
+				result: "Skipped",
+				status: processInfo?.status ?? "not_found",
+			});
+		}
+	}
+
+	const summary = `Processes processed: ${managedProcesses.size}. Signals sent: ${stoppedCount}. Skipped (already terminal/missing): ${skippedCount}.`;
+	log.info(null, summary);
+	return ok(
+		textPayload(JSON.stringify({ summary, details: results }, null, 2)),
+	);
+}
+
+async function _restartProcess(
+	params: z.infer<typeof RestartProcessParams>,
+): Promise<CallToolResult> {
+	const { label } = params;
+	log.info(label, `Restart requested for process "${label}".`);
+	addLogEntry(label, "Restart requested.");
+
+	const processInfo = await checkAndUpdateProcessStatus(label);
+
+	if (!processInfo) {
+		return fail(
+			textPayload(
+				JSON.stringify({
+					error: `Process with label "${label}" not found for restart.`,
+					status: "not_found",
+				}),
+			),
+		);
+	}
+
+	let stopStatus: ProcessStatus | "not_needed" = "not_needed";
+	if (
+		["starting", "running", "verifying", "restarting", "stopping"].includes(
+			processInfo.status,
+		)
+	) {
+		log.info(
+			label,
+			`Stopping process (status: ${processInfo.status}) before restart...`,
+		);
+		addLogEntry(label, "Stopping process before restart...");
+		const stopResult = await _stopProcess(label, false);
+		const stopResultText = getResultText(stopResult);
+		let stopResultJson: { status?: ProcessStatus, error?: string } = {};
+		try {
+			if (stopResultText) stopResultJson = JSON.parse(stopResultText);
+		} catch (e) {
+			log.warn(label, "Could not parse stop result JSON", e);
+		}
+
+		stopStatus = stopResultJson.status ?? "unknown";
+
+		if (stopResult.isError) {
+			const stopErrorMsg =
+				stopResultJson.error ?? "Failed to stop process before restart.";
+			log.error(label, `Restart aborted: ${stopErrorMsg}`);
+			addLogEntry(label, `Restart aborted: Stop failed: ${stopErrorMsg}`);
+			return fail(
+				textPayload(
+					JSON.stringify({
+						error: `Restart failed: ${stopErrorMsg}`,
+						status: stopStatus,
+					}),
+				),
+			);
+		}
+
+		await new Promise((resolve) => setTimeout(resolve, 500));
+		const finalCheck = await checkAndUpdateProcessStatus(label);
+		stopStatus = finalCheck?.status ?? stopStatus;
+		log.info(label, `Stop phase completed, final status: ${stopStatus}.`);
+		addLogEntry(label, `Stop phase completed, final status: ${stopStatus}.`);
+	} else {
+		log.info(
+			label,
+			`Process was already ${processInfo.status}. Skipping stop signal phase.`,
+		);
+		addLogEntry(
+			label,
+			`Process was already ${processInfo.status}. Skipping stop phase.`,
+		);
+		stopStatus = processInfo.status;
+	}
+
+	log.info(label, "Starting process after stop/check phase...");
+	addLogEntry(label, "Starting process after stop/check phase...");
+
+	const startResult = await _startProcess(
+		label,
+		processInfo.command,
+		processInfo.args,
+		processInfo.cwd,
+		processInfo.verificationPattern,
+		processInfo.verificationTimeoutMs,
+		processInfo.retryDelayMs,
+		processInfo.maxRetries,
+		true,
+	);
+
+	const startResultText = getResultText(startResult);
+	let startResultJson: { status?: ProcessStatus, error?: string } = {};
+	try {
+		if (startResultText) startResultJson = JSON.parse(startResultText);
+	} catch (e) {
+		log.warn(label, "Could not parse start result JSON", e);
+	}
+
+	if (startResult.isError) {
+		const startErrorMsg =
+			startResultJson.error ?? "Failed to start process during restart.";
+		log.error(label, `Restart failed: ${startErrorMsg}`);
+		addLogEntry(label, `Restart failed: Start phase failed: ${startErrorMsg}`);
+		return fail(
+			textPayload(
+				JSON.stringify({
+					error: `Restart failed: ${startErrorMsg}`,
+					status: startResultJson.status ?? "error",
+				}),
+			),
+		);
+	}
+
+	log.info(label, "Restart sequence completed successfully.");
+	addLogEntry(label, "Restart sequence completed successfully.");
+	return startResult;
+}
+
+async function _waitForProcess(
+	params: z.infer<typeof WaitForProcessParams>,
+): Promise<CallToolResult> {
+	const { label, target_status, timeout_seconds, check_interval_seconds } =
+		params;
+	const startTime = Date.now();
+	const timeoutMs = timeout_seconds * 1000;
+	const intervalMs = check_interval_seconds * 1000;
+
+	log.info(
+		label,
+		`Waiting up to ${timeout_seconds}s for status '${target_status}' (checking every ${check_interval_seconds}s).`,
+	);
+	addLogEntry(
+		label,
+		`Waiting for status '${target_status}'. Timeout: ${timeout_seconds}s.`,
+	);
+
+	while (Date.now() - startTime < timeoutMs) {
+		const processInfo = await checkAndUpdateProcessStatus(label);
+
+		if (!processInfo) {
+			const errorMsg = `Process info for "${label}" disappeared during wait.`;
+			log.error(label, errorMsg);
+			addLogEntry(label, errorMsg);
+			return fail(
+				textPayload(JSON.stringify({ error: errorMsg, status: "not_found" })),
+			);
+		}
+
+		log.debug(label, `Wait check: Current status is ${processInfo.status}`);
+
+		if (processInfo.status === target_status) {
+			const successMsg = `Successfully reached target status '${target_status}'.`;
+			log.info(label, successMsg);
+			addLogEntry(label, successMsg);
+			return ok(
+				textPayload(
+					JSON.stringify({
+						message: successMsg,
+						status: processInfo.status,
+						pid: processInfo.pid,
+						cwd: processInfo.cwd,
+					}),
+				),
+			);
+		}
+
+		if (["stopped", "crashed", "error"].includes(processInfo.status)) {
+			const abortMsg = `Wait aborted: Process entered terminal state '${processInfo.status}' while waiting for '${target_status}'.`;
+			log.warn(label, abortMsg);
+			addLogEntry(label, abortMsg);
+			return fail(
+				textPayload(
+					JSON.stringify({ error: abortMsg, status: processInfo.status }),
+				),
+			);
+		}
+
+		await new Promise((resolve) => setTimeout(resolve, intervalMs));
+	}
+
+	const finalInfo = await checkAndUpdateProcessStatus(label);
+	const timeoutMsg = `Timed out after ${timeout_seconds}s waiting for status '${target_status}'. Current status: '${finalInfo?.status ?? "unknown"}'.`;
+	log.error(label, timeoutMsg);
+	addLogEntry(label, timeoutMsg);
+	return fail(
+		textPayload(
+			JSON.stringify({
+				error: timeoutMsg,
+				status: finalInfo?.status ?? "timeout",
+			}),
+		),
+	);
 }
 
 async function _healthCheck(): Promise<CallToolResult> {
-	log.info(null, "Performing health check...");
+	const activeProcesses = [];
+	let errorCount = 0;
+	let crashedCount = 0;
 
-	const issues: string[] = [];
-	let overallStatus: "OK" | "Warning" | "Error" = "OK";
-
-	const statusCounts: Record<ServerStatus | "total", number> = {
-		starting: 0,
-		verifying: 0,
-		running: 0,
-		stopping: 0,
-		stopped: 0,
-		restarting: 0,
-		crashed: 0,
-		error: 0,
-		total: runningServers.size,
-	};
-	let activePtyHandles = 0;
-	let potentialZombieCount = 0;
-	const highRetryServers: string[] = [];
-	const leakedHandleServers: string[] = [];
-
-	for (const label of runningServers.keys()) {
-		await checkAndUpdateStatus(label);
-	}
-
-	for (const [label, serverInfo] of runningServers.entries()) {
-		if (serverInfo.status in statusCounts) {
-			statusCounts[serverInfo.status]++;
-		}
-
-		const isActiveState =
-			serverInfo.status === "running" ||
-			serverInfo.status === "starting" ||
-			serverInfo.status === "verifying" ||
-			serverInfo.status === "restarting" ||
-			serverInfo.status === "stopping";
-
-		if (serverInfo.process) {
-			activePtyHandles++;
-			if (!isActiveState && serverInfo.status !== "error") {
-				leakedHandleServers.push(label);
-				issues.push(
-					`Potential handle leak: Server '${label}' is ${serverInfo.status} but still has a process handle.`,
-				);
-				overallStatus = "Error";
-			}
-		}
-
-		if (isActiveState && serverInfo.pid) {
-			if (!doesProcessExist(serverInfo.pid)) {
-				potentialZombieCount++;
-				issues.push(
-					`Potential zombie: Server '${label}' is ${serverInfo.status} but process PID ${serverInfo.pid} not found. Status should be updated soon.`,
-				);
-				if (overallStatus !== "Error") overallStatus = "Warning";
-			}
-		}
-
-		if (serverInfo.status === "error") {
-			issues.push(
-				`Server '${label}' is in error state: ${serverInfo.error || "No details"}`,
-			);
-			if (overallStatus !== "Error") overallStatus = "Warning";
-		}
-
-		if (serverInfo.retryCount > 0) {
-			const retryThreshold = Math.ceil(MAX_RETRIES / 2);
-			const message = `Server '${label}' has retry count ${serverInfo.retryCount}/${MAX_RETRIES}.`;
-			issues.push(message);
-			if (
-				serverInfo.retryCount >= retryThreshold &&
-				overallStatus !== "Error"
-			) {
-				overallStatus = "Warning";
-			}
-			if (serverInfo.retryCount >= MAX_RETRIES) {
-				overallStatus = "Error";
-			}
-			highRetryServers.push(label);
+	for (const label of managedProcesses.keys()) {
+		const processInfo = await checkAndUpdateProcessStatus(label);
+		if (processInfo) {
+			activeProcesses.push({
+				label: processInfo.label,
+				status: processInfo.status,
+				pid: processInfo.pid,
+			});
+			if (processInfo.status === "error") errorCount++;
+			if (processInfo.status === "crashed") crashedCount++;
 		}
 	}
-
-	const zombieCheckRunning = !!getZombieCheckIntervalId();
-	if (!zombieCheckRunning) {
-		issues.push("Zombie check interval is not running.");
-		overallStatus = "Error";
-	}
-
-	const memoryUsage = process.memoryUsage();
-	const formatBytes = (bytes: number) =>
-		`${(bytes / 1024 / 1024).toFixed(2)} MB`;
-	const memoryInfo = {
-		rss: formatBytes(memoryUsage.rss),
-		heapTotal: formatBytes(memoryUsage.heapTotal),
-		heapUsed: formatBytes(memoryUsage.heapUsed),
-		external: formatBytes(memoryUsage.external),
-	};
 
 	const payload = {
-		healthStatus: overallStatus,
-		timestamp: new Date().toISOString(),
-		serverSummary: {
-			totalManaged: statusCounts.total,
-			statusCounts: { ...statusCounts },
-			activePtyHandles: activePtyHandles,
-		},
-		potentialIssues: {
-			count: issues.length,
-			details: issues,
-			serversInErrorState: statusCounts.error,
-			serversWithHighRetries: highRetryServers.length,
-			potentialZombiesDetected: potentialZombieCount,
-			potentialLeakedHandles: leakedHandleServers.length,
-		},
-		internalChecks: {
-			zombieCheckIntervalRunning: zombieCheckRunning,
-			zombieCheckIntervalMs: ZOMBIE_CHECK_INTERVAL,
-		},
-		resourceUsage: {
-			memory: memoryInfo,
-		},
+		server_name: SERVER_NAME,
+		server_version: SERVER_VERSION,
+		status: "healthy",
+		managed_processes_count: managedProcesses.size,
+		processes_in_error_state: errorCount,
+		processes_in_crashed_state: crashedCount,
+		zombie_check_active: !!zombieCheckIntervalId,
+		process_details: activeProcesses,
 	};
 
-	log.info(null, `Health check completed with status: ${overallStatus}`);
+	if (errorCount > 0 || crashedCount > 0) {
+		payload.status = "degraded";
+	}
 
-	return {
-		content: [textPayload(JSON.stringify(payload, null, 2))],
-		isError: overallStatus === "Error",
-	};
+	log.info(
+		null,
+		`Health check performed. Status: ${payload.status}, Processes: ${payload.managed_processes_count}`,
+	);
+	return ok(textPayload(JSON.stringify(payload, null, 2)));
 }
 
 export function registerToolDefinitions(server: McpServer): void {
-	const startDevServerSchema = z.object({
-		label: z
-			.string()
-			.min(1)
-			.describe(
-				"A unique label to identify this server instance (e.g., 'frontend', 'backend-api'). Must be unique.",
-			),
-		command: z
-			.string()
-			.min(1)
-			.describe(
-				"The command to execute (e.g., 'npm run dev', 'pnpm start', 'yarn serve')",
-			),
-		workingDirectory: z
-			.string()
-			.optional()
-			.describe(
-				"The **absolute** working directory to run the command from. **Do not use relative paths like '.'**. Provide the full path (e.g., '/Users/me/myproject'). If omitted, defaults to the MCP workspace root or the CWD of the server process, but providing the full path explicitly is strongly recommended.",
-			),
-		logLines: z
-			.number()
-			.int()
-			.positive()
-			.optional()
-			.default(DEFAULT_RETURN_LOG_LINES)
-			.describe(
-				`Number of initial log lines to return (default: ${DEFAULT_RETURN_LOG_LINES}, max stored: ${MAX_STORED_LOG_LINES}).`,
-			),
-	});
-	type StartDevServerParams = z.infer<typeof startDevServerSchema>;
-
 	server.tool(
-		"start_dev_server",
-		"Starts a development server in the background using a specified command and assigns it a unique label. Returns status and initial logs (ANSI codes stripped). Handles verification and basic crash detection/retry.",
-		shape(startDevServerSchema.shape),
-		(params: StartDevServerParams) =>
-			handleToolCall(params.label, "start_dev_server", params, () =>
-				_startServer(
+		"start_process",
+		"Starts a background process (like a dev server or script) and manages it.",
+		shape(StartProcessParams.shape),
+		(params: z.infer<typeof StartProcessParams>) =>
+			handleToolCall(params.label, "start_process", params, async () => {
+				const verificationPattern = params.verification_pattern
+					? new RegExp(params.verification_pattern)
+					: undefined;
+
+				return await _startProcess(
 					params.label,
 					params.command,
-					params.workingDirectory,
-					params.logLines,
-				),
-			),
+					params.args,
+					params.cwd,
+					verificationPattern,
+					params.verification_timeout_ms,
+					params.retry_delay_ms,
+					params.max_retries,
+					false,
+				);
+			}),
 	);
 
-	const checkDevServerStatusSchema = z.object({
-		label: z
-			.string()
-			.min(1)
-			.describe("The unique label of the server to check."),
-		logLines: z
-			.number()
-			.int()
-			.positive()
-			.optional()
-			.default(DEFAULT_RETURN_LOG_LINES)
-			.describe(
-				`Number of recent log lines to return (default: ${DEFAULT_RETURN_LOG_LINES}, max stored: ${MAX_STORED_LOG_LINES}).`,
-			),
-	});
-	type CheckDevServerStatusParams = z.infer<typeof checkDevServerStatusSchema>;
-
 	server.tool(
-		"check_dev_server_status",
-		"Checks the status and recent logs (ANSI codes stripped) of a development server using its label. Verifies if the process still exists.",
-		shape(checkDevServerStatusSchema.shape),
-		(params: CheckDevServerStatusParams) =>
-			handleToolCall(params.label, "check_dev_server_status", params, () =>
-				_checkDevServerStatus(params.label, params.logLines),
-			),
-	);
-
-	const stopDevServerSchema = z.object({
-		label: z
-			.string()
-			.min(1)
-			.describe("The unique label of the server to stop."),
-		force: z
-			.boolean()
-			.optional()
-			.default(false)
-			.describe(
-				"If true, use SIGKILL for immediate termination instead of SIGTERM.",
-			),
-		logLines: z
-			.number()
-			.int()
-			.positive()
-			.optional()
-			.default(DEFAULT_RETURN_LOG_LINES)
-			.describe(
-				`Number of recent log lines to return (default: ${DEFAULT_RETURN_LOG_LINES}, max stored: ${MAX_STORED_LOG_LINES}).`,
-			),
-	});
-	type StopDevServerParams = z.infer<typeof stopDevServerSchema>;
-
-	server.tool(
-		"stop_dev_server",
-		"Stops a specific development server using its label and verifies the stop. Returns final status and recent logs (ANSI codes stripped). Handles stop timeouts.",
-		shape(stopDevServerSchema.shape),
-		(params: StopDevServerParams) =>
-			handleToolCall(params.label, "stop_dev_server", params, () =>
-				_stopServer(params.label, params.force, params.logLines),
+		"check_process_status",
+		"Checks the status and retrieves recent logs of a managed background process.",
+		shape(CheckProcessStatusParams.shape),
+		(params: z.infer<typeof CheckProcessStatusParams>) =>
+			handleToolCall(params.label, "check_process_status", params, () =>
+				_checkProcessStatus(params),
 			),
 	);
 
 	server.tool(
-		"list_dev_servers",
-		"Lists all currently managed development servers and their statuses.",
-		{},
-		() => handleToolCall(null, "list_dev_servers", {}, _listDevServers),
+		"stop_process",
+		"Stops a specific background process.",
+		shape(StopProcessParams.shape),
+		(params: z.infer<typeof StopProcessParams>) =>
+			handleToolCall(params.label, "stop_process", params, async () => {
+				return await _stopProcess(params.label, params.force);
+			}),
 	);
 
-	const stopAllDevServersSchema = z.object({
-		force: z
-			.boolean()
-			.optional()
-			.default(false)
-			.describe(
-				"If true, use SIGKILL for immediate termination instead of SIGTERM.",
-			),
-	});
-	type StopAllDevServersParams = z.infer<typeof stopAllDevServersSchema>;
-
 	server.tool(
-		"stop_all_dev_servers",
-		"Stops all currently running or starting development servers managed by this tool and verifies.",
-		shape(stopAllDevServersSchema.shape),
-		(params: StopAllDevServersParams) =>
-			handleToolCall(null, "stop_all_dev_servers", params, () =>
-				_stopAllDevServers(params.force),
+		"list_processes",
+		"Lists all managed background processes and their statuses.",
+		shape(ListProcessesParams.shape),
+		(params: z.infer<typeof ListProcessesParams>) =>
+			handleToolCall(null, "list_processes", params, () =>
+				_listProcesses(params),
 			),
 	);
 
-	const restartDevServerSchema = z.object({
-		label: z
-			.string()
-			.min(1)
-			.describe("The unique label of the server to restart."),
-		force: z
-			.boolean()
-			.optional()
-			.default(false)
-			.describe("If true, use SIGKILL for the stop phase instead of SIGTERM."),
-		logLines: z
-			.number()
-			.int()
-			.positive()
-			.optional()
-			.default(DEFAULT_RETURN_LOG_LINES)
-			.describe(
-				`Number of initial log lines to return from the start phase (default: ${DEFAULT_RETURN_LOG_LINES}, max stored: ${MAX_STORED_LOG_LINES}).`,
-			),
-	});
-	type RestartDevServerParams = z.infer<typeof restartDevServerSchema>;
+	server.tool(
+		"stop_all_processes",
+		"Attempts to gracefully stop all active background processes.",
+		{}, // No parameters for stop_all
+		(
+			params: Record<string, never>, // params will be empty object
+		) => handleToolCall(null, "stop_all_processes", params, _stopAllProcesses),
+	);
 
 	server.tool(
-		"restart_dev_server",
-		"Stops (if running) and then starts a development server with the same configuration. Returns final status and initial logs from the start phase.",
-		shape(restartDevServerSchema.shape),
-		(params: RestartDevServerParams) =>
-			handleToolCall(params.label, "restart_dev_server", params, () =>
-				_restartDevServer(params.label, params.force, params.logLines),
+		"restart_process",
+		"Restarts a specific background process by stopping and then starting it again.",
+		shape(RestartProcessParams.shape),
+		(params: z.infer<typeof RestartProcessParams>) =>
+			handleToolCall(params.label, "restart_process", params, () =>
+				_restartProcess(params),
 			),
 	);
 
-	const waitForDevServerSchema = z.object({
-		label: z
-			.string()
-			.min(1)
-			.describe("The unique label of the server to wait for."),
-		timeoutSeconds: z
-			.number()
-			.int()
-			.positive()
-			.optional()
-			.default(5)
-			.describe(
-				"Maximum time in seconds to wait for the server to reach the target status (e.g., allow 5s for reload/startup). Default: 5s.",
-			),
-		checkIntervalSeconds: z
-			.number()
-			.positive()
-			.optional()
-			.default(1)
-			.describe(
-				"How often to check the server status in seconds during the wait. Default: 1s.",
-			),
-		targetStatus: z
-			.string()
-			.optional()
-			.default("running")
-			.describe(
-				"The desired status to wait for (e.g., 'running', 'stopped'). Default: 'running'.",
-			),
-		logLines: z
-			.number()
-			.int()
-			.positive()
-			.optional()
-			.default(DEFAULT_RETURN_LOG_LINES)
-			.describe(
-				`Number of recent log lines to return upon completion or timeout (default: ${DEFAULT_RETURN_LOG_LINES}, max stored: ${MAX_STORED_LOG_LINES}).`,
-			),
-	});
-	type WaitForDevServerParams = z.infer<typeof waitForDevServerSchema>;
-
 	server.tool(
-		"wait_for_dev_server",
-		"Waits for a specific development server to reach a target status (usually 'running' after a start/restart) within a timeout. Checks status periodically. Use this after starting or restarting a server to ensure it's ready before proceeding.",
-		shape(waitForDevServerSchema.shape),
-		(params: WaitForDevServerParams) =>
-			handleToolCall(params.label, "wait_for_dev_server", params, () =>
-				_waitForDevServer(
-					params.label,
-					params.timeoutSeconds,
-					params.checkIntervalSeconds,
-					params.targetStatus,
-					params.logLines,
-				),
+		"wait_for_process",
+		"Waits for a specific background process to reach a target status (e.g., running).",
+		shape(WaitForProcessParams.shape),
+		(params: z.infer<typeof WaitForProcessParams>) =>
+			handleToolCall(params.label, "wait_for_process", params, () =>
+				_waitForProcess(params),
 			),
 	);
 
 	server.tool(
 		"health_check",
-		"Provides an overall health status of the MCP Dev Server Manager itself, including managed process counts, resource usage, zombie check status, and potential issues like leaks or crash loops.",
-		{},
-		() => handleToolCall(null, "health_check", {}, _healthCheck),
+		"Provides a health status summary of the MCP Process Manager itself.",
+		{}, // No parameters for health_check
+		(
+			params: Record<string, never>, // params will be empty object
+		) => handleToolCall(null, "health_check", params, _healthCheck),
 	);
+
+	log.info(null, "Tool definitions registered.");
+}
+
+function getResultText(result: CallToolResult): string | null {
+	if (result.content && result.content.length > 0) {
+		const firstContent = result.content[0];
+		if (
+			firstContent &&
+			"type" in firstContent &&
+			firstContent.type === "text" &&
+			"text" in firstContent &&
+			typeof firstContent.text === "string"
+		) {
+			return firstContent.text;
+		}
+	}
+	return null;
 }

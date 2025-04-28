@@ -1,15 +1,7 @@
 #!/usr/bin/env node
 
-import { main, setupSignalHandlers } from "./main.js";
-import { log } from "./utils.js"; // Import log first for potential early errors
+// Import the main function to start the server
+// Main function runs automatically when imported due to top-level await/execution
+import "./main.js";
 
-// Set up signal handlers early
-setupSignalHandlers();
-
-// Run the main application logic
-main().catch((error) => {
-	log.error(null, "Fatal error during application startup:", error);
-	process.exit(1);
-});
-
-// Trigger release
+// Removed unused imports and catch block, as main.js handles its own errors.
