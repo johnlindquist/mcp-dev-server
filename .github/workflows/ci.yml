@@ -72,9 +72,9 @@ jobs:
         uses: actions/cache@v4
         with:
           # Cache the compiled binary + node-gyp header cache
-          path: |\
+          path: |
             node_modules/.pnpm/node-pty@1.0.0/node_modules/node-pty/build
-            ~\/.cache/node-gyp
+            ~/.cache/node-gyp
           key: ${{ runner.os }}-node${{ steps.setup-node.outputs.node-version }}-nodepty-v1.0.0
 
       # Rebuild only if the cache missed on Windows
