@@ -49,17 +49,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # No pnpm here, so no cache flag -- Correction: We DO need pnpm cache here
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm # Restore pnpm cache
-
+      # 1️⃣ Put pnpm on the PATH first
       - uses: pnpm/action-setup@v4
         with:
           version: 9
-          run_install: false # Don't run full install here
+          run_install: false # We'll install after caching
 
+      # 2️⃣ Now setup-node can safely enable its pnpm cache
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm # now succeeds because pnpm exists
+
+      # 3️⃣ Runtime deps (fast because store is cached)
       - name: Install runtime deps only
         run: pnpm install --prod --frozen-lockfile # Install prod deps
 
