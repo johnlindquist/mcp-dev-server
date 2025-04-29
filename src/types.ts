@@ -170,7 +170,7 @@ const ProcessStatusInfoSchema = z.object({
 		.string()
 		.nullable()
 		.describe(
-			"Signal code if the process was terminated by a signal, otherwise null.",
+			"Signal name if the process was terminated by a signal, otherwise null.",
 		),
 	log_file_path: z
 		.string()
@@ -182,7 +182,7 @@ const ProcessStatusInfoSchema = z.object({
 		.nullable()
 		.optional()
 		.describe(
-			"Convenience command to tail the log file in a terminal (e.g., 'tail -f ...').",
+			"Convenience command to tail the log file in a terminal (e.g., 'tail -f /path/to/log').",
 		),
 });
 
@@ -194,7 +194,9 @@ export const StartSuccessPayloadSchema = ProcessStatusInfoSchema.extend({
 		.describe("Initial block of logs captured during startup or settling."),
 	monitoring_hint: z
 		.string()
-		.describe("Guidance on how to monitor the process further."),
+		.describe(
+			"Guidance on how to monitor the process (e.g., using check_process_status or tail).",
+		),
 	info_message: z
 		.string()
 		.optional()
@@ -229,7 +231,9 @@ export const CheckStatusPayloadSchema = ProcessStatusInfoSchema.extend({
 	hint: z
 		.string()
 		.optional()
-		.describe("Hint about the returned logs (e.g., if truncated). "),
+		.describe(
+			"Hint about the returned logs (e.g., if truncated or if more lines are stored).",
+		),
 }).describe("Response payload for check_process_status.");
 
 // Schema for list_processes item payload
@@ -271,7 +275,7 @@ const StopAllDetailSchema = z.object({
 	label: z.string().describe("Process label."),
 	result: z
 		.enum(["SignalSent", "Skipped", "Failed", "NotFound"])
-		.describe("Outcome for this specific process."),
+		.describe("Outcome for this specific process (e.g., SignalSent, Skipped)."),
 	status: ProcessStatusInfoSchema.shape.status
 		.or(z.literal("not_found"))
 		.optional()
