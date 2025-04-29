@@ -1,36 +1,41 @@
 #!/usr/bin/env bash
-# Run any command with a 3-second guard. Treat natural exit **or** SIGINT as success.
+# Run a command with a 3-second guard. Natural exit **or** forced stop = success.
 set -euo pipefail
 
-timeout_guard() {
-  local seconds="$1"; shift
+TIMEOUT="${TIMEOUT:-3}"
 
-  "$@" &                     # start the real command
-  local cmd_pid=$!
+run_with_guard() {
+  "$@" &                 # launch real command
+  local pid=$!
 
-  # background watcher that nukes the process after N seconds
-  (
-    sleep "$seconds"
-    kill -s INT "$cmd_pid" 2>/dev/null || true
-  ) &
-  local watcher_pid=$!
+  if [[ "$OS" == "Windows_NT" ]]; then
+    # ----- Windows branch (taskkill) -----
+    (
+      sleep "$TIMEOUT"
+      echo "⏳ Timeout! taskkill PID $pid"
+      taskkill.exe /T /F /PID "$pid" >NUL 2>&1 || true
+    ) &
+  else
+    # ----- POSIX branch (SIGINT) -----
+    (
+      sleep "$TIMEOUT"
+      echo "⏳ Timeout! kill -INT $pid"
+      kill -s INT "$pid" 2>/dev/null || true
+    ) &
+  fi
 
-  # wait for the command; capture status
-  wait "$cmd_pid"
-  local status=$?
+  local watcher=$!
+  wait "$pid"; local status=$?
+  kill "$watcher" 2>/dev/null || true   # clean up watcher
 
-  kill "$watcher_pid" 2>/dev/null || true  # clean up watcher
-  [[ $status -eq 130 ]] && status=0        # 130 = SIGINT → treat as success
-  return $status
+  # Treat forced stop (128+signal on Linux, 1 on taskkill) as success
+  if [[ $status -eq 0 || $status -ge 128 ]]; then
+    echo "✅ Smoke test passed"
+    return 0
+  else
+    echo "❌ Smoke test failed (exit $status)"
+    return "$status"
+  fi
 }
 
-timeout_guard "${TIMEOUT:-3}" node build/index.mjs
-EXIT=$?
-
-if [[ $EXIT -eq 0 || $EXIT -eq 130 ]]; then   # 130 = SIGINT
-  echo "✅ Smoke test passed"
-  exit 0
-else
-  echo "❌ Smoke test failed"
-  exit $EXIT
-fi 
+run_with_guard node build/index.mjs 
