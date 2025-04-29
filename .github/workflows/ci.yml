@@ -66,10 +66,7 @@ jobs:
           node-version: ${{ needs.build.outputs.node-version }} # Reuse version from build job
           cache: pnpm # now succeeds because pnpm exists
 
-      # 3️⃣ Runtime deps (fast because store is cached)
-      - name: Install runtime deps only
-        run: pnpm install --prod --frozen-lockfile --ignore-scripts # Ignore Husky prepare
-
+      # 3️⃣ (Windows only) Restore node-pty cache
       - name: Restore node-pty cache
         if: runner.os == 'Windows'
         id: pty-cache
@@ -77,28 +74,29 @@ jobs:
         with:
           path: |
             ~/.pnpm-store
-            node_modules/.pnpm/**/node_modules/node-pty/build/Release/pty.node
+            node_modules/.pnpm/**/node_modules/node-pty/build/Release/*.node
           key: pty-${{ runner.os }}-${{ needs.build.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml') }}
 
+      # 4️⃣ Rebuild node-pty if needed (always on non-Windows, only on cache miss on Windows)
       - name: Rebuild node-pty
-        if: runner.os == 'Windows' && steps.pty-cache.outputs.cache-hit != 'true'
+        if: runner.os != 'Windows' || steps.pty-cache.outputs.cache-hit != 'true'
         run: pnpm rebuild node-pty
 
+      # 5️⃣ (Windows only) Save node-pty cache if it was rebuilt
       - name: Save node-pty cache
         if: runner.os == 'Windows' && steps.pty-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: |
             ~/.pnpm-store
-            node_modules/.pnpm/**/node_modules/node-pty/build/Release/pty.node
+            node_modules/.pnpm/**/node_modules/node-pty/build/Release/*.node
           key: pty-${{ runner.os }}-${{ needs.build.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml') }}
 
-      # Windows-only: Cache compiled pty.node so we don't rebuild every run
-      # Removed custom node-pty caching logic as pnpm's cache handles this now
+      # 6️⃣ Install runtime deps (fast because store is cached)
+      - name: Install runtime deps only
+        run: pnpm install --prod --frozen-lockfile --ignore-scripts # Ignore Husky prepare
 
-      # Rebuild only if needed (pnpm postinstall handles this automatically)
-      # Removed explicit rebuild step
-
+      # 7️⃣ Pull artefacts & run smoke tests
       - uses: actions/download-artifact@v4
         with:
           name: ${{ needs.build.outputs['artifact-name'] }}
