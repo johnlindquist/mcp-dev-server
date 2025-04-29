@@ -49,10 +49,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # No pnpm here, so no cache flag
+      # No pnpm here, so no cache flag -- Correction: We DO need pnpm cache here
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: pnpm # Restore pnpm cache
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+          run_install: false # Don't run full install here
+
+      - name: Install runtime deps only
+        run: pnpm install --prod --frozen-lockfile # Install prod deps
 
       - uses: actions/download-artifact@v4
         with:
@@ -60,5 +69,5 @@ jobs:
           path: build/
 
       - name: Smoke test (3-second guard)
-        shell: bash # Ensure bash is used even if default changes
+        shell: bash
         run: scripts/smoke-test.sh
