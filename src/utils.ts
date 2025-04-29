@@ -123,7 +123,13 @@ export function formatLogsForResponse(
 }
 
 /**
- * Replaces characters unsafe for filenames with underscores.
+ * Sanitizes a process label to create a safe filename for log files.
+ * Replaces characters commonly disallowed in filenames across different operating systems (e.g., /, \, :, *, ?, ", <, >, |) and spaces with underscores.
+ * Multiple consecutive underscores are collapsed into one.
+ * Ensures the filename is not empty and appends the `.log` extension.
+ *
+ * @param label The original process label.
+ * @returns A sanitized string suitable for use as a filename, ending with `.log`.
  */
 export function sanitizeLabelForFilename(label: string): string {
 	// Replace common problematic characters: / \ : * ? " < > |
