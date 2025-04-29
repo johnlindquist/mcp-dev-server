@@ -66,6 +66,10 @@ jobs:
           node-version: ${{ needs.build.outputs.node-version }} # Reuse version from build job
           cache: pnpm # now succeeds because pnpm exists
 
+      # 6️⃣ Install runtime deps (fast because store is cached)
+      - name: Install runtime deps only
+        run: pnpm install --prod --frozen-lockfile --ignore-scripts # Ignore Husky prepare
+
       # 3️⃣ (Windows only) Restore node-pty cache
       - name: Restore node-pty cache
         if: runner.os == 'Windows'
@@ -80,7 +84,7 @@ jobs:
       # 4️⃣ Rebuild node-pty if needed (always on non-Windows, only on cache miss on Windows)
       - name: Rebuild node-pty
         if: runner.os != 'Windows' || steps.pty-cache.outputs.cache-hit != 'true'
-        run: pnpm rebuild node-pty
+        run: pnpm i node-pty --allow-build
 
       # 5️⃣ (Windows only) Save node-pty cache if it was rebuilt
       - name: Save node-pty cache
@@ -91,10 +95,6 @@ jobs:
             ~/.pnpm-store
             node_modules/.pnpm/**/node_modules/node-pty/build/Release/*.node
           key: pty-${{ runner.os }}-${{ needs.build.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml') }}
-
-      # 6️⃣ Install runtime deps (fast because store is cached)
-      - name: Install runtime deps only
-        run: pnpm install --prod --frozen-lockfile --ignore-scripts # Ignore Husky prepare
 
       # 7️⃣ Pull artefacts & run smoke tests
       - uses: actions/download-artifact@v4
