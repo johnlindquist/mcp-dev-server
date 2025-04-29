@@ -63,7 +63,7 @@ jobs:
 
       # 3️⃣ Runtime deps (fast because store is cached)
       - name: Install runtime deps only
-        run: pnpm install --prod --frozen-lockfile # Install prod deps
+        run: pnpm install --prod --frozen-lockfile --ignore-scripts # Ignore Husky prepare
 
       - uses: actions/download-artifact@v4
         with:
