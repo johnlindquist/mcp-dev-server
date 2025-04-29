@@ -54,6 +54,6 @@
 	},
 	"packageManager": "pnpm@10.10.0",
 	"pnpm": {
-		"onlyBuiltDependencies": ["node-pty"]
+		"onlyBuiltDependencies": ["node-pty", "esbuild", "@biomejs/biome"]
 	}
 }
