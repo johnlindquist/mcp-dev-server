@@ -12,7 +12,9 @@
 	"bin": {
 		"mcp-pm": "./build/index.mjs"
 	},
-	"files": ["build"],
+	"files": [
+		"build"
+	],
 	"scripts": {
 		"build": "node esbuild.config.js && node -e \"require('fs').chmodSync('build/index.mjs', '755')\"",
 		"prepare": "husky",
@@ -34,6 +36,7 @@
 		"@semantic-release/release-notes-generator": "^14.0.3",
 		"@types/node": "^22.15.3",
 		"conventional-changelog-conventionalcommits": "^8.0.0",
+		"esbuild": "^0.25.3",
 		"husky": "^9.1.7",
 		"semantic-release": "^24.2.3",
 		"typescript": "^5.8.3"
