@@ -1,0 +1,11 @@
+{
+	"editor.defaultFormatter": "biomejs.biome",
+	"biome.requireConfigFile": true,
+	"editor.formatOnSave": true,
+	"[json]": {
+		"editor.defaultFormatter": "biomejs.biome"
+	},
+	"[jsonc]": {
+		"editor.defaultFormatter": "biomejs.biome"
+	}
+}
