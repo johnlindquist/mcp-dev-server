@@ -12,11 +12,10 @@ import {
 import { fail, getResultText, ok, shape, textPayload } from "./mcpUtils.js";
 import { _sendInput, _startProcess, _stopProcess } from "./processLogic.js";
 import {
-	addLogEntry,
 	checkAndUpdateProcessStatus,
 	isZombieCheckActive,
-	managedProcesses,
-} from "./state.js";
+} from "./processSupervisor.js";
+import { addLogEntry, managedProcesses } from "./state.js";
 import { handleToolCall } from "./toolHandler.js";
 import type { CallToolResult, LogEntry, ProcessStatus } from "./types.ts";
 import {

@@ -1,13 +1,11 @@
 import { promisify } from "node:util"; // Add import
 import treeKill from "tree-kill"; // Add import
 import { MAX_STORED_LOG_LINES } from "./constants.js";
-import { handleCrashAndRetry } from "./processLifecycle.js"; // Import from new location
 import type { LogEntry, ProcessInfo, ProcessStatus } from "./types.ts"; // Import LogEntry from types.ts
 import { log } from "./utils.js";
 
 // Renamed Map
 export const managedProcesses: Map<string, ProcessInfo> = new Map();
-export let zombieCheckIntervalId: NodeJS.Timeout | null = null; // Export directly
 
 const killProcessTree = promisify(treeKill); // Define killProcessTree here
 
@@ -95,121 +93,6 @@ export function updateProcessStatus(
 	return processInfo;
 }
 
-export function doesProcessExist(pid: number): boolean {
-	try {
-		// Sending signal 0 doesn't actually send a signal but checks if the process exists.
-		process.kill(pid, 0);
-		return true;
-	} catch (e: unknown) {
-		// Check for specific error codes
-		if (e && typeof e === "object" && "code" in e) {
-			if (e.code === "ESRCH") return false; // No such process
-			if (e.code === "EPERM") return true; // Operation not permitted, but process exists
-		}
-		// Assume false for other errors or if error structure is unexpected
-		return false;
-	}
-}
-
-// Renamed function
-export async function checkAndUpdateProcessStatus(
-	label: string,
-): Promise<ProcessInfo | null> {
-	const processInfo = managedProcesses.get(label);
-	if (!processInfo) {
-		return null;
-	}
-
-	// If process has a PID, check if it's still running
-	if (
-		processInfo.pid &&
-		(processInfo.status === "running" ||
-			processInfo.status === "starting" ||
-			processInfo.status === "verifying" ||
-			processInfo.status === "restarting")
-	) {
-		if (!doesProcessExist(processInfo.pid)) {
-			log.warn(
-				label,
-				`Correcting status: Process PID ${processInfo.pid} not found, but status was '${processInfo.status}'. Marking as crashed.`,
-			);
-			addLogEntry(
-				label,
-				`Detected process PID ${processInfo.pid} no longer exists.`,
-			);
-			// Treat as a crash if it disappeared unexpectedly
-			updateProcessStatus(label, "crashed", { code: -1, signal: null }); // Use a conventional code for "disappeared"
-			// Trigger retry if configured
-			if (
-				processInfo.maxRetries !== undefined &&
-				processInfo.maxRetries > 0 &&
-				processInfo.retryDelayMs !== undefined
-			) {
-				void handleCrashAndRetry(label); // Fire and forget retry
-			}
-		}
-	}
-
-	return processInfo;
-}
-
-// --- Zombie Process Handling ---
-
-export async function reapZombies(): Promise<void> {
-	log.debug(null, "Running zombie process check...");
-	let correctedCount = 0;
-	for (const [label, processInfo] of managedProcesses.entries()) {
-		if (
-			processInfo.pid &&
-			(processInfo.status === "running" ||
-				processInfo.status === "starting" ||
-				processInfo.status === "verifying" ||
-				processInfo.status === "restarting")
-		) {
-			if (!doesProcessExist(processInfo.pid)) {
-				log.warn(
-					label,
-					`Correcting status via zombie check: Process PID ${processInfo.pid} not found, but status was '${processInfo.status}'. Marking as crashed.`,
-				);
-				addLogEntry(
-					label,
-					`Zombie check detected process PID ${processInfo.pid} no longer exists.`,
-				);
-				updateProcessStatus(label, "crashed", { code: -1, signal: null });
-				correctedCount++;
-				// Trigger retry if configured
-				if (
-					processInfo.maxRetries !== undefined &&
-					processInfo.maxRetries > 0 &&
-					processInfo.retryDelayMs !== undefined
-				) {
-					void handleCrashAndRetry(label); // Fire and forget retry
-				}
-			}
-		}
-	}
-	if (correctedCount > 0) {
-		log.info(
-			null,
-			`Zombie check completed. Corrected status for ${correctedCount} processes.`,
-		);
-	} else {
-		log.debug(null, "Zombie check completed. No zombie processes found.");
-	}
-}
-
-export function setZombieCheckInterval(intervalMs: number): void {
-	if (zombieCheckIntervalId) {
-		clearInterval(zombieCheckIntervalId);
-	}
-	log.info(null, `Setting zombie process check interval to ${intervalMs}ms.`);
-	zombieCheckIntervalId = setInterval(() => {
-		void reapZombies(); // Use void for fire-and-forget async call
-	}, intervalMs);
-}
-
-// --- Graceful Shutdown ---
-
 export function stopAllProcessesOnExit(): void {
 	log.info(null, "Stopping all managed processes on exit...");
 	const stopPromises: Promise<void>[] = [];
@@ -281,8 +164,4 @@ export function removeProcess(label: string): void {
 	// If cleanup logic is needed for processInfo.process, it should go here.
 	managedProcesses.delete(label);
 	log.debug(label, "Removed process info from management.");
-}
-
-export function isZombieCheckActive(): boolean {
-	return !!zombieCheckIntervalId;
 }

@@ -12,13 +12,9 @@ import {
 import { serverLogDirectory } from "./main.js"; // Import the log dir path
 import { fail, ok, textPayload } from "./mcpUtils.js";
 import { handleExit } from "./processLifecycle.js"; // Import handleExit from new location
+import { checkAndUpdateProcessStatus } from "./processSupervisor.js"; // Import from supervisor
 import { killPtyProcess, spawnPtyProcess, writeToPty } from "./ptyManager.js"; // Import new functions
-import {
-	addLogEntry,
-	checkAndUpdateProcessStatus, // Renamed function
-	managedProcesses, // Renamed map
-	updateProcessStatus, // Renamed function
-} from "./state.js";
+import { addLogEntry, managedProcesses, updateProcessStatus } from "./state.js";
 import type { SendInputParams } from "./toolDefinitions.js"; // Import the schema type
 import type {
 	CallToolResult,
