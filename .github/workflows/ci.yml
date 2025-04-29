@@ -70,8 +70,28 @@ jobs:
       - name: Install runtime deps only
         run: pnpm install --prod --frozen-lockfile --ignore-scripts # Ignore Husky prepare
 
+      - name: Restore node-pty cache
+        if: runner.os == 'Windows'
+        id: pty-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.pnpm-store
+            node_modules/.pnpm/**/node_modules/node-pty/build/Release/pty.node
+          key: pty-${{ runner.os }}-${{ needs.build.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml') }}
+
       - name: Rebuild node-pty
+        if: runner.os == 'Windows' && steps.pty-cache.outputs.cache-hit != 'true'
         run: pnpm rebuild node-pty
+
+      - name: Save node-pty cache
+        if: runner.os == 'Windows' && steps.pty-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.pnpm-store
+            node_modules/.pnpm/**/node_modules/node-pty/build/Release/pty.node
+          key: pty-${{ runner.os }}-${{ needs.build.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml') }}
 
       # Windows-only: Cache compiled pty.node so we don't rebuild every run
       # Removed custom node-pty caching logic as pnpm's cache handles this now
