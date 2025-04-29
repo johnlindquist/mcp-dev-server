@@ -186,12 +186,26 @@ export const StartSuccessPayloadSchema = ProcessStatusInfoSchema.extend({
 	monitoring_hint: z
 		.string()
 		.describe(
-			"Guidance on how to monitor the process (e.g., using check_process_status or tail).",
+			"Instructions for monitoring. If file logging is enabled, provides the 'tail' command phrased as an instruction ('If you requested to tail... run this command...'). Otherwise, directs to check_process_status.",
+		),
+	log_file_path: z
+		.string()
+		.nullable()
+		.optional()
+		.describe("Absolute path to the log file, if logging to file is enabled."),
+	tail_command: z
+		.string()
+		.nullable()
+		.optional()
+		.describe(
+			"The specific command to run in a terminal to tail the log file, if available (e.g., 'tail -f /path/to/log'). Null if file logging is disabled.",
 		),
 	info_message: z
 		.string()
 		.optional()
-		.describe("Additional informational message (e.g., about log settling)."),
+		.describe(
+			"Optional secondary message providing technical details about startup (e.g., log settling status, timeouts).",
+		),
 }).describe("Response payload for a successful start_process call.");
 
 // Schema for start_process error payload (specific errors)
