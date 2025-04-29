@@ -21,4 +21,4 @@ export const ZOMBIE_CHECK_INTERVAL_MS = 60000; // 1 minute
 
 // Constants for start_process log settling
 export const LOG_SETTLE_DURATION_MS = 500; // Time without logs to consider settled
-export const OVERALL_LOG_WAIT_TIMEOUT_MS = 5000; // Max time to wait for settling
+export const OVERALL_LOG_WAIT_TIMEOUT_MS = 10000; // Max time to wait for settling (Increased from 5000)
