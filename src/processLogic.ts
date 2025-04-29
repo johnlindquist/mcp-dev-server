@@ -11,11 +11,11 @@ import {
 } from "./constants.js";
 import { serverLogDirectory } from "./main.js"; // Import the log dir path
 import { fail, ok, textPayload } from "./mcpUtils.js";
+import { handleExit } from "./processLifecycle.js"; // Import handleExit from new location
 import { killPtyProcess, spawnPtyProcess, writeToPty } from "./ptyManager.js"; // Import new functions
 import {
 	addLogEntry,
 	checkAndUpdateProcessStatus, // Renamed function
-	handleExit, // Corrected type in state.ts handleExit
 	managedProcesses, // Renamed map
 	updateProcessStatus, // Renamed function
 } from "./state.js";
@@ -538,14 +538,12 @@ export async function _startProcess(
 
 		// Get fresh info before calling handleExit
 		const currentInfo = managedProcesses.get(label);
-		if (currentInfo && currentInfo.status !== "verifying") {
-			// Avoid double handling if verification exit listener ran
-			handleExit(
-				label,
-				exitCode ?? null,
-				signal !== undefined ? String(signal) : null,
-			);
-		}
+		// Call the imported handleExit
+		handleExit(
+			label,
+			exitCode ?? null,
+			signal !== undefined ? String(signal) : null,
+		);
 		mainExitDisposable.dispose(); // Dispose self
 	});
 

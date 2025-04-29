@@ -1,12 +1,7 @@
 import { promisify } from "node:util"; // Add import
 import treeKill from "tree-kill"; // Add import
-import {
-	CRASH_LOOP_DETECTION_WINDOW_MS,
-	DEFAULT_RETRY_DELAY_MS,
-	MAX_RETRIES,
-	MAX_STORED_LOG_LINES,
-} from "./constants.js";
-import { _startProcess } from "./processLogic.js"; // Corrected import path
+import { MAX_STORED_LOG_LINES } from "./constants.js";
+import { handleCrashAndRetry } from "./processLifecycle.js"; // Import from new location
 import type { LogEntry, ProcessInfo, ProcessStatus } from "./types.ts"; // Import LogEntry from types.ts
 import { log } from "./utils.js";
 
@@ -98,132 +93,6 @@ export function updateProcessStatus(
 	}
 
 	return processInfo;
-}
-
-// Rename _startServer call later
-export async function handleCrashAndRetry(label: string): Promise<void> {
-	const processInfo = managedProcesses.get(label);
-	if (!processInfo || processInfo.status !== "crashed") {
-		log.warn(
-			label,
-			"handleCrashAndRetry called but process not found or not in crashed state.",
-		);
-		return;
-	}
-
-	const now = Date.now();
-	const maxRetries = processInfo.maxRetries ?? MAX_RETRIES;
-	const retryDelay = processInfo.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
-
-	// Reset restart attempts if outside the crash loop window
-	if (
-		processInfo.lastCrashTime &&
-		now - processInfo.lastCrashTime > CRASH_LOOP_DETECTION_WINDOW_MS
-	) {
-		log.info(label, "Resetting restart attempts, outside crash loop window.");
-		processInfo.restartAttempts = 0;
-	}
-
-	processInfo.lastCrashTime = now;
-	processInfo.restartAttempts = (processInfo.restartAttempts ?? 0) + 1;
-
-	if (processInfo.restartAttempts > maxRetries) {
-		log.error(
-			label,
-			`Crash detected. Process exceeded max retries (${maxRetries}). Marking as error.`,
-		);
-		addLogEntry(
-			label,
-			`Crash detected. Exceeded max retries (${maxRetries}). Marking as error.`,
-		);
-		updateProcessStatus(label, "error");
-		// Consider cleanup or final notification here
-	} else {
-		log.warn(
-			label,
-			`Crash detected. Attempting restart ${processInfo.restartAttempts}/${maxRetries} after ${retryDelay}ms...`,
-		);
-		addLogEntry(
-			label,
-			`Crash detected. Attempting restart ${processInfo.restartAttempts}/${maxRetries}...`,
-		);
-		updateProcessStatus(label, "restarting");
-
-		// Use await with setTimeout for delay
-		await new Promise((resolve) => setTimeout(resolve, retryDelay));
-
-		log.info(label, "Initiating restart...");
-		// Re-use original start parameters, including verification settings
-		await _startProcess(
-			label,
-			processInfo.command,
-			processInfo.args, // Pass args
-			processInfo.cwd,
-			processInfo.verificationPattern,
-			processInfo.verificationTimeoutMs ?? undefined, // Convert null to undefined
-			processInfo.retryDelayMs ?? undefined, // Convert null to undefined
-			processInfo.maxRetries, // Pass retry settings
-			true, // Indicate this is a restart
-		);
-	}
-}
-
-export function handleExit(
-	label: string,
-	code: number | null,
-	signal: string | null,
-): void {
-	const processInfo = managedProcesses.get(label);
-	if (!processInfo) {
-		log.warn(label, "handleExit called but process info not found.");
-		return;
-	}
-
-	// --- Close Log Stream ---
-	if (processInfo.logFileStream) {
-		log.debug(label, `Closing log file stream for ${label} due to exit.`);
-		addLogEntry(
-			label,
-			`--- Process Exited (Code: ${code ?? "N/A"}, Signal: ${signal ?? "N/A"}) ---`,
-		); // Log exit marker before closing
-		processInfo.logFileStream.end(() => {
-			log.debug(
-				label,
-				`Log file stream for ${label} finished writing and closed.`,
-			);
-		});
-		processInfo.logFileStream = null; // Nullify immediately
-		// Keep logFilePath even after closing for reference in check_status
-	}
-	// --- End Close Log Stream ---
-
-	const status = processInfo.status;
-
-	// If the process was explicitly stopped, don't treat it as a crash
-	if (status === "stopping") {
-		updateProcessStatus(label, "stopped", { code, signal });
-	} else if (status !== "stopped" && status !== "error") {
-		// Any other unexpected exit is treated as a crash
-		updateProcessStatus(label, "crashed", { code, signal });
-		// Don't retry immediately here, let checkAndUpdateProcessStatus or explicit restart handle it
-		// Check if retry is configured and appropriate
-		if (
-			processInfo.maxRetries !== undefined &&
-			processInfo.maxRetries > 0 &&
-			processInfo.retryDelayMs !== undefined
-		) {
-			// Use void to explicitly ignore the promise for fire-and-forget
-			void handleCrashAndRetry(label);
-		} else {
-			log.info(label, "Process crashed, but no retry configured.");
-			addLogEntry(label, "Process crashed. No retry configured.");
-		}
-	} else {
-		log.info(
-			label,
-			`Process exited but was already in state ${status}. No status change.`,
-		);
-	}
 }
 
 export function doesProcessExist(pid: number): boolean {
