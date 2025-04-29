@@ -1,6 +1,7 @@
 import type * as fs from "node:fs";
 import type { IPty } from "node-pty";
 import type { IDisposable } from "node-pty";
+import { z } from "zod";
 
 /* ------------------------------------------------------------------------ */
 /*  1.  MCP payload primitives - RESTORED LOCAL DEFINITIONS                 */
@@ -64,18 +65,8 @@ export type ToolContent =
 	| ResourceContent;
 
 /* ------------------------------------------------------------------------ */
-/*  2.  Strongly-typed CallToolResult - RESTORED LOCAL DEFINITION           */
+/*  2.  Strongly-typed CallToolResult - KEEPING LOCAL DEFINITION            */
 /* ------------------------------------------------------------------------ */
-export interface CallToolResult {
-	/** Actual tool output; at least one payload required. */
-	content: ToolContent[];
-	/** Optional metadata – free-form. */
-	_meta?: Record<string, unknown>;
-	/** Signals a domain-level failure (LLMs can still read `content`). */
-	isError?: boolean;
-	/** Index signature to match SDK type */
-	[key: string]: unknown;
-}
 
 /* ------------------------------------------------------------------------ */
 /*  4.  Zod helpers – give server.tool what it actually wants               */

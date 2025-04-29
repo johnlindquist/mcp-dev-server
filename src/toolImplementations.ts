@@ -18,9 +18,9 @@ import type {
 	ListProcessesParams,
 	RestartProcessParams,
 	SendInputParams,
-	StopProcessParams,
 	WaitForProcessParams,
 } from "./toolDefinitions.js";
+import type { StopProcessParams } from "./toolDefinitions.js";
 import type {
 	CallToolResult,
 	CheckStatusPayloadSchema,

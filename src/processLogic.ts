@@ -350,13 +350,13 @@ export async function _startProcess(
 		status: "starting",
 		exitCode: null,
 		signal: null,
-		lastCrashTime: existingProcess?.lastCrashTime, // Preserve crash time on restart
+		lastExitTimestamp: existingProcess?.lastExitTimestamp, // Use lastExitTimestamp
 		restartAttempts: existingProcess?.restartAttempts, // Preserve attempts on restart
 		verificationPattern,
-		verificationTimeoutMs: verificationTimeoutMs ?? null, // Default to null (disabled)
+		verificationTimeoutMs: verificationTimeoutMs ?? undefined, // Use undefined, not null
 		verificationTimer: undefined,
-		retryDelayMs: retryDelayMs ?? null, // Default to null (disabled)
-		maxRetries: maxRetries ?? 0, // Default to 0 (disabled)
+		retryDelayMs: retryDelayMs ?? undefined, // Use undefined, not null
+		maxRetries: maxRetries ?? undefined, // Use undefined
 		logFilePath: logFilePath, // <-- STORED
 		logFileStream: logFileStream, // <-- STORED
 	};
@@ -370,13 +370,35 @@ export async function _startProcess(
 	// --- Start the command in the PTY ---
 	try {
 		log.debug(label, `Writing command to PTY: ${fullCommand}`);
-		// Use ptyManager function
-		if (!writeToPty(ptyProcess, `${fullCommand}\r`, label)) {
+		// Use ptyManager function - corrected args
+		if (!processInfo.process) {
+			log.error(label, "Cannot write command to PTY: process object is null.");
+			updateProcessStatus(label, "error");
+			addLogEntry(
+				label,
+				"Error: Failed to write initial command, PTY process object missing.",
+			);
+			return fail(
+				textPayload(
+					JSON.stringify({
+						error: "PTY process object missing",
+						status: "error",
+						error_type: "internal_error",
+					}),
+				),
+			);
+		}
+		if (!writeToPty(processInfo.process, `${fullCommand}\r`, label)) {
+			// Correct call
 			// Handle write failure - already logged by writeToPty
 			updateProcessStatus(label, "error");
 			addLogEntry(label, "Error: Failed to write initial command to PTY");
+			// Failed write is critical, attempt cleanup
 			try {
-				killPtyProcess(ptyProcess, label, "SIGKILL");
+				if (processInfo.process) {
+					// Check if process exists before killing
+					killPtyProcess(processInfo.process, label, "SIGKILL"); // Correct call
+				}
 			} catch (killError) {
 				log.error(
 					label,
@@ -401,8 +423,12 @@ export async function _startProcess(
 		log.error(label, errorMsg);
 		updateProcessStatus(label, "error");
 		addLogEntry(label, `Error: ${errorMsg}`);
+		// Failed write is critical, attempt cleanup
 		try {
-			killPtyProcess(ptyProcess, label, "SIGKILL");
+			if (processInfo.process) {
+				// Check if process exists before killing
+				killPtyProcess(processInfo.process, label, "SIGKILL"); // Correct call
+			}
 		} catch (killError) {
 			log.error(
 				label,
@@ -427,7 +453,7 @@ export async function _startProcess(
 
 	if (verificationPattern) {
 		const timeoutMessage =
-			processInfo.verificationTimeoutMs !== null
+			processInfo.verificationTimeoutMs !== undefined
 				? `Timeout ${processInfo.verificationTimeoutMs}ms`
 				: "Timeout disabled";
 		log.info(
@@ -462,8 +488,8 @@ export async function _startProcess(
 		};
 		ptyProcess.onData(dataListener);
 
-		// Only set timeout if verificationTimeoutMs is provided (not null)
-		if (processInfo.verificationTimeoutMs !== null) {
+		// Only set timeout if verificationTimeoutMs is provided (not undefined)
+		if (processInfo.verificationTimeoutMs !== undefined) {
 			const timeoutMs = processInfo.verificationTimeoutMs;
 			verificationCompletionPromise = new Promise<void>(
 				(resolveVerification) => {
@@ -691,7 +717,17 @@ export async function _stopProcess(
 	updateProcessStatus(label, "stopping");
 
 	try {
-		await killPtyProcess(label, processInfo.pid, force);
+		// Correct call to killPtyProcess
+		if (!processInfo.process) {
+			log.error(label, "Cannot stop process: PTY process object is null.");
+			updateProcessStatus(label, "error");
+			throw new Error("Cannot stop process: PTY process object is null.");
+		}
+		await killPtyProcess(
+			processInfo.process,
+			label,
+			force ? "SIGKILL" : "SIGTERM",
+		);
 		// Status might have been updated by handleExit already
 		const finalInfo = managedProcesses.get(label);
 		const finalStatus = finalInfo?.status ?? "stopped"; // Assume stopped if info gone
@@ -753,7 +789,15 @@ export async function _sendInput(
 	}
 
 	try {
-		await writeToPty(label, processInfo.process, input, append_newline);
+		// Correct call to writeToPty
+		if (!processInfo.process) {
+			log.error(label, "Cannot send input: PTY process object is null.");
+			return fail(
+				textPayload(`Process "${label}" has no active process handle.`),
+			);
+		}
+		const dataToSend = append_newline ? `${input}\r` : input;
+		await writeToPty(processInfo.process, dataToSend, label);
 		log.info(label, `Sent input to process "${label}".`);
 		addLogEntry(label, `Input sent: ${JSON.stringify(input)}`);
 
