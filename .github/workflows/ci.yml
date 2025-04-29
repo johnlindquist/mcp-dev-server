@@ -6,6 +6,11 @@ on:
   push:
     branches-ignore: [main]
 
+# Cancel in-progress runs for the same branch on new pushes
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Build Project on ${{ matrix.os }}
@@ -36,7 +41,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: build-artifact-${{ matrix.os }}
-          path: build/ # Upload the entire build directory
+          path: build/
 
   smoke-test:
     name: Smoke Test Built Script on ${{ matrix.os }}
