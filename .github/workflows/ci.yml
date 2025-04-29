@@ -22,10 +22,16 @@ jobs:
         with:
           run_install: false # we'll install after caching
 
+      # Extract Node version from pnpm-workspace.yaml
+      - id: node
+        shell: bash
+        run: |
+          echo "version=$(yq -e '.useNodeVersion // .executionEnv.nodeVersion' pnpm-workspace.yaml)" >> "$GITHUB_OUTPUT"
+
       # 2️⃣ Install Node and enable pnpm-store caching
       - uses: actions/setup-node@v4
         with:
-          node-version-file: "pnpm-workspace.yaml" # Reads engines.node
+          node-version: ${{ steps.node.outputs.version }}
           cache: pnpm # OK now – pnpm already on PATH
 
       # 3️⃣ One cached install, then build
@@ -53,10 +59,22 @@ jobs:
         with:
           run_install: false # We'll install after caching
 
+      # Install yq on Windows if needed
+      - name: Install yq on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install yq -y --no-progress
+
+      # Extract Node version from pnpm-workspace.yaml
+      - id: node
+        shell: bash
+        run: |
+          echo "version=$(yq -e '.useNodeVersion // .executionEnv.nodeVersion' pnpm-workspace.yaml)" >> "$GITHUB_OUTPUT"
+
       # 2️⃣ Now setup-node can safely enable its pnpm cache
       - uses: actions/setup-node@v4
         with:
-          node-version-file: "package.json" # Reads engines.node
+          node-version: ${{ steps.node.outputs.version }}
           cache: pnpm # now succeeds because pnpm exists
 
       # 3️⃣ Runtime deps (fast because store is cached)
