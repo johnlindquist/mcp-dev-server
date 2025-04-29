@@ -30,6 +30,7 @@
 		"tree-kill": "^1.2.2"
 	},
 	"devDependencies": {
+		"@biomejs/biome": "^1.9.4",
 		"@semantic-release/commit-analyzer": "^13.0.1",
 		"@semantic-release/github": "^11.0.2",
 		"@semantic-release/npm": "^12.0.1",
@@ -38,7 +39,14 @@
 		"conventional-changelog-conventionalcommits": "^8.0.0",
 		"esbuild": "^0.25.3",
 		"husky": "^9.1.7",
+		"lint-staged": "^15.5.1",
 		"semantic-release": "^24.2.3",
 		"typescript": "^5.8.3"
+	},
+	"lint-staged": {
+		"*.{ts,tsx,js,jsx,json,md}": [
+			"npx biome check --write --no-errors-on-unmatched",
+			"git add"
+		]
 	}
 }
