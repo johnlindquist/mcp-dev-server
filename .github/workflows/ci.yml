@@ -63,6 +63,11 @@ jobs:
           node-version: "20"
           cache: "npm"
 
+      # Install coreutils on macOS to get gtimeout
+      - name: Install coreutils (macOS)
+        if: runner.os == 'macOS'
+        run: brew install coreutils
+
       - name: Install dependencies # Need runtime deps (node-pty, tree-kill)
         run: npm ci
 
@@ -70,20 +75,21 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: build-artifact-${{ matrix.os }}
-          path: build/ # Download to the build directory
+          path: "build/" # Quoted path
 
       - name: Run built script with timeout
         run: |
-          echo "Running node build/index.mjs with a 3s timeout..."
-          # Run the node script with a 3-second timeout
-          # Capture the exit code; don't exit the shell script on error immediately
-          timeout 3s node build/index.mjs
+          TIMEOUT_CMD=timeout # Default to Linux/Windows timeout
+          if [ "${{ runner.os }}" == "macOS" ]; then
+            TIMEOUT_CMD=gtimeout # Use gtimeout on macOS
+          fi
+          echo "Running node build/index.mjs with a 3s timeout using $TIMEOUT_CMD..."
+          # Run the node script with a 3-second timeout using the correct command
+          $TIMEOUT_CMD 3s node build/index.mjs
           EXIT_CODE=$?
           echo "Process exited with code: $EXIT_CODE"
 
-          # Check if the exit code indicates success (0 or 124)
-          # Exit code 124 means 'timeout' killed the process (expected success)
-          # Exit code 0 means it finished cleanly within 3s (acceptable success)
+          # Check if the exit code indicates success (0 or 124 for timeout)
           if [ $EXIT_CODE -eq 0 ] || [ $EXIT_CODE -eq 124 ]; then
             echo "Smoke test passed (process ran without immediate error or timed out)."
             exit 0
@@ -91,4 +97,3 @@ jobs:
             echo "Smoke test failed (process exited with error code $EXIT_CODE)."
             exit $EXIT_CODE
           fi
-        shell: /usr/bin/bash {0}
