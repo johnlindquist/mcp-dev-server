@@ -65,6 +65,10 @@ jobs:
       - name: Install runtime deps only
         run: pnpm install --prod --frozen-lockfile --ignore-scripts # Ignore Husky prepare
 
+      # Rebuild just the native module we need
+      - name: Rebuild node-pty native binding
+        run: pnpm rebuild node-pty
+
       - uses: actions/download-artifact@v4
         with:
           name: ${{ needs.build.outputs['artifact-name'] }}
