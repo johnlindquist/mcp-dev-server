@@ -21,7 +21,7 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           version: 9 # or whatever your repo uses
-          run_install: false # we’ll install after caching
+          run_install: false # we'll install after caching
 
       # 2️⃣ Install Node and enable pnpm-store caching
       - uses: actions/setup-node@v4
@@ -60,15 +60,5 @@ jobs:
           path: build/
 
       - name: Smoke test (3-second guard)
-        shell: bash
-        run: |
-          node - <<'NODE'
-          const { spawn } = require('child_process');
-          const child = spawn(process.execPath, ['build/index.mjs'], { stdio: 'inherit' });
-          const timer = setTimeout(() => { console.log('⏳ Timeout – killing'); child.kill(); }, 3000);
-          child.on('exit', (code, sig) => {
-            clearTimeout(timer);
-            console.log(`→ exit ${code ?? 'null'} sig ${sig ?? 'none'}`);
-            process.exit(code === 0 || sig ? 0 : code);
-          });
-          NODE
+        shell: bash # Ensure bash is used even if default changes
+        run: scripts/smoke-test.sh
