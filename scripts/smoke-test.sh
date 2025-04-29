@@ -19,8 +19,6 @@ run_with_guard() {
       sleep "$TIMEOUT"
       echo "⏳ Timeout! taskkill PID $pid"
       taskkill.exe /T /F /PID "$pid" >NUL 2>&1 || true
-      # Also try to kill the watcher process itself from within the subshell
-      kill $$ 2>/dev/null || true # $$ is the subshell PID
     ) &
     local watcher=$!
     # Wait specifically for the watcher subshell to finish
@@ -28,7 +26,7 @@ run_with_guard() {
     echo "[Info] Watcher finished. Assuming timeout success on Windows."
     kill "$pid" 2>/dev/null || true # Attempt a final cleanup of original pid just in case
     echo "✅ Smoke test passed (Windows timeout)"
-    return 0 # Treat timeout on Windows as success
+    exit 0 # Explicitly exit script with 0 on Windows timeout
   else
     # ----- POSIX branch (SIGINT) -----
     (
@@ -44,11 +42,12 @@ run_with_guard() {
     # Linux: 130 = SIGINT treat as success.
     if [[ $status -eq 0 || $status -eq 130 ]]; then
       echo "✅ Smoke test passed"
-      return 0
+      exit 0 # Explicitly exit script with 0 on POSIX success/timeout
     fi
     echo "❌ Smoke test failed (exit $status)"
-    return "$status"
+    exit "$status" # Explicitly exit script with failure code
   fi
 }
 
+# Call the function; the script will exit from within run_with_guard
 run_with_guard node build/index.mjs 
