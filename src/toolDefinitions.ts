@@ -28,11 +28,9 @@ const labelSchema = z
 
 const StartProcessParams = z.object(
 	shape({
-		label: labelSchema
-			.optional()
-			.describe(
-				"Optional unique identifier for the process. If omitted, one will be generated based on the working directory and command (e.g., '/path/to/project:npm run dev') and returned.",
-			),
+		label: labelSchema.describe(
+			"a plain English label respresenting the process like 'dev server' or 'test runner'",
+		),
 		command: z
 			.string()
 			.min(1, "Command cannot be empty.")
