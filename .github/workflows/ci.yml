@@ -1,4 +1,5 @@
 # .github/workflows/ci.yml
+# This workflow runs builds and smoke tests on pushes to non-main branches
 name: CI
 
 on:
