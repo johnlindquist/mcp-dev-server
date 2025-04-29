@@ -45,8 +45,7 @@
 	},
 	"lint-staged": {
 		"*.{ts,tsx,js,jsx,json,md}": [
-			"npx biome check --write --no-errors-on-unmatched",
-			"git add"
+			"npx biome check --write --no-errors-on-unmatched"
 		]
 	}
 }
