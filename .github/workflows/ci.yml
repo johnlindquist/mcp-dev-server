@@ -52,7 +52,7 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          name: ${{ needs.build.outputs["artifact-name"] }}
+          name: ${{ needs.build.outputs.artifact-name }}
           path: build/
 
       - name: Smoke test (3-second guard)
