@@ -20,7 +20,6 @@ jobs:
       # 1️⃣ Install pnpm first so setup-node can find it
       - uses: pnpm/action-setup@v4
         with:
-          version: 9 # or whatever your repo uses
           run_install: false # we'll install after caching
 
       # 2️⃣ Install Node and enable pnpm-store caching
@@ -52,7 +51,6 @@ jobs:
       # 1️⃣ Put pnpm on the PATH first
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
           run_install: false # We'll install after caching
 
       # 2️⃣ Now setup-node can safely enable its pnpm cache
