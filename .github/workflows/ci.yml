@@ -1,108 +1,85 @@
 # .github/workflows/ci.yml
-# This workflow runs builds and smoke tests on pushes to non-main branches
 name: CI
 
 on:
   push:
     branches-ignore: [main]
 
-# Cancel in-progress runs for the same branch on new pushes
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  # 1️⃣  Build once on Linux (fastest runner, cold-start cache most likely warm)
   build:
-    name: Build Project on ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    permissions:
-      contents: read # Need to read repo contents
-      actions: write # Need to write artifacts
+    runs-on: ubuntu-latest
+    outputs: # let the next job know the artifact name
+      artifact-name: build
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      # → pnpm = ~2× faster installs; built-in cache keeps restores snappy
+      - uses: pnpm/action-setup@v2
         with:
-          node-version: "20"
-          cache: "npm"
+          version: 9
+          run_install: true # runs pnpm install with frozen lock
+          cache: true # <-- turn on GitHub cache for pnpm store
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Build
+        run: pnpm run build
 
-      - name: Build project
-        run: npm run build
-
+      # ship compiled JS **only** (no node_modules, no lockfile — keeps artifact tiny)
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: build-artifact-${{ matrix.os }}
+          name: build
           path: build/
 
+  # 2️⃣  Smoke-test that artifact on all three OSes – zero reinstall, zero brew
   smoke-test:
-    name: Smoke Test Built Script on ${{ matrix.os }}
-    needs: build # Run after build job completes
+    needs: build
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    permissions:
-      contents: read # Need to read repo contents
-      actions: read # Need to read artifacts
+
     steps:
-      - name: Checkout code # Needed for package.json -> npm ci
-        uses: actions/checkout@v4
+      # checkout isn’t strictly required, but nice for version metadata/etc.
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js # Needed to run node and npm
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: "20"
-          cache: "npm"
-
-      # Install coreutils on macOS to get gtimeout
-      - name: Install coreutils (macOS)
-        if: runner.os == 'macOS'
-        run: brew install coreutils
-
-      # Install coreutils on Windows to get timeout
-      - name: Install coreutils (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh # Need powershell to run choco
-        run: choco install -y coreutils
-
-      - name: Install dependencies # Need runtime deps (node-pty, tree-kill)
-        run: npm ci
+          node-version: 20
 
       - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
-          name: build-artifact-${{ matrix.os }}
-          path: "build/" # Quoted path
+          name: ${{ needs.build.outputs.artifact-name }}
+          path: build/
 
-      - name: Run built script with timeout
-        shell: bash # Force bash everywhere
+      # cross-platform 3-second guard written in pure Node – no timeout / brew
+      - name: Smoke test (3-second guard)
+        shell: bash
         run: |
-          TIMEOUT_CMD=timeout # Default to Linux/Windows coreutils timeout
-          if [ "${{ runner.os }}" == "macOS" ]; then
-            TIMEOUT_CMD=gtimeout # Use gtimeout on macOS
-          fi
-          echo "Running node build/index.mjs with a 3s timeout using $TIMEOUT_CMD..."
-          # Run the node script with a 3-second timeout using the correct command
-          # Capture exit code even if timeout returns non-zero (124), shielding from bash -e
-          $TIMEOUT_CMD 3s node build/index.mjs || EXIT_CODE=$?
-          # Ensure EXIT_CODE is set even if the command succeeded (returned 0)
-          : "${EXIT_CODE:=$?}"
-          echo "Process exited with code: $EXIT_CODE"
+          node - <<'NODE'
+          const { spawn } = require('child_process');
 
-          # Check if the exit code indicates success (0 or 124 for timeout)
-          if [ $EXIT_CODE -eq 0 ] || [ $EXIT_CODE -eq 124 ]; then
-            echo "Smoke test passed (process ran without immediate error or timed out)."
-            exit 0
-          else
-            echo "Smoke test failed (process exited with error code $EXIT_CODE)."
-            exit $EXIT_CODE
-          fi
+          // launch compiled script
+          const child = spawn(process.execPath, ['build/index.mjs'], {
+            stdio: 'inherit'
+          });
+
+          // kill after 3 000 ms if still running
+          const timer = setTimeout(() => {
+            console.log('⏳ 3 s elapsed – stopping script...');
+            child.kill();              // SIGTERM is portable enough
+          }, 3000);
+
+          child.on('exit', (code, signal) => {
+            clearTimeout(timer);
+            console.log(`→ exited with code ${code ?? 'null'} signal ${signal ?? 'none'}`);
+            // treat 0 (natural) or null+signal (timed-out) as success
+            if (code === 0 || signal) process.exit(0);
+            process.exit(code);
+          });
+          NODE
