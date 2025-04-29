@@ -87,12 +87,12 @@ jobs:
           name: ${{ needs.build.outputs['artifact-name'] }}
           path: build/
 
-      - name: Smoke test (POSIX / 3-second guard)
-        if: runner.os != 'Windows'
+      - name: Smoke test (Bash / 3-second guard)
+        # No OS condition here - run bash test on all platforms
         shell: bash
         run: scripts/smoke-test.sh
 
-      - name: Smoke test (Windows / 3-second guard)
-        if: runner.os == 'Windows'
+      - name: Smoke test (Windows PowerShell / 3-second guard)
+        if: runner.os == 'Windows' # Only run PowerShell test on Windows
         shell: pwsh
-        run: .\scripts\smoke-test.ps1 # Use backslash for PS path
+        run: .\scripts\smoke-test.ps1
