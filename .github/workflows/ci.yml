@@ -25,7 +25,7 @@ jobs:
       # 2️⃣ Install Node and enable pnpm-store caching
       - uses: actions/setup-node@v4
         with:
-          node-version-file: "package.json" # Reads engines.node
+          node-version-file: "pnpm-workspace.yaml" # Reads engines.node
           cache: pnpm # OK now – pnpm already on PATH
 
       # 3️⃣ One cached install, then build
