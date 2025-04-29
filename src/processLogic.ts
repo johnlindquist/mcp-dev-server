@@ -19,7 +19,10 @@ import type {
 	CallToolResult,
 	LogEntry,
 	ProcessInfo,
-	ProcessStatus,
+	SendInputPayloadSchema,
+	StartErrorPayloadSchema,
+	StartSuccessPayloadSchema,
+	StopProcessPayloadSchema,
 } from "./types.ts"; // Renamed types
 import { formatLogsForResponse, log } from "./utils.js";
 import { sanitizeLabelForFilename } from "./utils.js"; // Import sanitizer
@@ -199,15 +202,13 @@ export async function _startProcess(
 			) {
 				const errorMsg = `An active process with the same label ('${label}'), working directory ('${effectiveWorkingDirectory}'), and command ('${command}') already exists with status '${existing.status}' (PID: ${existing.pid}). Stop the existing process or use a different label.`;
 				log.error(label, errorMsg);
-				return fail(
-					textPayload(
-						JSON.stringify({
-							error: errorMsg,
-							status: existing.status,
-							error_type: "composite_label_conflict",
-						}),
-					),
-				);
+				// Use StartErrorPayloadSchema for consistency
+				const payload: z.infer<typeof StartErrorPayloadSchema> = {
+					error: errorMsg,
+					status: existing.status,
+					error_type: "composite_label_conflict",
+				};
+				return fail(textPayload(JSON.stringify(payload)));
 			}
 		}
 	}
@@ -593,37 +594,42 @@ export async function _startProcess(
 		`Returning result for start_process. Included ${logsToReturn.length} log lines. Status: ${finalStatus}.`,
 	);
 
-	// Define a more specific type (can be moved to types.ts later)
-	interface StartSuccessPayload {
-		label: string;
-		message: string;
-		status: ProcessStatus;
-		pid: number | undefined;
-		cwd: string;
-		logs: string[];
-		monitoring_hint: string;
-		log_file_path?: string | null;
-		tail_command?: string | null;
-		info_message?: string;
+	// Updated monitoring hint
+	let monitoringHint = `Call check_process_status('${label}') to stream logs or verify state.`;
+	if (logFilePath) {
+		monitoringHint += ` Or tail the log file: tail -f "${logFilePath}"`;
 	}
 
-	const successPayload: StartSuccessPayload = {
+	// Use the Zod schema type
+	const successPayload: z.infer<typeof StartSuccessPayloadSchema> = {
 		label,
-		message: `Process '${label}' started successfully${settleResult.timedOut ? " (log settle wait timed out)" : ""}${isVerified ? " and verification pattern matched" : ""}.`,
+		message: `Process "${label}" started with status: ${finalStatus}.`,
 		status: finalStatus,
 		pid: currentInfoAfterWait.pid,
-		cwd: currentInfoAfterWait.cwd,
+		command: command,
+		args: args,
+		cwd: effectiveWorkingDirectory,
 		logs: formatLogsForResponse(logsToReturn, logsToReturn.length),
-		monitoring_hint:
-			"Use 'check_process_status' or 'list_processes' to monitor.",
-		log_file_path: currentInfoAfterWait.logFilePath,
-		tail_command:
-			currentInfoAfterWait.logFilePath && process.platform !== "win32"
-				? `tail -f '${currentInfoAfterWait.logFilePath}'`
-				: null,
-		info_message:
-			"If you are waiting for a specific log line (e.g., server started, tests finished) and don't see it in the initial response, use the 'check_process_status' tool to get more recent logs.",
+		monitoring_hint: monitoringHint,
+		log_file_path: logFilePath,
+		tail_command: logFilePath ? `tail -f "${logFilePath}"` : null,
+		info_message: message,
+		exitCode: currentInfoAfterWait.exitCode ?? null,
+		signal: currentInfoAfterWait.signal ?? null,
 	};
+
+	// If final status is error/crashed, return failure, otherwise success
+	if (["error", "crashed"].includes(finalStatus)) {
+		const errorPayload: z.infer<typeof StartErrorPayloadSchema> = {
+			error: message || `Process ended with status ${finalStatus}. Check logs.`,
+			status: finalStatus,
+			pid: currentInfoAfterWait.pid,
+			cwd: effectiveWorkingDirectory,
+			error_type:
+				finalStatus === "crashed" ? "process_crashed" : "startup_error",
+		};
+		return fail(textPayload(JSON.stringify(errorPayload)));
+	}
 
 	return ok(textPayload(JSON.stringify(successPayload)));
 }
@@ -636,90 +642,85 @@ export async function _stopProcess(
 	label: string,
 	force = false,
 ): Promise<CallToolResult> {
-	log.info(label, `Stopping process... Force: ${force}`);
-	// Fetch latest status and process info
-	const processInfo = await checkAndUpdateProcessStatus(label);
+	log.info(label, `Stop requested for process "${label}". Force: ${force}`);
+	addLogEntry(label, `Stop requested. Force: ${force}`);
+
+	const processInfo = await checkAndUpdateProcessStatus(label); // Refresh status
 
 	if (!processInfo) {
-		const msg = `Process with label "${label}" not found.`;
-		log.warn(label, msg);
-		return ok(textPayload(msg)); // Not an error if already gone
+		return fail(
+			textPayload(JSON.stringify({ error: `Process "${label}" not found.` })),
+		);
 	}
 
-	if (!processInfo.process || !processInfo.pid) {
-		const msg = `Process "${label}" has no active PTY instance or PID (Status: ${processInfo.status}). Cannot stop.`;
-		log.warn(label, msg);
-		// Consider if this should be an error? For now, treat as already stopped/invalid state.
-		return ok(textPayload(msg));
-	}
-
-	const pidToKill = processInfo.pid;
-	const ptyToKill = processInfo.process;
-	const signal = force ? "SIGKILL" : "SIGTERM";
-
-	updateProcessStatus(label, "stopping");
-	addLogEntry(label, `Stopping process with ${signal}...`);
-
-	try {
-		log.info(label, `Attempting to kill process tree for PID: ${pidToKill}`);
-		await killProcessTree(pidToKill);
+	if (
+		processInfo.status === "stopped" ||
+		processInfo.status === "crashed" ||
+		processInfo.status === "error"
+	) {
 		log.info(
 			label,
-			`Successfully sent signal to process tree for PID: ${pidToKill}`,
+			`Process already in terminal state: ${processInfo.status}.`,
 		);
-		// Even after tree-kill, explicitly kill the PTY process to ensure it cleans up
-		// Use ptyManager function
-		killPtyProcess(ptyToKill, label, signal);
+		// Use StopProcessPayloadSchema
+		const payload: z.infer<typeof StopProcessPayloadSchema> = {
+			label,
+			status: processInfo.status,
+			message: `Process already in terminal state: ${processInfo.status}.`,
+			pid: processInfo.pid,
+		};
+		return ok(textPayload(JSON.stringify(payload)));
+	}
 
-		// Wait briefly for potential exit event to fire and update status
-		await new Promise((resolve) => setTimeout(resolve, 100));
-
-		// Re-check status after attempting kill
-		const finalStatusInfo = managedProcesses.get(label);
-		const finalStatus = finalStatusInfo?.status ?? "unknown";
-		const exitCode = finalStatusInfo?.exitCode;
-		const exitSignal = finalStatusInfo?.signal;
-
-		const msg = `Stop signal (${signal}) sent to process "${label}" (PID: ${pidToKill}). Final status: ${finalStatus}. Exit Code: ${exitCode}, Signal: ${exitSignal}`; // Add exit details
-		addLogEntry(label, `Stop signal sent. Final status: ${finalStatus}.`);
-		log.info(label, msg);
-		return ok(
-			textPayload(
-				JSON.stringify({
-					message: msg,
-					status: finalStatus,
-					exitCode: exitCode,
-					signal: exitSignal,
-				}),
-			),
+	if (!processInfo.process || typeof processInfo.pid !== "number") {
+		log.warn(
+			label,
+			`Process "${label}" found but has no active process handle or PID. Marking as error.`,
 		);
-	} catch (error: unknown) {
-		const errorMsg = `Error stopping process "${label}" (PID: ${pidToKill}): ${error instanceof Error ? error.message : String(error)}`;
-		log.error(label, errorMsg, error);
-		addLogEntry(label, `Error: ${errorMsg}`);
-		// Attempt to force kill the direct PTY process if the tree-kill failed
-		try {
-			log.warn(label, "Tree kill failed, attempting direct PTY kill...");
-			// Use ptyManager function
-			killPtyProcess(ptyToKill, label, "SIGKILL");
-		} catch (ptyKillError) {
-			log.error(
-				label,
-				"Failed to force kill PTY process after tree kill error",
-				ptyKillError,
-			);
-		}
-		// Update status to error if stopping failed badly
 		updateProcessStatus(label, "error");
-		return fail(
-			textPayload(
-				JSON.stringify({
-					error: errorMsg,
-					status: "error",
-					error_type: "stop_failed",
-				}),
-			),
-		);
+		const payload: z.infer<typeof StopProcessPayloadSchema> = {
+			label,
+			status: "error",
+			message: "Process found but has no active process handle or PID.",
+			pid: processInfo.pid,
+		};
+		return fail(textPayload(JSON.stringify(payload)));
+	}
+
+	processInfo.stopRequested = true; // Mark that we initiated the stop
+	updateProcessStatus(label, "stopping");
+
+	try {
+		await killPtyProcess(label, processInfo.pid, force);
+		// Status might have been updated by handleExit already
+		const finalInfo = managedProcesses.get(label);
+		const finalStatus = finalInfo?.status ?? "stopped"; // Assume stopped if info gone
+		const message = `Stop signal sent successfully (Force: ${force}). Final status: ${finalStatus}.`;
+		log.info(label, message);
+		addLogEntry(label, `Stop signal sent. Force: ${force}.`);
+
+		// Use StopProcessPayloadSchema
+		const payload: z.infer<typeof StopProcessPayloadSchema> = {
+			label,
+			status: finalStatus,
+			message: message,
+			pid: finalInfo?.pid, // Use final PID if available
+		};
+		return ok(textPayload(JSON.stringify(payload)));
+	} catch (error) {
+		const errorMsg = `Failed to stop process "${label}": ${error instanceof Error ? error.message : String(error)}`;
+		log.error(label, errorMsg);
+		addLogEntry(label, `Error during stop: ${errorMsg}`);
+		updateProcessStatus(label, "error"); // Mark as error on failure
+
+		// Use StopProcessPayloadSchema for error reporting
+		const payload: z.infer<typeof StopProcessPayloadSchema> = {
+			label,
+			status: "error",
+			message: errorMsg,
+			pid: processInfo.pid, // PID before stop attempt
+		};
+		return fail(textPayload(JSON.stringify(payload)));
 	}
 }
 
@@ -730,43 +731,42 @@ export async function _sendInput(
 	params: z.infer<typeof SendInputParams>, // Use inferred type from Zod schema
 ): Promise<CallToolResult> {
 	const { label, input, append_newline } = params;
-	const processInfo = managedProcesses.get(label);
 
-	if (!processInfo || !processInfo.process) {
-		const errorMsg = `Process "${label}" not found or has no active PTY instance.`;
-		log.error(label, errorMsg);
-		return fail(textPayload(errorMsg));
+	const processInfo = await checkAndUpdateProcessStatus(label); // Refresh status
+
+	if (!processInfo) {
+		return fail(textPayload(`Process "${label}" not found.`));
 	}
 
-	if (!["running", "verifying"].includes(processInfo.status)) {
-		const errorMsg = `Process "${label}" is not in a running state (status: ${processInfo.status}). Cannot send input.`;
-		log.error(label, errorMsg);
-		return fail(textPayload(errorMsg));
+	if (!processInfo.process || !processInfo.pid) {
+		return fail(
+			textPayload(`Process "${label}" is not currently running or accessible.`),
+		);
 	}
 
-	const dataToSend = append_newline ? `${input}\r` : input;
-	log.info(label, `Sending input to process: ${dataToSend.length} chars`);
-
-	try {
-		// Use ptyManager function
-		if (writeToPty(processInfo.process, dataToSend, label)) {
-			return ok(textPayload(`Input sent to process "${label}".`));
-		}
-		// Error already logged by writeToPty
-		const errorMsg = `Failed to send input to process "${label}".`;
-		return fail(textPayload(errorMsg));
-	} catch (error: unknown) {
-		// This catch block might be redundant
-		const errorMsg = `Error sending input to process "${label}": ${error instanceof Error ? error.message : String(error)}`;
-		log.error(label, errorMsg, error);
+	if (processInfo.status !== "running" && processInfo.status !== "verifying") {
 		return fail(
 			textPayload(
-				JSON.stringify({
-					error: errorMsg,
-					status: processInfo.status,
-					error_type: "send_input_failed",
-				}),
+				`Process "${label}" is not in a state to receive input (status: ${processInfo.status}).`,
 			),
 		);
+	}
+
+	try {
+		await writeToPty(label, processInfo.process, input, append_newline);
+		log.info(label, `Sent input to process "${label}".`);
+		addLogEntry(label, `Input sent: ${JSON.stringify(input)}`);
+
+		// Use SendInputPayloadSchema
+		const payload: z.infer<typeof SendInputPayloadSchema> = {
+			label,
+			message: "Input sent successfully.",
+		};
+		return ok(textPayload(JSON.stringify(payload)));
+	} catch (error) {
+		const errorMsg = `Failed to send input to process "${label}": ${error instanceof Error ? error.message : String(error)}`;
+		log.error(label, errorMsg);
+		addLogEntry(label, `Error sending input: ${errorMsg}`);
+		return fail(textPayload(errorMsg));
 	}
 }
