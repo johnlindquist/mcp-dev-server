@@ -37,12 +37,17 @@ const StartProcessParams = z.object(
 			.describe(
 				"Optional human-readable identifier (e.g. 'dev-server'). Leave blank to let the server generate one based on CWD and command.",
 			),
-		command: z.string().min(1).describe("The command to execute."),
+		command: z
+			.string()
+			.min(1)
+			.describe("The command to execute. e.g., 'npm' or some other runner"),
 		args: z
 			.array(z.string())
 			.optional()
 			.default([])
-			.describe("Optional arguments for the command."),
+			.describe(
+				"Optional arguments for the command, e.g. 'npm run dev' would be ['run', 'dev']",
+			),
 		workingDirectory: z
 			.string()
 			.min(1)
@@ -53,7 +58,7 @@ const StartProcessParams = z.object(
 			.string()
 			.optional()
 			.describe(
-				"Optional regex pattern to match in stdout/stderr to verify successful startup.",
+				"Optional regex pattern to match in stdout/stderr to verify successful startup. e.g., 'running on port 3000' or 'localhost'",
 			),
 		verification_timeout_ms: z
 			.number()
@@ -155,8 +160,8 @@ const WaitForProcessParams = z.object(
 			.number()
 			.positive()
 			.optional()
-			.default(60)
-			.describe("Maximum time to wait in seconds. Defaults to 60."),
+			.default(5)
+			.describe("Maximum time to wait in seconds. Defaults to 5."),
 		check_interval_seconds: z
 			.number()
 			.positive()
@@ -234,49 +239,6 @@ export function registerToolDefinitions(server: McpServer): void {
 				},
 			);
 		},
-		/**
-		 * Example usage: Start a Node.js server
-		 * ```json
-		 * {
-		 *   "label": "my-node-server",
-		 *   "command": "node server.js",
-		 *   "workingDirectory": "/path/to/project",
-		 *   "verification_pattern": "Server running on port",
-		 *   "verification_timeout_ms": 10000
-		 * }
-		 * ```
-		 *
-		 * Example usage: Run tests in watch mode (no label - one will be generated)
-		 * ```json
-		 * {
-		 *   "command": "jest",
-		 *   "args": ["--watch"],
-		 *   "workingDirectory": "/path/to/project"
-		 * }
-		 * ```
-		 *
-		 * Example usage: Compile TypeScript in watch mode
-		 * ```json
-		 * {
-		 *   "label": "tsc-watch",
-		 *   "command": "tsc",
-		 *   "args": ["--watch"],
-		 *   "workingDirectory": "/path/to/ts-project",
-		 *   "verification_pattern": "Watching for file changes"
-		 * }
-		 * ```
-		 *
-		 * Example usage: Start a background Python script
-		 * ```json
-		 * {
-		 *   "label": "data-processor",
-		 *   "command": "python",
-		 *   "args": ["./scripts/data_processor.py"],
-		 *   "workingDirectory": "/path/to/repo",
-		 *   "max_retries": 0
-		 * }
-		 * ```
-		 */
 	);
 
 	server.tool(
