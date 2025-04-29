@@ -5,7 +5,6 @@ import type { IDisposable, IPty } from "node-pty"; // Import only types if neede
 import treeKill from "tree-kill";
 import type { z } from "zod"; // Import zod
 import {
-	DEFAULT_LOG_LINES,
 	LOG_SETTLE_DURATION_MS,
 	OVERALL_LOG_WAIT_TIMEOUT_MS,
 } from "./constants.js";
@@ -586,7 +585,7 @@ export async function _startProcess(
 
 	const logsToReturn = formatLogsForResponse(
 		currentInfoAfterWait.logs.map((l: LogEntry) => l.content),
-		DEFAULT_LOG_LINES,
+		currentInfoAfterWait.logs.length,
 	);
 
 	log.info(
