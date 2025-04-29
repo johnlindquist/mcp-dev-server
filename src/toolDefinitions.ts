@@ -9,6 +9,7 @@ import {
 	SERVER_NAME,
 	SERVER_VERSION,
 } from "./constants.js";
+import { fail, getResultText, ok, shape, textPayload } from "./mcpUtils.js";
 import { _sendInput, _startProcess, _stopProcess } from "./processLogic.js";
 import {
 	addLogEntry,
@@ -17,8 +18,7 @@ import {
 	managedProcesses,
 } from "./state.js";
 import { handleToolCall } from "./toolHandler.js";
-import { type CallToolResult, fail, ok, shape, textPayload } from "./types.js";
-import type { LogEntry, ProcessStatus } from "./types.ts";
+import type { CallToolResult, LogEntry, ProcessStatus } from "./types.ts";
 import {
 	formatLogsForResponse,
 	log,
@@ -861,23 +861,6 @@ export function registerToolDefinitions(server: McpServer): void {
 	);
 
 	log.info(null, "Tool definitions registered.");
-}
-
-function getResultText(result: CallToolResult): string | null {
-	if (result.content && result.content.length > 0) {
-		const firstContent = result.content[0];
-		if (
-			firstContent &&
-			typeof firstContent === "object" &&
-			"type" in firstContent &&
-			firstContent.type === "text" &&
-			"text" in firstContent &&
-			typeof firstContent.text === "string"
-		) {
-			return firstContent.text;
-		}
-	}
-	return null;
 }
 
 export { SendInputParams };

@@ -1,6 +1,5 @@
 import type * as fs from "node:fs";
 import type { IPty } from "node-pty";
-import type { ZodRawShape } from "zod";
 
 /* ------------------------------------------------------------------------ */
 /*  1.  MCP payload primitives - RESTORED LOCAL DEFINITIONS                 */
@@ -77,41 +76,13 @@ export interface CallToolResult {
 	[key: string]: unknown;
 }
 
-export const textPayload = (text: string): TextContent =>
-	({ type: "text", text }) as const;
-
-export const ok = (...c: readonly ToolContent[]): CallToolResult => ({
-	content: [...c],
-});
-
-export const fail = (...c: readonly ToolContent[]): CallToolResult => ({
-	isError: true,
-	content: [...c],
-});
-
 /* ------------------------------------------------------------------------ */
 /*  4.  Zod helpers – give server.tool what it actually wants               */
 /* ------------------------------------------------------------------------ */
-export const shape = <T extends ZodRawShape>(x: T) => x;
 
 /* ------------------------------------------------------------------------ */
 /*  5.  Utility guards (optional but nice) - RESTORED from original         */
 /* ------------------------------------------------------------------------ */
-export const safeSubstring = (v: unknown, len = 100): string =>
-	typeof v === "string" ? v.substring(0, len) : "";
-
-export const isRunning = (status: string) =>
-	status === "running" || status === "verifying";
-
-/** Utility fn to extract string content from a CallToolResult, or null */
-export const getResultText = (result: CallToolResult): string | null => {
-	for (const item of result.content) {
-		if (item.type === "text") {
-			return item.text;
-		}
-	}
-	return null;
-};
 
 // Define LogEntry structure based on usage in state.ts
 export interface LogEntry {
