@@ -26,7 +26,7 @@ jobs:
       # 2️⃣ Install Node and enable pnpm-store caching
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version-file: "package.json" # Reads engines.node
           cache: pnpm # OK now – pnpm already on PATH
 
       # 3️⃣ One cached install, then build
@@ -58,7 +58,7 @@ jobs:
       # 2️⃣ Now setup-node can safely enable its pnpm cache
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version-file: "package.json" # Reads engines.node
           cache: pnpm # now succeeds because pnpm exists
 
       # 3️⃣ Runtime deps (fast because store is cached)
@@ -66,21 +66,10 @@ jobs:
         run: pnpm install --prod --frozen-lockfile --ignore-scripts # Ignore Husky prepare
 
       # Windows-only: Cache compiled pty.node so we don't rebuild every run
-      - name: Cache node-pty native build (Windows)
-        if: runner.os == 'Windows'
-        id: ptycache # Give the step an ID to check its output
-        uses: actions/cache@v4
-        with:
-          # Cache the compiled binary + node-gyp header cache
-          path: |
-            node_modules/.pnpm/node-pty@1.0.0/node_modules/node-pty/build
-            ~/.cache/node-gyp
-          key: ${{ runner.os }}-node${{ steps.setup-node.outputs.node-version }}-nodepty-v1.0.0
+      # Removed custom node-pty caching logic as pnpm's cache handles this now
 
-      # Rebuild only if the cache missed on Windows
-      - name: Rebuild node-pty native binding
-        if: runner.os != 'Windows' || steps.ptycache.outputs.cache-hit != 'true'
-        run: pnpm rebuild node-pty
+      # Rebuild only if needed (pnpm postinstall handles this automatically)
+      # Removed explicit rebuild step
 
       - uses: actions/download-artifact@v4
         with:

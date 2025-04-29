@@ -20,7 +20,8 @@
 		"inspector": "npx @modelcontextprotocol/inspector build/index.mjs",
 		"lint:fix": "biome check --write .",
 		"verify": "npm run build && npm run lint:fix",
-		"start": "node build/index.mjs"
+		"start": "node build/index.mjs",
+		"postinstall": "pnpm rebuild node-pty"
 	},
 	"dependencies": {
 		"@modelcontextprotocol/sdk": "^1.10.2",
@@ -49,5 +50,9 @@
 		"*.{ts,tsx,js,jsx,json,md}": [
 			"npx biome check --write --no-errors-on-unmatched"
 		]
-	}
+	},
+	"engines": {
+		"node": "20.x"
+	},
+	"packageManager": "pnpm@10.5.2"
 }
