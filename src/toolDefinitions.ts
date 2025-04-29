@@ -6,20 +6,24 @@ import {
 	DEFAULT_VERIFICATION_TIMEOUT_MS,
 	MAX_RETRIES,
 	MAX_STORED_LOG_LINES,
+	SERVER_NAME,
+	SERVER_VERSION,
 } from "./constants.js";
-import { shape } from "./mcpUtils.js";
 import { _sendInput, _startProcess, _stopProcess } from "./processLogic.js";
-import { handleToolCall } from "./toolHandler.js";
 import {
-	checkProcessStatusImpl,
-	getAllLoglinesImpl,
-	healthCheckImpl,
-	listProcessesImpl,
-	restartProcessImpl,
-	stopAllProcessesImpl,
-	waitForProcessImpl,
-} from "./toolImplementations.js";
-import { log } from "./utils.js";
+	addLogEntry,
+	checkAndUpdateProcessStatus,
+	isZombieCheckActive,
+	managedProcesses,
+} from "./state.js";
+import { handleToolCall } from "./toolHandler.js";
+import { type CallToolResult, fail, ok, shape, textPayload } from "./types.js";
+import type { LogEntry, ProcessStatus } from "./types.ts";
+import {
+	formatLogsForResponse,
+	log,
+	stripAnsiAndControlChars,
+} from "./utils.js";
 
 const labelSchema = z
 	.string()
@@ -172,9 +176,521 @@ const SendInputParams = z.object(
 );
 
 // Define response types (can move to types.ts)
-// ... ListProcessDetail interface ...
+interface CheckStatusResponsePayload {
+	label: string;
+	status: ProcessStatus;
+	pid: number | undefined;
+	command: string;
+	args: string[];
+	cwd: string;
+	exitCode: number | null;
+	signal: string | null;
+	logs: string[];
+	log_file_path: string | null | undefined;
+	tail_command: string | null | undefined;
+	hint?: string; // Keep hint optional
+}
 
-// Implementation functions moved to src/toolImplementations.ts
+interface ListProcessDetail {
+	label: string;
+	status: ProcessStatus;
+	pid: number | undefined;
+	command: string;
+	args: string[];
+	cwd: string;
+	exitCode: number | null;
+	signal: string | null;
+	logs: string[];
+	log_hint: string | null; // Keep log_hint
+	log_file_path: string | null | undefined;
+	tail_command: string | null | undefined;
+}
+
+async function _checkProcessStatus(
+	params: z.infer<typeof CheckProcessStatusParams>,
+): Promise<CallToolResult> {
+	const { label, log_lines } = params;
+	const processInfo = await checkAndUpdateProcessStatus(label);
+
+	if (!processInfo) {
+		return fail(textPayload(`Process with label "${label}" not found.`));
+	}
+
+	// Pass logs array to formatLogsForResponse
+	const formattedLogs = formatLogsForResponse(
+		processInfo.logs.map((l: LogEntry) => l.content),
+		log_lines ?? DEFAULT_LOG_LINES,
+	);
+	// Remove generateLogHint and logHint variable
+	// const logHint = generateLogHint(processInfo, log_lines ?? DEFAULT_LOG_LINES);
+
+	const responsePayload: CheckStatusResponsePayload = {
+		label: processInfo.label,
+		status: processInfo.status,
+		pid: processInfo.pid,
+		command: processInfo.command,
+		args: processInfo.args,
+		cwd: processInfo.cwd,
+		exitCode: processInfo.exitCode,
+		signal: processInfo.signal,
+		logs: formattedLogs,
+		log_file_path: processInfo.logFilePath,
+		tail_command: processInfo.logFilePath
+			? `tail -f "${processInfo.logFilePath}"`
+			: null,
+	};
+
+	// Simple hint based on log lines (replace generateLogHint logic)
+	const totalStoredLogs = processInfo.logs.length;
+	const requestedLines = log_lines ?? DEFAULT_LOG_LINES;
+	if (requestedLines > 0 && totalStoredLogs > formattedLogs.length) {
+		const hiddenLines = totalStoredLogs - formattedLogs.length;
+		const limitReached = totalStoredLogs >= MAX_STORED_LOG_LINES;
+		responsePayload.hint = `Returned latest ${formattedLogs.length} lines. ${hiddenLines} older lines stored${limitReached ? ` (limit: ${MAX_STORED_LOG_LINES})` : ""}.`;
+	} else if (requestedLines === 0 && totalStoredLogs > 0) {
+		responsePayload.hint = `Logs are stored (${totalStoredLogs} lines). Specify 'log_lines > 0' to view.`;
+	}
+
+	return ok(textPayload(JSON.stringify(responsePayload, null, 2)));
+}
+
+async function _listProcesses(
+	params: z.infer<typeof ListProcessesParams>,
+): Promise<CallToolResult> {
+	const { log_lines } = params;
+	const processList: ListProcessDetail[] = []; // Use defined type
+
+	for (const label of managedProcesses.keys()) {
+		const processInfo = await checkAndUpdateProcessStatus(label);
+		if (processInfo) {
+			// Pass logs array
+			const formattedLogs = formatLogsForResponse(
+				processInfo.logs.map((l: LogEntry) => l.content),
+				log_lines ?? DEFAULT_LOG_LINES, // Use DEFAULT_LOG_LINES
+			);
+			// Remove generateLogHint
+			// const logHint = generateLogHint(processInfo, log_lines ?? DEFAULT_LOG_LINES);
+			let logHint: string | null = null; // Replace generateLogHint logic
+			const totalStoredLogs = processInfo.logs.length;
+			const requestedLines = log_lines ?? 0; // Default to 0 for list
+			if (requestedLines > 0 && totalStoredLogs > formattedLogs.length) {
+				const hiddenLines = totalStoredLogs - formattedLogs.length;
+				logHint = `Showing ${formattedLogs.length} lines. ${hiddenLines} older stored.`;
+			} else if (requestedLines === 0 && totalStoredLogs > 0) {
+				logHint = `${totalStoredLogs} lines stored.`;
+			}
+
+			const processDetail: ListProcessDetail = {
+				label: processInfo.label,
+				status: processInfo.status,
+				pid: processInfo.pid,
+				command: processInfo.command,
+				args: processInfo.args,
+				cwd: processInfo.cwd,
+				exitCode: processInfo.exitCode,
+				signal: processInfo.signal,
+				logs: formattedLogs,
+				log_hint: logHint, // Assign generated hint
+				log_file_path: processInfo.logFilePath,
+				tail_command: processInfo.logFilePath
+					? `tail -f "${processInfo.logFilePath}"`
+					: null,
+			};
+			processList.push(processDetail);
+		}
+	}
+
+	return ok(textPayload(JSON.stringify(processList, null, 2)));
+}
+
+async function _stopAllProcesses(): Promise<CallToolResult> {
+	log.info(null, "Attempting to stop all active processes...");
+	const results: {
+		label: string;
+		result: string;
+		status?: ProcessStatus | "not_found";
+		pid?: number | null | undefined;
+	}[] = [];
+	let stoppedCount = 0;
+	let skippedCount = 0;
+
+	for (const label of managedProcesses.keys()) {
+		const processInfo = await checkAndUpdateProcessStatus(label);
+		if (
+			processInfo &&
+			["starting", "running", "verifying", "restarting"].includes(
+				processInfo.status,
+			)
+		) {
+			log.info(
+				label,
+				`Process ${label} is active (${processInfo.status}), attempting stop.`,
+			);
+			const stopResult = await _stopProcess(label, false);
+			const resultText = getResultText(stopResult) ?? "Unknown stop result";
+			let parsedResult: {
+				status?: ProcessStatus;
+				error?: string;
+				pid?: number | null;
+			} = {};
+			try {
+				parsedResult = JSON.parse(resultText);
+			} catch {
+				/* ignore */
+			}
+			results.push({
+				label,
+				result: stopResult.isError ? "Failed" : "SignalSent",
+				status: parsedResult.status ?? processInfo.status,
+				pid: parsedResult.pid ?? processInfo.pid,
+			});
+			if (!stopResult.isError) stoppedCount++;
+		} else {
+			skippedCount++;
+			results.push({
+				label,
+				result: "Skipped",
+				status: processInfo?.status ?? "not_found",
+				pid: processInfo?.pid,
+			});
+		}
+	}
+
+	const summary = `Processes processed: ${managedProcesses.size}. Signals sent: ${stoppedCount}. Skipped (already terminal/missing): ${skippedCount}.`;
+	log.info(null, summary);
+	return ok(
+		textPayload(JSON.stringify({ summary, details: results }, null, 2)),
+	);
+}
+
+async function _restartProcess(
+	params: z.infer<typeof RestartProcessParams>,
+): Promise<CallToolResult> {
+	const { label } = params;
+	log.info(label, `Restart requested for process "${label}".`);
+	addLogEntry(label, "Restart requested.");
+
+	const processInfo = await checkAndUpdateProcessStatus(label);
+
+	if (!processInfo) {
+		return fail(
+			textPayload(
+				JSON.stringify({
+					error: `Process with label "${label}" not found for restart.`,
+					status: "not_found",
+					pid: null,
+				}),
+			),
+		);
+	}
+
+	const originalPid = processInfo.pid;
+
+	let stopStatus: ProcessStatus | "not_needed" = "not_needed";
+	if (
+		["starting", "running", "verifying", "restarting", "stopping"].includes(
+			processInfo.status,
+		)
+	) {
+		log.info(
+			label,
+			`Stopping process (status: ${processInfo.status}) before restart...`,
+		);
+		addLogEntry(label, "Stopping process before restart...");
+		const stopResult = await _stopProcess(label, false);
+		const stopResultText = getResultText(stopResult);
+		let stopResultJson: {
+			status?: ProcessStatus;
+			error?: string;
+			pid?: number | null;
+		} = {};
+		try {
+			if (stopResultText) stopResultJson = JSON.parse(stopResultText);
+		} catch (e) {
+			log.warn(label, "Could not parse stop result JSON", e);
+		}
+
+		const potentialStatus = stopResultJson.status;
+		if (
+			potentialStatus &&
+			[
+				"starting",
+				"running",
+				"stopping",
+				"stopped",
+				"crashed",
+				"error",
+				"verifying",
+				"restarting",
+			].includes(potentialStatus)
+		) {
+			stopStatus = potentialStatus as ProcessStatus;
+		} else {
+			stopStatus = "error";
+			log.warn(
+				label,
+				`Could not determine valid stop status from JSON response. Defaulting to 'error'. Response status: ${potentialStatus}`,
+			);
+		}
+
+		if (stopResult.isError) {
+			const stopErrorMsg =
+				stopResultJson.error ?? "Failed to stop process before restart.";
+			log.error(label, `Restart aborted: ${stopErrorMsg}`);
+			addLogEntry(label, `Restart aborted: Stop failed: ${stopErrorMsg}`);
+			return fail(
+				textPayload(
+					JSON.stringify({
+						error: `Restart failed: ${stopErrorMsg}`,
+						status: stopStatus,
+						pid: originalPid,
+					}),
+				),
+			);
+		}
+
+		await new Promise((resolve) => setTimeout(resolve, 500));
+		const finalCheck = await checkAndUpdateProcessStatus(label);
+		stopStatus = finalCheck?.status ?? stopStatus;
+		log.info(label, `Stop phase completed, final status: ${stopStatus}.`);
+		addLogEntry(label, `Stop phase completed, final status: ${stopStatus}.`);
+	} else {
+		log.info(
+			label,
+			`Process was already ${processInfo.status}. Skipping stop signal phase.`,
+		);
+		addLogEntry(
+			label,
+			`Process was already ${processInfo.status}. Skipping stop phase.`,
+		);
+		stopStatus = processInfo.status;
+	}
+
+	log.info(label, "Starting process after stop/check phase...");
+	addLogEntry(label, "Starting process after stop/check phase...");
+
+	const startResult = await _startProcess(
+		label,
+		processInfo.command,
+		processInfo.args,
+		processInfo.cwd,
+		processInfo.verificationPattern,
+		processInfo.verificationTimeoutMs ?? undefined,
+		processInfo.retryDelayMs ?? undefined,
+		processInfo.maxRetries,
+		true,
+	);
+
+	const startResultText = getResultText(startResult);
+	let startResultJson: {
+		status?: ProcessStatus;
+		error?: string;
+		pid?: number | null;
+	} = {};
+	try {
+		if (startResultText) startResultJson = JSON.parse(startResultText);
+	} catch (e) {
+		log.warn(label, "Could not parse start result JSON", e);
+	}
+
+	if (startResult.isError) {
+		const startErrorMsg =
+			startResultJson.error ?? "Failed to start process during restart.";
+		log.error(label, `Restart failed: ${startErrorMsg}`);
+		addLogEntry(label, `Restart failed: Start phase failed: ${startErrorMsg}`);
+		return fail(
+			textPayload(
+				JSON.stringify({
+					error: `Restart failed: ${startErrorMsg}`,
+					status: startResultJson.status ?? "error",
+					pid: startResultJson.pid ?? null,
+				}),
+			),
+		);
+	}
+
+	log.info(label, "Restart sequence completed successfully.");
+	addLogEntry(label, "Restart sequence completed successfully.");
+	return startResult;
+}
+
+async function _waitForProcess(
+	params: z.infer<typeof WaitForProcessParams>,
+): Promise<CallToolResult> {
+	const { label, target_status, timeout_seconds, check_interval_seconds } =
+		params;
+	const startTime = Date.now();
+	const timeoutMs = timeout_seconds * 1000;
+	const intervalMs = check_interval_seconds * 1000;
+
+	log.info(
+		label,
+		`Waiting up to ${timeout_seconds}s for status '${target_status}' (checking every ${check_interval_seconds}s).`,
+	);
+	addLogEntry(
+		label,
+		`Waiting for status '${target_status}'. Timeout: ${timeout_seconds}s.`,
+	);
+
+	while (Date.now() - startTime < timeoutMs) {
+		const processInfo = await checkAndUpdateProcessStatus(label);
+
+		if (!processInfo) {
+			const errorMsg = `Process info for "${label}" disappeared during wait.`;
+			log.error(label, errorMsg);
+			addLogEntry(label, errorMsg);
+			return fail(
+				textPayload(
+					JSON.stringify({
+						error: errorMsg,
+						status: "not_found",
+						pid: null,
+					}),
+				),
+			);
+		}
+
+		log.debug(label, `Wait check: Current status is ${processInfo.status}`);
+
+		if (processInfo.status === target_status) {
+			const successMsg = `Successfully reached target status '${target_status}'.`;
+			log.info(label, successMsg);
+			addLogEntry(label, successMsg);
+			return ok(
+				textPayload(
+					JSON.stringify({
+						message: successMsg,
+						status: processInfo.status,
+						pid: processInfo.pid,
+						cwd: processInfo.cwd,
+					}),
+				),
+			);
+		}
+
+		if (
+			["stopped", "crashed", "error"].includes(processInfo.status) &&
+			processInfo.status !== target_status
+		) {
+			const abortMsg = `Wait aborted: Process entered terminal state '${processInfo.status}' while waiting for '${target_status}'.`;
+			log.warn(label, abortMsg);
+			addLogEntry(label, abortMsg);
+			return fail(
+				textPayload(
+					JSON.stringify({
+						error: abortMsg,
+						status: processInfo.status,
+						pid: processInfo.pid,
+					}),
+				),
+			);
+		}
+
+		await new Promise((resolve) => setTimeout(resolve, intervalMs));
+	}
+
+	const finalInfo = await checkAndUpdateProcessStatus(label);
+	const timeoutMsg = `Timed out after ${timeout_seconds}s waiting for status '${target_status}'. Current status: '${finalInfo?.status ?? "unknown"}'.`;
+	log.error(label, timeoutMsg);
+	addLogEntry(label, timeoutMsg);
+	return fail(
+		textPayload(
+			JSON.stringify({
+				error: timeoutMsg,
+				status: finalInfo?.status ?? "timeout",
+				pid: finalInfo?.pid,
+			}),
+		),
+	);
+}
+
+async function _getAllLoglines(
+	params: z.infer<typeof GetAllLoglinesParams>,
+): Promise<CallToolResult> {
+	const { label } = params;
+	// Get directly, no need to check OS process status for logs
+	const processInfo = managedProcesses.get(label);
+
+	if (!processInfo) {
+		return fail(
+			textPayload(
+				JSON.stringify({
+					error: `Process with label "${label}" not found.`,
+					status: "not_found",
+				}),
+			),
+		);
+	}
+
+	// Retrieve ALL stored logs
+	const allLogs = processInfo.logs.map((l: LogEntry) => l.content);
+	// Clean them consistently
+	const cleanedLogs = allLogs.map(stripAnsiAndControlChars); // Use your cleaning function
+
+	log.info(
+		label,
+		`getAllLoglines requested. Returning ${cleanedLogs.length} lines.`,
+	);
+
+	const storedLimitReached = cleanedLogs.length >= MAX_STORED_LOG_LINES;
+	const message = `Returned all ${cleanedLogs.length} stored log lines for process "${label}"${storedLimitReached ? ` (storage limit is ${MAX_STORED_LOG_LINES}, older logs may have been discarded)` : ""}.`;
+
+	return ok(
+		textPayload(
+			JSON.stringify(
+				{
+					label: label,
+					total_lines_returned: cleanedLogs.length,
+					storage_limit: MAX_STORED_LOG_LINES,
+					logs: cleanedLogs,
+					message: message,
+				},
+				null,
+				2,
+			),
+		),
+	);
+}
+
+async function _healthCheck(): Promise<CallToolResult> {
+	const activeProcesses = [];
+	let errorCount = 0;
+	let crashedCount = 0;
+
+	for (const label of managedProcesses.keys()) {
+		const processInfo = await checkAndUpdateProcessStatus(label);
+		if (processInfo) {
+			activeProcesses.push({
+				label: processInfo.label,
+				status: processInfo.status,
+				pid: processInfo.pid,
+			});
+			if (processInfo.status === "error") errorCount++;
+			if (processInfo.status === "crashed") crashedCount++;
+		}
+	}
+
+	const payload = {
+		server_name: SERVER_NAME,
+		server_version: SERVER_VERSION,
+		status: "healthy",
+		managed_processes_count: managedProcesses.size,
+		processes_in_error_state: errorCount,
+		processes_in_crashed_state: crashedCount,
+		zombie_check_active: isZombieCheckActive(),
+		process_details: activeProcesses,
+	};
+
+	if (errorCount > 0 || crashedCount > 0) {
+		payload.status = "degraded";
+	}
+
+	log.info(
+		null,
+		`Health check performed. Status: ${payload.status}, Processes: ${payload.managed_processes_count}`,
+	);
+	return ok(textPayload(JSON.stringify(payload, null, 2)));
+}
 
 export function registerToolDefinitions(server: McpServer): void {
 	server.tool(
@@ -264,7 +780,7 @@ export function registerToolDefinitions(server: McpServer): void {
 		shape(CheckProcessStatusParams.shape),
 		(params: z.infer<typeof CheckProcessStatusParams>) =>
 			handleToolCall(params.label, "check_process_status", params, () =>
-				checkProcessStatusImpl(params),
+				_checkProcessStatus(params),
 			),
 	);
 
@@ -284,7 +800,7 @@ export function registerToolDefinitions(server: McpServer): void {
 		shape(ListProcessesParams.shape),
 		(params: z.infer<typeof ListProcessesParams>) =>
 			handleToolCall(null, "list_processes", params, () =>
-				listProcessesImpl(params),
+				_listProcesses(params),
 			),
 	);
 
@@ -293,7 +809,7 @@ export function registerToolDefinitions(server: McpServer): void {
 		"Attempts to gracefully stop all active background processes.",
 		{},
 		(params: Record<string, never>) =>
-			handleToolCall(null, "stop_all_processes", params, stopAllProcessesImpl),
+			handleToolCall(null, "stop_all_processes", params, _stopAllProcesses),
 	);
 
 	server.tool(
@@ -302,7 +818,7 @@ export function registerToolDefinitions(server: McpServer): void {
 		shape(RestartProcessParams.shape),
 		(params: z.infer<typeof RestartProcessParams>) =>
 			handleToolCall(params.label, "restart_process", params, () =>
-				restartProcessImpl(params),
+				_restartProcess(params),
 			),
 	);
 
@@ -312,7 +828,7 @@ export function registerToolDefinitions(server: McpServer): void {
 		shape(WaitForProcessParams.shape),
 		(params: z.infer<typeof WaitForProcessParams>) =>
 			handleToolCall(params.label, "wait_for_process", params, () =>
-				waitForProcessImpl(params),
+				_waitForProcess(params),
 			),
 	);
 
@@ -322,7 +838,7 @@ export function registerToolDefinitions(server: McpServer): void {
 		shape(GetAllLoglinesParams.shape),
 		(params: z.infer<typeof GetAllLoglinesParams>) =>
 			handleToolCall(params.label, "get_all_loglines", params, () =>
-				getAllLoglinesImpl(params),
+				_getAllLoglines(params),
 			),
 	);
 
@@ -331,7 +847,7 @@ export function registerToolDefinitions(server: McpServer): void {
 		"Provides a health status summary of the MCP Process Manager itself.",
 		{},
 		(params: Record<string, never>) =>
-			handleToolCall(null, "health_check", params, healthCheckImpl),
+			handleToolCall(null, "health_check", params, _healthCheck),
 	);
 
 	server.tool(
@@ -347,11 +863,21 @@ export function registerToolDefinitions(server: McpServer): void {
 	log.info(null, "Tool definitions registered.");
 }
 
+function getResultText(result: CallToolResult): string | null {
+	if (result.content && result.content.length > 0) {
+		const firstContent = result.content[0];
+		if (
+			firstContent &&
+			typeof firstContent === "object" &&
+			"type" in firstContent &&
+			firstContent.type === "text" &&
+			"text" in firstContent &&
+			typeof firstContent.text === "string"
+		) {
+			return firstContent.text;
+		}
+	}
+	return null;
+}
+
 export { SendInputParams };
-export type {
-	CheckProcessStatusParams,
-	GetAllLoglinesParams,
-	ListProcessesParams,
-	RestartProcessParams,
-	WaitForProcessParams,
-};

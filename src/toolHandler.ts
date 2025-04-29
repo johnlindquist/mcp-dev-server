@@ -1,5 +1,10 @@
-import { fail, getResultText, safeSubstring, textPayload } from "./mcpUtils.js";
-import type { CallToolResult } from "./types.js";
+import {
+	type CallToolResult,
+	fail,
+	getResultText,
+	safeSubstring,
+	textPayload,
+} from "./types.js";
 import { log, stripAnsiSafe } from "./utils.js";
 
 export async function handleToolCall<T extends Record<string, unknown>>(

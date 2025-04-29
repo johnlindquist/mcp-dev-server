@@ -2,11 +2,9 @@
 name: Release Package
 
 on:
-  pull_request:
-    types:
-      - closed # Trigger when a pull request is closed
+  push:
     branches:
-      - main   # Only trigger for pull requests targeting the main branch
+      - main # Trigger only on pushes to the main branch
 
 permissions:
   contents: write # Needed to create GitHub releases
@@ -17,16 +15,11 @@ permissions:
 jobs:
   release:
     name: Create Release and Publish NPM Package
-    # Add this condition to ensure the job only runs if the PR was merged
-    if: github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main'
     runs-on: ubuntu-latest
     steps:
-      # IMPORTANT: Checkout the main branch AFTER the merge event
-      # This ensures semantic-release runs on the correct branch history
-      - name: Checkout main branch
+      - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: main # Explicitly check out the main branch
           # Set persist-credentials to false for semantic-release to use its own token for auth
           persist-credentials: false
           # Fetch all history for all tags and branches needed for semantic-release
