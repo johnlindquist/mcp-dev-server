@@ -1,4 +1,5 @@
 import defaultShell from "default-shell";
+import fkill from "fkill";
 import * as pty from "node-pty";
 import { log } from "./utils.js";
 
@@ -45,24 +46,21 @@ export function writeToPty(
 	}
 }
 
-export function killPtyProcess(
+export async function killPtyProcess(
 	ptyProcess: pty.IPty,
 	label: string,
 	signal: "SIGTERM" | "SIGKILL" = "SIGTERM",
-): boolean {
+): Promise<boolean> {
+	if (ptyProcess.pid === undefined) {
+		log.warn(label, "Attempted to kill PTY process, but PID is undefined.");
+		return false; // Or handle as appropriate, maybe true if already dead?
+	}
 	try {
-		log.info(
-			label,
-			`Sending ${signal} to PTY process PID ${ptyProcess.pid}...`,
-		);
-		ptyProcess.kill(signal);
+		await fkill(ptyProcess.pid, { tree: true, force: signal === "SIGKILL" });
+		log.debug(label, `fkill sent (${signal}) to ${ptyProcess.pid}`);
 		return true;
-	} catch (error) {
-		log.error(
-			label,
-			`Failed to send ${signal} to PTY process ${ptyProcess.pid}`,
-			error,
-		);
+	} catch (err) {
+		log.error(label, "fkill failed", err);
 		return false;
 	}
 }
