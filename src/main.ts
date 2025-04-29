@@ -28,7 +28,8 @@ async function main() {
 		// Create a unique directory based on PID within the OS temp dir
 		const tempDir = os.tmpdir();
 		const logDirName = `mcp-pm-logs-${process.pid}`;
-		serverLogDirectory = path.join(tempDir, logDirName);
+		// Prepend './' to ensure logDirName is treated as a relative segment
+		serverLogDirectory = path.join(tempDir, `./${logDirName}`);
 
 		if (!fs.existsSync(serverLogDirectory)) {
 			fs.mkdirSync(serverLogDirectory, { recursive: true });
