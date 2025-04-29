@@ -81,6 +81,9 @@ jobs:
       - name: Install runtime deps only
         run: pnpm install --prod --frozen-lockfile --ignore-scripts # Ignore Husky prepare
 
+      - name: Rebuild node-pty
+        run: pnpm rebuild node-pty
+
       # Windows-only: Cache compiled pty.node so we don't rebuild every run
       # Removed custom node-pty caching logic as pnpm's cache handles this now
 
