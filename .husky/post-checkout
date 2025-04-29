@@ -1,0 +1,21 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+# Get previous HEAD, new HEAD, and branch checkout flag
+previous_head="$1"
+new_head="$2"
+is_branch_checkout="$3"
+
+# Only run on branch checkouts
+if [ "$is_branch_checkout" = "1" ]; then
+  # Get the current branch name
+  current_branch=$(git rev-parse --abbrev-ref HEAD)
+
+  # Check if the current branch is main
+  if [ "$current_branch" = "main" ]; then
+    echo "Switched to main branch. Pulling latest changes..."
+    git pull origin main || exit 1 # Exit if pull fails to prevent inconsistent state
+  fi
+fi
+
+exit 0 
