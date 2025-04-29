@@ -1,5 +1,5 @@
 # .github/workflows/ci.yml
-name: CI
+name: CI (ultra-fast)
 
 on:
   push:
@@ -10,32 +10,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # 1️⃣  Build once on Linux (fastest runner, cold-start cache most likely warm)
   build:
     runs-on: ubuntu-latest
-    outputs: # let the next job know the artifact name
-      artifact-name: build
+    outputs:
+      artifact-name: build # let the next job know the artifact name
     steps:
       - uses: actions/checkout@v4
 
-      # → pnpm = ~2× faster installs; built-in cache keeps restores snappy
-      - uses: pnpm/action-setup@v2
+      # Node first so we get cache support
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm # real, supported input 🚀
+
+      - uses: pnpm/action-setup@v4 # v4 is latest
         with:
           version: 9
-          run_install: true # runs pnpm install with frozen lock
-          cache: true # <-- turn on GitHub cache for pnpm store
+          run_install: true # single, cached install
 
       - name: Build
         run: pnpm run build
 
-      # ship compiled JS **only** (no node_modules, no lockfile — keeps artifact tiny)
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: build
           path: build/
 
-  # 2️⃣  Smoke-test that artifact on all three OSes – zero reinstall, zero brew
   smoke-test:
     needs: build
     strategy:
@@ -44,42 +44,27 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      # checkout isn’t strictly required, but nice for version metadata/etc.
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Download build artifact
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
-          name: ${{ needs.build.outputs.artifact-name }}
+          name: ${{ needs.build.outputs["artifact-name"] }}
           path: build/
 
-      # cross-platform 3-second guard written in pure Node – no timeout / brew
       - name: Smoke test (3-second guard)
         shell: bash
         run: |
           node - <<'NODE'
           const { spawn } = require('child_process');
-
-          // launch compiled script
-          const child = spawn(process.execPath, ['build/index.mjs'], {
-            stdio: 'inherit'
-          });
-
-          // kill after 3 000 ms if still running
-          const timer = setTimeout(() => {
-            console.log('⏳ 3 s elapsed – stopping script...');
-            child.kill();              // SIGTERM is portable enough
-          }, 3000);
-
-          child.on('exit', (code, signal) => {
+          const child = spawn(process.execPath, ['build/index.mjs'], { stdio: 'inherit' });
+          const timer = setTimeout(() => { console.log('⏳ Timeout – killing'); child.kill(); }, 3000);
+          child.on('exit', (code, sig) => {
             clearTimeout(timer);
-            console.log(`→ exited with code ${code ?? 'null'} signal ${signal ?? 'none'}`);
-            // treat 0 (natural) or null+signal (timed-out) as success
-            if (code === 0 || signal) process.exit(0);
-            process.exit(code);
+            console.log(`→ exit ${code ?? 'null'} sig ${sig ?? 'none'}`);
+            process.exit(code === 0 || sig ? 0 : code);
           });
           NODE
