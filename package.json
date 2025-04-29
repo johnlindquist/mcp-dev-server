@@ -15,7 +15,6 @@
 	"files": ["build"],
 	"scripts": {
 		"build": "node esbuild.config.js && node -e \"require('fs').chmodSync('build/index.mjs', '755')\"",
-		"prepare": "husky",
 		"watch": "tsc --watch",
 		"inspector": "npx @modelcontextprotocol/inspector build/index.mjs",
 		"lint:fix": "biome check --write .",
