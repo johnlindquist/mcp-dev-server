@@ -9,10 +9,10 @@ import {
 	ZOMBIE_CHECK_INTERVAL_MS,
 } from "./constants.js";
 import {
+	clearZombieCheckInterval,
 	setZombieCheckInterval,
-	stopAllProcessesOnExit,
-	zombieCheckIntervalId,
-} from "./state.js";
+} from "./processSupervisor.js";
+import { stopAllProcessesOnExit } from "./state.js";
 import { registerToolDefinitions } from "./toolDefinitions.js";
 import { log } from "./utils.js";
 
@@ -53,8 +53,12 @@ async function main() {
 	// Register tools
 	registerToolDefinitions(server);
 
-	// Setup zombie process check interval
-	setZombieCheckInterval(ZOMBIE_CHECK_INTERVAL_MS);
+	// Start periodic zombie check
+	if (ZOMBIE_CHECK_INTERVAL_MS > 0) {
+		setZombieCheckInterval(ZOMBIE_CHECK_INTERVAL_MS);
+	} else {
+		log.warn(null, "Zombie process check is disabled (interval set to 0).");
+	}
 
 	// Start listening
 	const transport = new StdioServerTransport();
@@ -62,25 +66,18 @@ async function main() {
 	log.info(null, "MCP Server connected and listening via stdio.");
 
 	// Graceful shutdown
-	const cleanup = async (signal: string) => {
-		log.info(null, `Received ${signal}. Shutting down...`);
-		if (zombieCheckIntervalId) {
-			clearInterval(zombieCheckIntervalId);
-		}
-		stopAllProcessesOnExit(); // This should now also close log streams
-		log.info(null, "Attempted final termination for managed processes.");
-		// Optional: Clean up the log directory itself?
-		// if (serverLogDirectory && fs.existsSync(serverLogDirectory)) {
-		//     log.info(null, `Removing log directory: ${serverLogDirectory}`);
-		//     fs.rmSync(serverLogDirectory, { recursive: true, force: true });
-		// }
-		await server.close();
-		log.info(null, "MCP Process Manager process exiting.");
+	const cleanup = () => {
+		log.info(null, "Initiating graceful shutdown...");
+		clearZombieCheckInterval();
+		stopAllProcessesOnExit();
+		log.info(null, "Cleanup complete. Exiting.");
 		process.exit(0);
 	};
 
-	process.on("SIGINT", () => cleanup("SIGINT"));
-	process.on("SIGTERM", () => cleanup("SIGTERM"));
+	process.on("SIGTERM", cleanup);
+	process.on("SIGINT", cleanup);
+	process.on("SIGUSR2", cleanup);
+
 	process.on("exit", () => log.info(null, "Process exiting..."));
 }
 

@@ -3,3 +3,5 @@ build/
 *.log
 .env*
 .npmrc
+# Build output
+/build

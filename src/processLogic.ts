@@ -1,8 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { promisify } from "node:util";
-import * as pty from "node-pty";
-import type { IDisposable } from "node-pty"; // Import IDisposable
+import type { IDisposable, IPty } from "node-pty"; // Import only types if needed
 import treeKill from "tree-kill";
 import type { z } from "zod"; // Import zod
 import {
@@ -11,15 +10,12 @@ import {
 	OVERALL_LOG_WAIT_TIMEOUT_MS,
 } from "./constants.js";
 import { serverLogDirectory } from "./main.js"; // Import the log dir path
-import {
-	addLogEntry,
-	checkAndUpdateProcessStatus, // Renamed function
-	handleExit, // Corrected type in state.ts handleExit
-	managedProcesses, // Renamed map
-	updateProcessStatus, // Renamed function
-} from "./state.js";
+import { fail, ok, textPayload } from "./mcpUtils.js";
+import { handleExit } from "./processLifecycle.js"; // Import handleExit from new location
+import { checkAndUpdateProcessStatus } from "./processSupervisor.js"; // Import from supervisor
+import { killPtyProcess, spawnPtyProcess, writeToPty } from "./ptyManager.js"; // Import new functions
+import { addLogEntry, managedProcesses, updateProcessStatus } from "./state.js";
 import type { SendInputParams } from "./toolDefinitions.js"; // Import the schema type
-import { fail, ok, textPayload } from "./types.js";
 import type {
 	CallToolResult,
 	LogEntry,
@@ -41,7 +37,7 @@ const killProcessTree = promisify(treeKill);
  */
 async function _waitForLogSettleOrTimeout(
 	label: string,
-	ptyProcess: pty.IPty,
+	ptyProcess: IPty,
 ): Promise<{ settled: boolean; timedOut: boolean }> {
 	return new Promise((resolve) => {
 		let settleTimerId: NodeJS.Timeout | null = null;
@@ -239,7 +235,7 @@ export async function _startProcess(
 
 	const shell =
 		process.env.SHELL || (process.platform === "win32" ? "cmd.exe" : "bash");
-	let ptyProcess: pty.IPty;
+	let ptyProcess: IPty;
 	const fullCommand = [command, ...args].join(" "); // Combine command and args for PTY
 
 	// --- Log File Setup ---
@@ -294,21 +290,21 @@ export async function _startProcess(
 	// --- End Log File Setup ---
 
 	try {
-		ptyProcess = pty.spawn(shell, [], {
-			name: "xterm-color",
-			cols: 80,
-			rows: 30,
-			cwd: effectiveWorkingDirectory,
-			env: {
-				...process.env,
-				FORCE_COLOR: "1",
-				MCP_PROCESS_LABEL: label, // Updated Env Var Name
+		log.debug(label, `Attempting to spawn PTY with shell: ${shell}`);
+		ptyProcess = spawnPtyProcess(
+			shell,
+			effectiveWorkingDirectory,
+			{
+				...process.env, // Pass environment variables
+				// Add or override specific env vars if needed
 			},
-			encoding: "utf8",
-		});
-	} catch (error: unknown) {
-		const errorMsg = `Failed to spawn PTY process: ${error instanceof Error ? error.message : String(error)}`;
-		log.error(label, errorMsg);
+			label,
+		);
+		log.info(label, `PTY process created successfully, PID: ${ptyProcess.pid}`);
+	} catch (error) {
+		// Error already logged by spawnPtyProcess
+		const errorMsg = `PTY process spawn failed: ${error instanceof Error ? error.message : String(error)}`;
+		// Ensure state exists for error reporting
 		if (!managedProcesses.has(label)) {
 			managedProcesses.set(label, {
 				label,
@@ -325,18 +321,17 @@ export async function _startProcess(
 				verificationTimeoutMs,
 				retryDelayMs,
 				maxRetries,
-				logFilePath: null,
-				logFileStream: null,
+				logFilePath,
+				logFileStream,
 			});
 		}
 		updateProcessStatus(label, "error");
-		logFileStream?.end(); // Close stream if spawn fails
+		addLogEntry(label, `Error: ${errorMsg}`);
 		return fail(
 			textPayload(
 				JSON.stringify({
 					error: errorMsg,
 					status: "error",
-					cwd: effectiveWorkingDirectory,
 					error_type: "pty_spawn_failed",
 				}),
 			),
@@ -372,8 +367,59 @@ export async function _startProcess(
 		`Process spawned successfully (PID: ${ptyProcess.pid}) in ${effectiveWorkingDirectory}. Status: starting.`,
 	);
 
-	// Write command to PTY shell
-	ptyProcess.write(`${fullCommand}\r`); // Send command + Enter
+	// --- Start the command in the PTY ---
+	try {
+		log.debug(label, `Writing command to PTY: ${fullCommand}`);
+		// Use ptyManager function
+		if (!writeToPty(ptyProcess, `${fullCommand}\r`, label)) {
+			// Handle write failure - already logged by writeToPty
+			updateProcessStatus(label, "error");
+			addLogEntry(label, "Error: Failed to write initial command to PTY");
+			try {
+				killPtyProcess(ptyProcess, label, "SIGKILL");
+			} catch (killError) {
+				log.error(
+					label,
+					"Failed to kill PTY process after write error",
+					killError,
+				);
+			}
+			return fail(
+				textPayload(
+					JSON.stringify({
+						error: "Failed to write initial command to PTY",
+						status: "error",
+						error_type: "pty_write_failed",
+					}),
+				),
+			);
+		}
+		log.debug(label, "Command written to PTY successfully.");
+	} catch (error: unknown) {
+		// This catch block might be redundant if writeToPty handles its errors
+		const errorMsg = `Failed to write command to PTY process ${ptyProcess.pid}: ${error instanceof Error ? error.message : String(error)}`;
+		log.error(label, errorMsg);
+		updateProcessStatus(label, "error");
+		addLogEntry(label, `Error: ${errorMsg}`);
+		try {
+			killPtyProcess(ptyProcess, label, "SIGKILL");
+		} catch (killError) {
+			log.error(
+				label,
+				"Failed to kill PTY process after write error",
+				killError,
+			);
+		}
+		return fail(
+			textPayload(
+				JSON.stringify({
+					error: errorMsg,
+					status: "error",
+					error_type: "pty_write_failed",
+				}),
+			),
+		);
+	}
 
 	// --- Verification Logic ---
 	let isVerified = !verificationPattern;
@@ -488,14 +534,12 @@ export async function _startProcess(
 
 		// Get fresh info before calling handleExit
 		const currentInfo = managedProcesses.get(label);
-		if (currentInfo && currentInfo.status !== "verifying") {
-			// Avoid double handling if verification exit listener ran
-			handleExit(
-				label,
-				exitCode ?? null,
-				signal !== undefined ? String(signal) : null,
-			);
-		}
+		// Call the imported handleExit
+		handleExit(
+			label,
+			exitCode ?? null,
+			signal !== undefined ? String(signal) : null,
+		);
 		mainExitDisposable.dispose(); // Dispose self
 	});
 
@@ -629,144 +673,91 @@ export async function _stopProcess(
 	label: string,
 	force = false,
 ): Promise<CallToolResult> {
-	log.info(label, `Attempting to stop process "${label}" (force=${force})...`);
+	log.info(label, `Stopping process... Force: ${force}`);
+	// Fetch latest status and process info
 	const processInfo = await checkAndUpdateProcessStatus(label);
 
 	if (!processInfo) {
-		return fail(
-			textPayload(
-				JSON.stringify({
-					error: `Process with label "${label}" not found.`,
-					status: "not_found",
-					error_type: "not_found",
-				}),
-			),
-		);
-	}
-
-	if (
-		["stopped", "crashed", "error"].includes(processInfo.status) &&
-		!processInfo.pid
-	) {
-		log.warn(
-			label,
-			`Process is already terminal (${processInfo.status}) with no active PID.`,
-		);
-		return ok(
-			textPayload(
-				JSON.stringify({
-					message: `Process "${label}" was already ${processInfo.status}.`,
-					status: processInfo.status,
-					pid: processInfo.pid, // null or undefined
-					cwd: processInfo.cwd,
-					exitCode: processInfo.exitCode,
-					signal: processInfo.signal,
-					// Map LogEntry[] to string[]
-					logs: formatLogsForResponse(
-						processInfo.logs.map((l: LogEntry) => l.content),
-						DEFAULT_LOG_LINES,
-					),
-				}),
-			),
-		);
+		const msg = `Process with label "${label}" not found.`;
+		log.warn(label, msg);
+		return ok(textPayload(msg)); // Not an error if already gone
 	}
 
 	if (!processInfo.process || !processInfo.pid) {
-		const errorMsg = `Cannot stop process: handle or PID is missing despite status being ${processInfo.status}. Attempting to mark as error.`;
-		log.error(label, errorMsg);
-		updateProcessStatus(label, "error"); // Mark as error
+		const msg = `Process "${label}" has no active PTY instance or PID (Status: ${processInfo.status}). Cannot stop.`;
+		log.warn(label, msg);
+		// Consider if this should be an error? For now, treat as already stopped/invalid state.
+		return ok(textPayload(msg));
+	}
+
+	const pidToKill = processInfo.pid;
+	const ptyToKill = processInfo.process;
+	const signal = force ? "SIGKILL" : "SIGTERM";
+
+	updateProcessStatus(label, "stopping");
+	addLogEntry(label, `Stopping process with ${signal}...`);
+
+	try {
+		log.info(label, `Attempting to kill process tree for PID: ${pidToKill}`);
+		await killProcessTree(pidToKill);
+		log.info(
+			label,
+			`Successfully sent signal to process tree for PID: ${pidToKill}`,
+		);
+		// Even after tree-kill, explicitly kill the PTY process to ensure it cleans up
+		// Use ptyManager function
+		killPtyProcess(ptyToKill, label, signal);
+
+		// Wait briefly for potential exit event to fire and update status
+		await new Promise((resolve) => setTimeout(resolve, 100));
+
+		// Re-check status after attempting kill
+		const finalStatusInfo = managedProcesses.get(label);
+		const finalStatus = finalStatusInfo?.status ?? "unknown";
+		const exitCode = finalStatusInfo?.exitCode;
+		const exitSignal = finalStatusInfo?.signal;
+
+		const msg = `Stop signal (${signal}) sent to process "${label}" (PID: ${pidToKill}). Final status: ${finalStatus}. Exit Code: ${exitCode}, Signal: ${exitSignal}`; // Add exit details
+		addLogEntry(label, `Stop signal sent. Final status: ${finalStatus}.`);
+		log.info(label, msg);
+		return ok(
+			textPayload(
+				JSON.stringify({
+					message: msg,
+					status: finalStatus,
+					exitCode: exitCode,
+					signal: exitSignal,
+				}),
+			),
+		);
+	} catch (error: unknown) {
+		const errorMsg = `Error stopping process "${label}" (PID: ${pidToKill}): ${error instanceof Error ? error.message : String(error)}`;
+		log.error(label, errorMsg, error);
+		addLogEntry(label, `Error: ${errorMsg}`);
+		// Attempt to force kill the direct PTY process if the tree-kill failed
+		try {
+			log.warn(label, "Tree kill failed, attempting direct PTY kill...");
+			// Use ptyManager function
+			killPtyProcess(ptyToKill, label, "SIGKILL");
+		} catch (ptyKillError) {
+			log.error(
+				label,
+				"Failed to force kill PTY process after tree kill error",
+				ptyKillError,
+			);
+		}
+		// Update status to error if stopping failed badly
+		updateProcessStatus(label, "error");
 		return fail(
 			textPayload(
 				JSON.stringify({
 					error: errorMsg,
 					status: "error",
-					error_type: "missing_handle_on_stop",
-					pid: processInfo.pid,
-					cwd: processInfo.cwd,
-					// Map LogEntry[] to string[]
-					logs: formatLogsForResponse(
-						processInfo.logs.map((l: LogEntry) => l.content),
-						DEFAULT_LOG_LINES,
-					),
+					error_type: "stop_failed",
 				}),
 			),
 		);
 	}
-
-	// Clear verification timer if stopping during verification
-	if (processInfo.verificationTimer) {
-		clearTimeout(processInfo.verificationTimer);
-		processInfo.verificationTimer = undefined;
-		log.info(label, "Cleared verification timer during stop request.");
-	}
-
-	const signal: "SIGTERM" | "SIGKILL" = force ? "SIGKILL" : "SIGTERM";
-	log.info(label, `Sending ${signal} to process PID ${processInfo.pid}...`);
-	addLogEntry(label, `Sending ${signal} signal.`);
-	updateProcessStatus(label, "stopping");
-
-	try {
-		// Use the node-pty kill method
-		processInfo.process.kill(signal);
-	} catch (error: unknown) {
-		const errorMsg = `Failed to send ${signal} to PID ${processInfo.pid}: ${error instanceof Error ? error.message : String(error)}`;
-		log.error(label, errorMsg);
-		addLogEntry(label, `Error sending signal: ${errorMsg}`);
-
-		// Check status again after failed signal
-		const postSignalCheck = await checkAndUpdateProcessStatus(label);
-		const currentStatus = postSignalCheck?.status ?? processInfo.status;
-		const finalError = `Failed to send ${signal}. Status: ${currentStatus}. Error: ${errorMsg}`;
-
-		if (currentStatus !== "stopped" && currentStatus !== "crashed") {
-			updateProcessStatus(label, "error"); // Mark as error if signal failed and not already terminal
-		}
-
-		return fail(
-			textPayload(
-				JSON.stringify({
-					error: finalError,
-					status: postSignalCheck?.status ?? "error", // Reflect updated status
-					error_type: "signal_send_failed",
-					pid: processInfo.pid,
-					cwd: processInfo.cwd,
-					// Map LogEntry[] to string[]
-					logs: formatLogsForResponse(
-						(postSignalCheck?.logs ?? processInfo.logs).map(
-							(l: LogEntry) => l.content,
-						),
-						DEFAULT_LOG_LINES,
-					),
-				}),
-			),
-		);
-	}
-
-	// Stop initiated, let onExit handler manage the final state transition.
-	// Return an intermediate success indicating the stop command was sent.
-
-	const currentProcessInfo = managedProcesses.get(label) as ProcessInfo; // Should exist
-	return ok(
-		textPayload(
-			JSON.stringify(
-				{
-					message: `Stop signal (${signal}) sent to process "${label}" (PID: ${currentProcessInfo.pid}).`,
-					status: currentProcessInfo.status, // Should be 'stopping'
-					pid: currentProcessInfo.pid,
-					cwd: currentProcessInfo.cwd,
-					// Map LogEntry[] to string[]
-					logs: formatLogsForResponse(
-						currentProcessInfo.logs.map((l) => l.content),
-						DEFAULT_LOG_LINES,
-					),
-					monitoring_hint:
-						"Process is stopping. Use check_process_status for final status.",
-				},
-				null,
-				2,
-			),
-		),
-	);
 }
 
 /**
@@ -776,102 +767,42 @@ export async function _sendInput(
 	params: z.infer<typeof SendInputParams>, // Use inferred type from Zod schema
 ): Promise<CallToolResult> {
 	const { label, input, append_newline } = params;
-	log.info(label, `Attempting to send input to process "${label}"...`);
+	const processInfo = managedProcesses.get(label);
 
-	// Use checkAndUpdateProcessStatus to get potentially updated info
-	const processInfo = await checkAndUpdateProcessStatus(label);
-
-	if (!processInfo) {
-		return fail(
-			textPayload(
-				JSON.stringify({
-					error: `Process with label "${label}" not found.`,
-					status: "not_found",
-					error_type: "not_found",
-				}),
-			),
-		);
+	if (!processInfo || !processInfo.process) {
+		const errorMsg = `Process "${label}" not found or has no active PTY instance.`;
+		log.error(label, errorMsg);
+		return fail(textPayload(errorMsg));
 	}
 
-	// Check if the process is in a state that can receive input
-	const allowedStates: ProcessStatus[] = ["running", "verifying", "starting"];
-	if (!allowedStates.includes(processInfo.status)) {
-		const errorMsg = `Process "${label}" is not in a state to receive input. Current status: ${processInfo.status}. Required status: ${allowedStates.join(" or ")}.`;
-		log.warn(label, errorMsg);
+	if (!["running", "verifying"].includes(processInfo.status)) {
+		const errorMsg = `Process "${label}" is not in a running state (status: ${processInfo.status}). Cannot send input.`;
+		log.error(label, errorMsg);
+		return fail(textPayload(errorMsg));
+	}
+
+	const dataToSend = append_newline ? `${input}\r` : input;
+	log.info(label, `Sending input to process: ${dataToSend.length} chars`);
+
+	try {
+		// Use ptyManager function
+		if (writeToPty(processInfo.process, dataToSend, label)) {
+			return ok(textPayload(`Input sent to process "${label}".`));
+		}
+		// Error already logged by writeToPty
+		const errorMsg = `Failed to send input to process "${label}".`;
+		return fail(textPayload(errorMsg));
+	} catch (error: unknown) {
+		// This catch block might be redundant
+		const errorMsg = `Error sending input to process "${label}": ${error instanceof Error ? error.message : String(error)}`;
+		log.error(label, errorMsg, error);
 		return fail(
 			textPayload(
 				JSON.stringify({
 					error: errorMsg,
 					status: processInfo.status,
-					error_type: "invalid_state_for_input",
-					pid: processInfo.pid,
-					cwd: processInfo.cwd,
+					error_type: "send_input_failed",
 				}),
-			),
-		);
-	}
-
-	if (!processInfo.process) {
-		const errorMsg = `Cannot send input: Process handle is missing for "${label}" despite status being ${processInfo.status}.`;
-		log.error(label, errorMsg);
-		// Consider updating status to 'error' here? Might be too aggressive.
-		return fail(
-			textPayload(
-				JSON.stringify({
-					error: errorMsg,
-					status: processInfo.status, // Report current status
-					error_type: "missing_handle_on_input",
-					pid: processInfo.pid,
-					cwd: processInfo.cwd,
-				}),
-			),
-		);
-	}
-
-	try {
-		const dataToSend = input + (append_newline ? "\\r" : "");
-		log.debug(label, `Writing to PTY: "${dataToSend.replace("\\r", "\r")}"`); // Log escaped newline
-
-		// Send the input via the node-pty process handle
-		processInfo.process.write(dataToSend);
-
-		// Log the action internally for the process
-		const logMessage = `Input sent: "${input}"${append_newline ? " (with newline)" : ""}`;
-		addLogEntry(label, logMessage);
-		log.info(label, logMessage);
-
-		return ok(
-			textPayload(
-				JSON.stringify(
-					{
-						message: `Input successfully sent to process "${label}".`,
-						input_sent: input,
-						newline_appended: append_newline,
-						status: processInfo.status, // Return current status after sending
-						pid: processInfo.pid,
-					},
-					null,
-					2,
-				),
-			),
-		);
-	} catch (error: unknown) {
-		const errorMsg = `Failed to write input to process "${label}": ${error instanceof Error ? error.message : String(error)}`;
-		log.error(label, errorMsg, error);
-		addLogEntry(label, `Error sending input: ${errorMsg}`);
-		// Don't change process status here, as the process itself might still be running
-		return fail(
-			textPayload(
-				JSON.stringify(
-					{
-						error: errorMsg,
-						status: processInfo.status, // Report status at time of error
-						error_type: "write_failed",
-						pid: processInfo.pid,
-					},
-					null,
-					2,
-				),
 			),
 		);
 	}
