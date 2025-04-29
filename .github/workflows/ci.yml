@@ -68,7 +68,7 @@ jobs:
 
       # 6️⃣ Install runtime deps (fast because store is cached)
       - name: Install runtime deps only
-        run: pnpm install --prod --frozen-lockfile --ignore-scripts # Ignore Husky prepare
+        run: pnpm install --prod --frozen-lockfile
 
       # 3️⃣ (Windows only) Restore node-pty cache
       - name: Restore node-pty cache
