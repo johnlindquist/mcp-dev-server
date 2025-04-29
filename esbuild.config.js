@@ -7,7 +7,7 @@ esbuild
 		outfile: "build/index.mjs",
 		platform: "node",
 		format: "esm",
-		external: ["node-pty", "tree-kill"],
+		external: ["node-pty", "tree-kill", "fkill"],
 		logLevel: "info",
 	})
 	.catch(() => process.exit(1));
