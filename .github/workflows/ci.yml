@@ -8,8 +8,11 @@ on:
 
 jobs:
   build:
-    name: Build Project
-    runs-on: ubuntu-latest
+    name: Build Project on ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     permissions:
       contents: read # Need to read repo contents
       actions: write # Need to write artifacts
@@ -32,13 +35,16 @@ jobs:
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: build-artifact
+          name: build-artifact-${{ matrix.os }}
           path: build/ # Upload the entire build directory
 
   smoke-test:
-    name: Smoke Test Built Script
-    runs-on: ubuntu-latest
+    name: Smoke Test Built Script on ${{ matrix.os }}
     needs: build # Run after build job completes
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     permissions:
       contents: read # Need to read repo contents
       actions: read # Need to read artifacts
@@ -58,7 +64,7 @@ jobs:
       - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
-          name: build-artifact
+          name: build-artifact-${{ matrix.os }}
           path: build/ # Download to the build directory
 
       - name: Run built script with timeout
