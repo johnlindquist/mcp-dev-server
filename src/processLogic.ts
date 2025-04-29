@@ -570,95 +570,149 @@ export async function _startProcess(
 		mainExitDisposable.dispose(); // Dispose self
 	});
 
-	// --- Wait for Initial Logs to Settle ---
-	const settleResult = await _waitForLogSettleOrTimeout(label, ptyProcess);
-	// --- End Wait for Initial Logs to Settle ---
-
-	// If verification was started, wait for it to complete as well
-	if (verificationCompletionPromise) {
-		log.debug(
-			label,
-			"Waiting for verification process to complete (if running)...",
-		);
-		log.debug(label, "Verification completion awaited (or skipped).");
-	}
-
-	// --- Final Return ---
-	const currentInfoAfterWait = await checkAndUpdateProcessStatus(label); // Use check function
-
-	if (!currentInfoAfterWait) {
-		// Process might have exited very quickly and been removed, or internal error
-		const errorMsg = `Internal error: Process info for "${label}" not found after startup wait.`;
-		log.error(label, errorMsg);
-		return fail(
-			textPayload(JSON.stringify({ error: errorMsg, status: "not_found" })), // Use not_found status
-		);
-	}
-
-	// Determine the final status and message
-	const finalStatus = currentInfoAfterWait.status;
-	let message = `Process "${label}" started (PID: ${currentInfoAfterWait.pid}). Status: ${finalStatus}.`;
-
-	if (settleResult.settled) {
-		message += ` Initial logs settled after a ${LOG_SETTLE_DURATION_MS}ms pause.`;
-	} else if (settleResult.timedOut) {
-		message += ` Initial log settling wait timed out after ${OVERALL_LOG_WAIT_TIMEOUT_MS}ms.`;
-	}
-	// Add verification status if applicable (needs integration with verification promise result)
-	// if (verificationSucceeded) message += " Verification successful.";
-	// else if (verificationFailed) message += " Verification failed.";
-
-	message +=
-		" This indicates initial output stability, not necessarily task completion. Use check_process_status for updates.";
-
-	const logsToReturn = formatLogsForResponse(
-		currentInfoAfterWait.logs.map((l: LogEntry) => l.content),
-		currentInfoAfterWait.logs.length,
-	);
-
-	log.info(
+	// --- Wait for settling or timeout ---
+	const { settled, timedOut } = await _waitForLogSettleOrTimeout(
 		label,
-		`Returning result for start_process. Included ${logsToReturn.length} log lines. Status: ${finalStatus}.`,
+		ptyProcess,
 	);
+	// --- End Wait ---
 
-	// Updated monitoring hint
-	let monitoringHint = `Call check_process_status('${label}') to stream logs or verify state.`;
-	if (logFilePath) {
-		monitoringHint += ` Or tail the log file: tail -f "${logFilePath}"`;
+	// --- Determine Final Status and Message ---
+	const currentInfoAfterWait = managedProcesses.get(label);
+	if (!currentInfoAfterWait) {
+		// This should ideally not happen if the process was just started
+		log.error(label, "Process info unexpectedly missing after log settling.");
+		return fail(
+			textPayload(
+				JSON.stringify({
+					error: "Internal error: Process state lost after startup.",
+					status: "error",
+					error_type: "internal_state_error",
+				}),
+			),
+		);
 	}
 
-	// Use the Zod schema type
+	let finalStatus = currentInfoAfterWait.status;
+	let message = "Process started."; // Default message
+
+	if (finalStatus === "verifying") {
+		message = "Process started, verification pattern matched.";
+		// No status change needed, already implicitly successful if verifying passed
+	} else if (finalStatus === "starting") {
+		// If verification was NOT used, or timed out without a match/exit, consider it 'running'
+		if (!verificationPattern) {
+			finalStatus = "running"; // Promote to running if no verification
+			updateProcessStatus(label, "running");
+			message = "Process started and is now considered running.";
+		} else {
+			// Verification timed out or settled without match, but didn't crash/error
+			finalStatus = "running"; // Still treat as running, but mention timeout
+			updateProcessStatus(label, "running");
+			message = `Process started, but verification pattern did not match within the timeout (${verificationTimeoutMs || "default"}ms). Considered running.`;
+			log.warn(
+				label,
+				`Verification pattern did not match within timeout. Process status set to '${finalStatus}'.`,
+			);
+		}
+	} else if (finalStatus === "crashed" || finalStatus === "error") {
+		message = `Process failed to start or exited unexpectedly. Final status: ${finalStatus}. Check logs for details.`;
+		log.error(label, message);
+	}
+
+	if (settled && !timedOut) {
+		message += " Logs settled quickly.";
+	} else if (timedOut) {
+		message += ` Log settling wait timed out after ${OVERALL_LOG_WAIT_TIMEOUT_MS}ms.`;
+	}
+
+	// Include exit code/signal if applicable
+	if (currentInfoAfterWait.exitCode !== null) {
+		message += ` Exit Code: ${currentInfoAfterWait.exitCode}.`;
+	}
+	if (currentInfoAfterWait.signal !== null) {
+		message += ` Signal: ${currentInfoAfterWait.signal}.`;
+	}
+
+	log.info(label, `Final status after settling/wait: ${finalStatus}`);
+
+	// Retrieve potentially updated logs after settling/timeout
+	const logsToReturn = formatLogsForResponse(
+		currentInfoAfterWait.logs.map((l) => l.content),
+		currentInfoAfterWait.logs.length, // Use the full length here for payload, actual return might be capped by transport
+	);
+	// --- End Determine Final Status and Message ---
+
+	// --- Construct Payload ---
+	// Generate the tail command first
+	const tailCommand = logFilePath ? `tail -f "${logFilePath}"` : null;
+
+	// Conditionally generate the monitoring hint based on tail command availability
+	let monitoringHint: string;
+	if (tailCommand) {
+		// Phrasing for when file logging (and thus tailing) is possible
+		monitoringHint = `If you requested to tail the '${label}' process, please run this command in a separate background terminal: ${tailCommand}. For status updates or recent inline logs, use check_process_status('${label}').`;
+	} else {
+		// Phrasing for when file logging is disabled
+		monitoringHint = `For status updates or recent inline logs, use check_process_status('${label}'). File logging is not enabled for this process.`;
+	}
+
+	// Keep the detailed startup/settling message separate if needed
+	const infoMessage = message; // 'message' contains the details about settling/timeout
+
+	// Construct the final payload
 	const successPayload: z.infer<typeof StartSuccessPayloadSchema> = {
 		label,
+		// Keep the primary message concise about the start status
 		message: `Process "${label}" started with status: ${finalStatus}.`,
 		status: finalStatus,
 		pid: currentInfoAfterWait.pid,
 		command: command,
 		args: args,
 		cwd: effectiveWorkingDirectory,
-		logs: formatLogsForResponse(logsToReturn, logsToReturn.length),
-		monitoring_hint: monitoringHint,
+		// Ensure logsToReturn uses the full length from the earlier modification
+		logs: formatLogsForResponse(
+			currentInfoAfterWait.logs.map((l: LogEntry) => l.content),
+			currentInfoAfterWait.logs.length, // Use the full length here for payload, actual return might be capped by transport
+		),
+		monitoring_hint: monitoringHint, // Use the newly formatted hint
 		log_file_path: logFilePath,
-		tail_command: logFilePath ? `tail -f "${logFilePath}"` : null,
-		info_message: message,
+		tail_command: tailCommand, // Include the generated tail command
+		info_message: infoMessage, // Use the separate variable for settling details
 		exitCode: currentInfoAfterWait.exitCode ?? null,
 		signal: currentInfoAfterWait.signal ?? null,
 	};
 
+	log.info(
+		label,
+		`Returning result for start_process. Included ${successPayload.logs.length} log lines. Status: ${finalStatus}.`,
+	);
+	// --- End Construct Payload ---
+
 	// If final status is error/crashed, return failure, otherwise success
 	if (["error", "crashed"].includes(finalStatus)) {
 		const errorPayload: z.infer<typeof StartErrorPayloadSchema> = {
-			error: message || `Process ended with status ${finalStatus}. Check logs.`,
+			error: infoMessage, // Use the detailed message as the error
 			status: finalStatus,
-			pid: currentInfoAfterWait.pid,
-			cwd: effectiveWorkingDirectory,
-			error_type:
-				finalStatus === "crashed" ? "process_crashed" : "startup_error",
+			pid: successPayload.pid,
+			command: successPayload.command,
+			args: successPayload.args,
+			cwd: successPayload.cwd,
+			logs: successPayload.logs,
+			log_file_path: successPayload.log_file_path,
+			tail_command: successPayload.tail_command,
+			exitCode: successPayload.exitCode,
+			signal: successPayload.signal,
+			error_type: "process_exit_error", // General error type
 		};
-		return fail(textPayload(JSON.stringify(errorPayload)));
+		log.error(
+			label,
+			`start_process returning failure. Status: ${finalStatus}, Exit Code: ${successPayload.exitCode}, Signal: ${successPayload.signal}`,
+		);
+		return fail(textPayload(JSON.stringify(errorPayload, null, 2)));
 	}
 
-	return ok(textPayload(JSON.stringify(successPayload)));
+	return ok(textPayload(JSON.stringify(successPayload, null, 2))); // Ensure payload is stringified
 }
 
 /**

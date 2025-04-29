@@ -19,6 +19,7 @@
 		"watch": "tsc --watch",
 		"inspector": "npx @modelcontextprotocol/inspector build/index.mjs",
 		"lint:fix": "biome check --write .",
+		"verify": "npm run build && npm run lint:fix",
 		"start": "node build/index.mjs"
 	},
 	"dependencies": {
