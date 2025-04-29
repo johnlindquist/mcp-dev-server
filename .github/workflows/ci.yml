@@ -84,7 +84,7 @@ jobs:
       # 4️⃣ Rebuild node-pty if needed (always on non-Windows, only on cache miss on Windows)
       - name: Rebuild node-pty
         if: runner.os != 'Windows' || steps.pty-cache.outputs.cache-hit != 'true'
-        run: pnpm i node-pty --allow-build
+        run: pnpm rebuild
 
       # 5️⃣ (Windows only) Save node-pty cache if it was rebuilt
       - name: Save node-pty cache
