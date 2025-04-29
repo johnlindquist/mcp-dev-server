@@ -7,6 +7,7 @@ import type { z } from "zod"; // Import zod
 import {
 	LOG_SETTLE_DURATION_MS,
 	OVERALL_LOG_WAIT_TIMEOUT_MS,
+	STOP_WAIT_DURATION,
 } from "./constants.js";
 import { serverLogDirectory } from "./main.js"; // Import the log dir path
 import { fail, ok, textPayload } from "./mcpUtils.js";
@@ -662,7 +663,7 @@ export async function _startProcess(
 
 /**
  * Internal function to stop a background process.
- * Handles both graceful termination (SIGTERM) and forceful kill (SIGKILL).
+ * Handles both graceful termination (SIGTERM with fallback to SIGKILL) and forceful kill (SIGKILL).
  */
 export async function _stopProcess(
 	label: string,
@@ -671,90 +672,145 @@ export async function _stopProcess(
 	log.info(label, `Stop requested for process "${label}". Force: ${force}`);
 	addLogEntry(label, `Stop requested. Force: ${force}`);
 
-	const processInfo = await checkAndUpdateProcessStatus(label); // Refresh status
+	// Refresh status before proceeding
+	const initialProcessInfo = await checkAndUpdateProcessStatus(label);
 
-	if (!processInfo) {
+	if (!initialProcessInfo) {
 		return fail(
 			textPayload(JSON.stringify({ error: `Process "${label}" not found.` })),
 		);
 	}
 
+	// If already in a terminal state, report success
 	if (
-		processInfo.status === "stopped" ||
-		processInfo.status === "crashed" ||
-		processInfo.status === "error"
+		initialProcessInfo.status === "stopped" ||
+		initialProcessInfo.status === "crashed" ||
+		initialProcessInfo.status === "error"
 	) {
 		log.info(
 			label,
-			`Process already in terminal state: ${processInfo.status}.`,
+			`Process already in terminal state: ${initialProcessInfo.status}. No action needed.`,
 		);
-		// Use StopProcessPayloadSchema
 		const payload: z.infer<typeof StopProcessPayloadSchema> = {
 			label,
-			status: processInfo.status,
-			message: `Process already in terminal state: ${processInfo.status}.`,
-			pid: processInfo.pid,
+			status: initialProcessInfo.status,
+			message: `Process already in terminal state: ${initialProcessInfo.status}.`,
+			pid: initialProcessInfo.pid,
 		};
 		return ok(textPayload(JSON.stringify(payload)));
 	}
 
-	if (!processInfo.process || typeof processInfo.pid !== "number") {
+	// Check if we have a process handle and PID to work with
+	if (
+		!initialProcessInfo.process ||
+		typeof initialProcessInfo.pid !== "number"
+	) {
 		log.warn(
 			label,
-			`Process "${label}" found but has no active process handle or PID. Marking as error.`,
+			`Process "${label}" found but has no active process handle or PID. Cannot send signals. Marking as error.`,
 		);
-		updateProcessStatus(label, "error");
+		updateProcessStatus(label, "error"); // Update status to error
 		const payload: z.infer<typeof StopProcessPayloadSchema> = {
 			label,
 			status: "error",
 			message: "Process found but has no active process handle or PID.",
-			pid: processInfo.pid,
+			pid: initialProcessInfo.pid,
 		};
+		// Return failure as we couldn't perform the stop action
 		return fail(textPayload(JSON.stringify(payload)));
 	}
 
-	processInfo.stopRequested = true; // Mark that we initiated the stop
+	// Mark that we initiated the stop and update status
+	initialProcessInfo.stopRequested = true;
 	updateProcessStatus(label, "stopping");
 
-	try {
-		// Correct call to killPtyProcess
-		if (!processInfo.process) {
-			log.error(label, "Cannot stop process: PTY process object is null.");
-			updateProcessStatus(label, "error");
-			throw new Error("Cannot stop process: PTY process object is null.");
-		}
-		await killPtyProcess(
-			processInfo.process,
-			label,
-			force ? "SIGKILL" : "SIGTERM",
-		);
-		// Status might have been updated by handleExit already
-		const finalInfo = managedProcesses.get(label);
-		const finalStatus = finalInfo?.status ?? "stopped"; // Assume stopped if info gone
-		const message = `Stop signal sent successfully (Force: ${force}). Final status: ${finalStatus}.`;
-		log.info(label, message);
-		addLogEntry(label, `Stop signal sent. Force: ${force}.`);
+	let finalMessage = "";
+	let finalStatus: string = initialProcessInfo.status; // Initialize with current status
+	const processToKill = initialProcessInfo.process; // Store reference in case info changes
+	const pidToKill = initialProcessInfo.pid; // Store PID for logging/payload
 
-		// Use StopProcessPayloadSchema
+	try {
+		if (force) {
+			// --- Force Kill Logic (SIGKILL immediately) ---
+			log.info(
+				label,
+				`Force stop requested. Sending SIGKILL to PID ${pidToKill}...`,
+			);
+			addLogEntry(label, "Sending SIGKILL...");
+			await killPtyProcess(processToKill, label, "SIGKILL");
+			// Note: The onExit handler (attached in _startProcess) will eventually update the status
+			// to 'stopped' or 'crashed' via handleExit. We don't wait for it here.
+			finalMessage = `Force stop requested. SIGKILL sent to PID ${pidToKill}.`;
+			// We assume 'stopping' is the status until handleExit confirms otherwise
+			finalStatus = "stopping";
+			log.info(label, finalMessage);
+		} else {
+			// --- Graceful Shutdown Logic (SIGTERM -> Wait -> SIGKILL) ---
+			log.info(
+				label,
+				`Attempting graceful shutdown. Sending SIGTERM to PID ${pidToKill}...`,
+			);
+			addLogEntry(label, "Sending SIGTERM...");
+			await killPtyProcess(processToKill, label, "SIGTERM");
+
+			log.debug(
+				label,
+				`Waiting ${STOP_WAIT_DURATION}ms for graceful shutdown...`,
+			);
+			await new Promise((resolve) => setTimeout(resolve, STOP_WAIT_DURATION));
+
+			// Check status *after* the wait
+			const infoAfterWait = await checkAndUpdateProcessStatus(label);
+			finalStatus = infoAfterWait?.status ?? "error"; // Get potentially updated status
+
+			// Check if the process is still running (or stopping/starting/verifying/restarting)
+			if (
+				infoAfterWait &&
+				["stopping", "running", "starting", "verifying", "restarting"].includes(
+					infoAfterWait.status,
+				)
+			) {
+				log.warn(
+					label,
+					`Process did not terminate after SIGTERM and wait. Sending SIGKILL to PID ${pidToKill}...`,
+				);
+				addLogEntry(
+					label,
+					"Process unresponsive to SIGTERM, sending SIGKILL...",
+				);
+				await killPtyProcess(processToKill, label, "SIGKILL");
+				finalMessage = `Graceful stop attempted (SIGTERM), but process unresponsive. SIGKILL sent to PID ${pidToKill}.`;
+				finalStatus = "stopping"; // Assume stopping until handleExit updates
+			} else {
+				// Process likely terminated gracefully
+				finalMessage = `Graceful stop successful (SIGTERM) for PID ${pidToKill}. Final status: ${finalStatus}.`;
+				log.info(label, "Process terminated gracefully after SIGTERM.");
+				addLogEntry(label, "Process terminated gracefully after SIGTERM.");
+			}
+		}
+
+		// Prepare success payload
+		// Get the LATEST status again, as handleExit might have run during SIGKILL/wait
+		const latestInfo = managedProcesses.get(label);
 		const payload: z.infer<typeof StopProcessPayloadSchema> = {
 			label,
-			status: finalStatus,
-			message: message,
-			pid: finalInfo?.pid, // Use final PID if available
+			status: latestInfo?.status ?? finalStatus, // Use latest known status
+			message: finalMessage,
+			pid: latestInfo?.pid ?? pidToKill, // Use latest known PID
 		};
 		return ok(textPayload(JSON.stringify(payload)));
 	} catch (error) {
-		const errorMsg = `Failed to stop process "${label}": ${error instanceof Error ? error.message : String(error)}`;
+		const errorMsg = `Failed to stop process "${label}" (PID: ${pidToKill}): ${error instanceof Error ? error.message : String(error)}`;
 		log.error(label, errorMsg);
 		addLogEntry(label, `Error during stop: ${errorMsg}`);
 		updateProcessStatus(label, "error"); // Mark as error on failure
 
-		// Use StopProcessPayloadSchema for error reporting
+		// Prepare error payload
 		const payload: z.infer<typeof StopProcessPayloadSchema> = {
 			label,
 			status: "error",
 			message: errorMsg,
-			pid: processInfo.pid, // PID before stop attempt
+			pid: pidToKill, // PID before stop attempt
 		};
 		return fail(textPayload(JSON.stringify(payload)));
 	}
