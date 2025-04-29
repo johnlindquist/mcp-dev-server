@@ -1,14 +1,16 @@
+import defaultShell from "default-shell";
 import * as pty from "node-pty";
 import { log } from "./utils.js";
 
 export function spawnPtyProcess(
-	shell: string,
+	_shell: string,
 	cwd: string,
 	env: NodeJS.ProcessEnv,
 	label: string,
 	cols = 80,
 	rows = 30,
 ): pty.IPty {
+	const shell = defaultShell || process.env.ComSpec || "cmd.exe";
 	try {
 		const ptyProcess = pty.spawn(shell, [], {
 			name: "xterm-color",
