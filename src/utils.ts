@@ -132,18 +132,28 @@ export function formatLogsForResponse(
  * @returns A sanitized string suitable for use as a filename, ending with `.log`.
  */
 export function sanitizeLabelForFilename(label: string): string {
-	// Replace common problematic characters: / \ : * ? " < > |
-	// Also replace spaces for better compatibility, though not strictly necessary everywhere.
+	// Basic replacements for common problematic characters
 	let sanitized = label.replace(/[\\/:*?"<>| ]/g, "_");
-	// Reduce multiple consecutive underscores to a single one
+
+	// Windows specific: Replace characters that could conflict with device names
+	// Example: CON, PRN, AUX, NUL, COM1-9, LPT1-9
+	if (process.platform === "win32") {
+		sanitized = sanitized.replace(
+			/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(_|$)/i,
+			"reserved_$1$2",
+		);
+	}
+
+	// Collapse multiple consecutive underscores
 	sanitized = sanitized.replace(/_{2,}/g, "_");
-	// Trim leading/trailing underscores that might result
+	// Trim leading/trailing underscores
 	sanitized = sanitized.replace(/^_+|_+$/g, "");
-	// Handle potential empty string after sanitization
-	if (!sanitized) {
+
+	// Handle empty or dot-only names after sanitization
+	if (!sanitized || sanitized === "." || sanitized === "..") {
 		return `process_${Date.now()}`; // Fallback name
 	}
-	return `${sanitized}.log`; // Use template literal
+	return `${sanitized}.log`;
 }
 
 export function getTailCommand(logFilePath: string | null): string | null {
