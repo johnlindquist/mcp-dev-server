@@ -1,1 +1,3 @@
-pnpm run lint:fix
+# REMOVED HUSKY HEADER
+
+npx lint-staged
