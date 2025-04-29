@@ -7,7 +7,6 @@ import {
 	MAX_RETRIES,
 	MAX_STORED_LOG_LINES,
 } from "./constants.js";
-import { shape } from "./mcpUtils.js";
 import { _sendInput, _startProcess, _stopProcess } from "./processLogic.js";
 import { handleToolCall } from "./toolHandler.js";
 import {
@@ -21,20 +20,24 @@ import {
 } from "./toolImplementations.js";
 import { log } from "./utils.js";
 
-const labelSchema = z
+export const labelSchema = z
 	.string()
-	.min(1, "Label cannot be empty.")
-	.describe("A unique identifier for the process.");
+	.min(1)
+	.regex(
+		/^[a-zA-Z0-9_\-.:/]+$/,
+		"Label can only contain letters, numbers, underscores, hyphens, periods, colons, and forward slashes.",
+	);
+
+const shape = <T extends z.ZodRawShape>(shape: T): T => shape;
 
 const StartProcessParams = z.object(
 	shape({
-		label: labelSchema.describe(
-			"a plain English label respresenting the process like 'dev server' or 'test runner'",
-		),
-		command: z
-			.string()
-			.min(1, "Command cannot be empty.")
-			.describe("The command to execute (e.g., 'npm run dev')."),
+		label: labelSchema
+			.optional()
+			.describe(
+				"Optional human-readable identifier (e.g. 'dev-server'). Leave blank to let the server generate one based on CWD and command.",
+			),
+		command: z.string().min(1).describe("The command to execute."),
 		args: z
 			.array(z.string())
 			.optional()
@@ -42,22 +45,24 @@ const StartProcessParams = z.object(
 			.describe("Optional arguments for the command."),
 		workingDirectory: z
 			.string()
+			.min(1)
 			.describe(
-				"MANDATORY: The **absolute** working directory to run the command from. **Do not use relative paths like '.' or '../'**. Provide the full path (e.g., '/Users/me/myproject'). This setting is required.",
+				"The absolute working directory to run the command from. This setting is required. Do not use relative paths like '.' or '../'. Provide the full path (e.g., /Users/me/myproject).",
 			),
 		verification_pattern: z
 			.string()
 			.optional()
 			.describe(
-				"Optional regex pattern (JS syntax) to verify successful startup from stdout.",
+				"Optional regex pattern to match in stdout/stderr to verify successful startup.",
 			),
 		verification_timeout_ms: z
 			.number()
 			.int()
-			.positive()
+			.min(-1)
 			.optional()
+			.default(DEFAULT_VERIFICATION_TIMEOUT_MS)
 			.describe(
-				`Optional timeout for verification in milliseconds (default: ${DEFAULT_VERIFICATION_TIMEOUT_MS}ms).`,
+				"Milliseconds to wait for the verification pattern. -1 disables the timer (default).",
 			),
 		retry_delay_ms: z
 			.number()
@@ -78,6 +83,8 @@ const StartProcessParams = z.object(
 	}),
 );
 
+export type StartProcessParamsType = z.infer<typeof StartProcessParams>;
+
 const CheckProcessStatusParams = z.object(
 	shape({
 		label: labelSchema,
@@ -88,10 +95,12 @@ const CheckProcessStatusParams = z.object(
 			.optional()
 			.default(DEFAULT_LOG_LINES)
 			.describe(
-				`Number of recent log lines to *request*. Default: ${DEFAULT_LOG_LINES}. Max stored: ${MAX_STORED_LOG_LINES}. Use 'getAllLoglines' for the full stored history (up to ${MAX_STORED_LOG_LINES} lines).`,
+				`Number of recent log lines to request. Default: ${DEFAULT_LOG_LINES}. Max stored: ${MAX_STORED_LOG_LINES}. Use 'getAllLoglines' for the full stored history (up to ${MAX_STORED_LOG_LINES} lines).`,
 			),
 	}),
 );
+
+export type CheckProcessStatusParams = z.infer<typeof CheckProcessStatusParams>;
 
 const StopProcessParams = z.object(
 	shape({
@@ -101,10 +110,12 @@ const StopProcessParams = z.object(
 			.optional()
 			.default(false)
 			.describe(
-				"Force kill (SIGKILL) the process instead of graceful termination (SIGTERM).",
+				"Use SIGKILL to force kill the process instead of SIGTERM for graceful termination. Defaults to false.",
 			),
 	}),
 );
+
+export type StopProcessParams = z.infer<typeof StopProcessParams>;
 
 const ListProcessesParams = z.object(
 	shape({
@@ -115,16 +126,20 @@ const ListProcessesParams = z.object(
 			.optional()
 			.default(0)
 			.describe(
-				"Number of recent log lines to include for each process (0 for none).",
+				"Number of recent log lines to include for each process (default: 0 for none).",
 			),
 	}),
 );
+
+export type ListProcessesParams = z.infer<typeof ListProcessesParams>;
 
 const RestartProcessParams = z.object(
 	shape({
 		label: labelSchema,
 	}),
 );
+
+export type RestartProcessParams = z.infer<typeof RestartProcessParams>;
 
 const WaitForProcessParams = z.object(
 	shape({
@@ -133,27 +148,33 @@ const WaitForProcessParams = z.object(
 			.enum(["running", "stopped", "crashed", "error"])
 			.optional()
 			.default("running")
-			.describe("The target status to wait for."),
+			.describe(
+				"The target status to wait for (e.g., 'running', 'stopped'). Defaults to 'running'.",
+			),
 		timeout_seconds: z
 			.number()
 			.positive()
 			.optional()
 			.default(60)
-			.describe("Maximum time to wait in seconds."),
+			.describe("Maximum time to wait in seconds. Defaults to 60."),
 		check_interval_seconds: z
 			.number()
 			.positive()
 			.optional()
 			.default(2)
-			.describe("Interval between status checks in seconds."),
+			.describe("Interval between status checks in seconds. Defaults to 2."),
 	}),
 );
+
+export type WaitForProcessParams = z.infer<typeof WaitForProcessParams>;
 
 const GetAllLoglinesParams = z.object(
 	shape({
 		label: labelSchema,
 	}),
 );
+
+export type GetAllLoglinesParams = z.infer<typeof GetAllLoglinesParams>;
 
 const SendInputParams = z.object(
 	shape({
@@ -164,10 +185,12 @@ const SendInputParams = z.object(
 			.optional()
 			.default(true)
 			.describe(
-				"Whether to automatically append a newline character ('\\r') after the input, simulating pressing Enter. Defaults to true.",
+				"Whether to automatically append a carriage return character ('\r') after the input, simulating pressing Enter. Defaults to true.",
 			),
 	}),
 );
+
+export type SendInputParams = z.infer<typeof SendInputParams>;
 
 // Define response types (can move to types.ts)
 // ... ListProcessDetail interface ...
@@ -345,7 +368,7 @@ export function registerToolDefinitions(server: McpServer): void {
 	log.info(null, "Tool definitions registered.");
 }
 
-export { SendInputParams };
+export type { SendInputParams };
 export type {
 	CheckProcessStatusParams,
 	GetAllLoglinesParams,
