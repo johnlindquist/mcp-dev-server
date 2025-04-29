@@ -1,18 +1,30 @@
 #!/usr/bin/env bash
-# Run a command with a 3-second guard. Return 0 if it finishes or times out.
-
+# Run any command with a 3-second guard. Treat natural exit **or** SIGINT as success.
 set -euo pipefail
 
-run_with_guard() {
-  ( "$@" & pid=$!             # launch in background, capture PID
-    sleep 3                   # guard duration
-    kill -s INT $pid 2>/dev/null || true   # politely stop if still running
+timeout_guard() {
+  local seconds="$1"; shift
+
+  "$@" &                     # start the real command
+  local cmd_pid=$!
+
+  # background watcher that nukes the process after N seconds
+  (
+    sleep "$seconds"
+    kill -s INT "$cmd_pid" 2>/dev/null || true
   ) &
-  wait $pid                   # wait for process (or INT) to finish
-  return $?                   # propagate exit code
+  local watcher_pid=$!
+
+  # wait for the command; capture status
+  wait "$cmd_pid"
+  local status=$?
+
+  kill "$watcher_pid" 2>/dev/null || true  # clean up watcher
+  [[ $status -eq 130 ]] && status=0        # 130 = SIGINT → treat as success
+  return $status
 }
 
-run_with_guard node build/index.mjs
+timeout_guard "${TIMEOUT:-3}" node build/index.mjs
 EXIT=$?
 
 if [[ $EXIT -eq 0 || $EXIT -eq 130 ]]; then   # 130 = SIGINT
