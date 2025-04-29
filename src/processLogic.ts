@@ -593,75 +593,39 @@ export async function _startProcess(
 		`Returning result for start_process. Included ${logsToReturn.length} log lines. Status: ${finalStatus}.`,
 	);
 
-	// Determine if the overall operation should be considered successful for the caller
-	// Generally, if it's starting, running, or verifying, it's okay.
-	// If it crashed or errored during the settle/verification wait, it should fail.
-	if (["starting", "running", "verifying"].includes(finalStatus)) {
-		message = `Process is ${finalStatus}.`;
-		if (finalStatus === "running")
-			message += ` PID: ${currentInfoAfterWait.pid}`;
-		if (finalStatus === "verifying") message += " Verification in progress...";
-
-		// Define a more specific type (can be moved to types.ts later)
-		interface StartSuccessPayload {
-			label: string;
-			message: string;
-			status: ProcessStatus;
-			pid: number | undefined;
-			cwd: string;
-			logs: string[];
-			monitoring_hint: string;
-			log_file_path?: string | null;
-			tail_command?: string | null;
-		}
-
-		const successPayload: StartSuccessPayload = {
-			label: label,
-			message: message,
-			status: finalStatus,
-			pid: currentInfoAfterWait.pid,
-			cwd: currentInfoAfterWait.cwd,
-			logs: logsToReturn,
-			monitoring_hint: `Process is ${finalStatus}. Use check_process_status with label "${label}" for updates.`,
-		};
-		if (currentInfoAfterWait.logFilePath) {
-			successPayload.log_file_path = currentInfoAfterWait.logFilePath;
-			successPayload.tail_command = `tail -f "${currentInfoAfterWait.logFilePath}"`;
-		}
-		return ok(textPayload(JSON.stringify(successPayload, null, 2)));
-	}
-
-	// Process ended up in a terminal state (stopped, crashed, error) during startup
-	// Define error payload type
-	interface StartErrorPayload {
-		error: string;
+	// Define a more specific type (can be moved to types.ts later)
+	interface StartSuccessPayload {
+		label: string;
+		message: string;
 		status: ProcessStatus;
-		pid?: number | undefined;
-		exitCode: number | null;
-		signal: string | null;
+		pid: number | undefined;
+		cwd: string;
 		logs: string[];
+		monitoring_hint: string;
 		log_file_path?: string | null;
+		tail_command?: string | null;
+		info_message?: string;
 	}
 
-	const errorMsg = `Process "${label}" failed to stabilize or exited during startup wait. Final status: ${finalStatus}`;
-	log.error(label, errorMsg, {
-		exitCode: currentInfoAfterWait.exitCode,
-		signal: currentInfoAfterWait.signal,
-	});
-	logFileStream?.end(); // Close stream on startup failure
-
-	const errorPayload: StartErrorPayload = {
-		error: errorMsg,
+	const successPayload: StartSuccessPayload = {
+		label,
+		message: `Process '${label}' started successfully${settleResult.timedOut ? " (log settle wait timed out)" : ""}${isVerified ? " and verification pattern matched" : ""}.`,
 		status: finalStatus,
 		pid: currentInfoAfterWait.pid,
-		exitCode: currentInfoAfterWait.exitCode,
-		signal: currentInfoAfterWait.signal,
-		logs: logsToReturn,
+		cwd: currentInfoAfterWait.cwd,
+		logs: formatLogsForResponse(logsToReturn, logsToReturn.length),
+		monitoring_hint:
+			"Use 'check_process_status' or 'list_processes' to monitor.",
+		log_file_path: currentInfoAfterWait.logFilePath,
+		tail_command:
+			currentInfoAfterWait.logFilePath && process.platform !== "win32"
+				? `tail -f '${currentInfoAfterWait.logFilePath}'`
+				: null,
+		info_message:
+			"If you are waiting for a specific log line (e.g., server started, tests finished) and don't see it in the initial response, use the 'check_process_status' tool to get more recent logs.",
 	};
-	if (currentInfoAfterWait.logFilePath) {
-		errorPayload.log_file_path = currentInfoAfterWait.logFilePath;
-	}
-	return fail(textPayload(JSON.stringify(errorPayload, null, 2)));
+
+	return ok(textPayload(JSON.stringify(successPayload)));
 }
 
 /**
