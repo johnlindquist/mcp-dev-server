@@ -21,20 +21,22 @@ import {
 } from "./toolImplementations.js";
 import { log } from "./utils.js";
 
-const labelSchema = z
+export const labelSchema = z
 	.string()
-	.min(1, "Label cannot be empty.")
-	.describe("A unique identifier for the process.");
+	.min(1)
+	.regex(
+		/^[a-zA-Z0-9_\-.:/]+$/,
+		"Label can only contain letters, numbers, underscores, hyphens, periods, colons, and forward slashes.",
+	);
 
 const StartProcessParams = z.object(
 	shape({
-		label: labelSchema.describe(
-			"a plain English label respresenting the process like 'dev server' or 'test runner'",
-		),
-		command: z
-			.string()
-			.min(1, "Command cannot be empty.")
-			.describe("The command to execute (e.g., 'npm run dev')."),
+		label: labelSchema
+			.optional()
+			.describe(
+				"Optional human-readable identifier (e.g. “dev-server”). Leave blank to let the server generate one based on CWD and command.",
+			),
+		command: z.string().min(1).describe("The command to execute."),
 		args: z
 			.array(z.string())
 			.optional()
@@ -42,22 +44,22 @@ const StartProcessParams = z.object(
 			.describe("Optional arguments for the command."),
 		workingDirectory: z
 			.string()
-			.describe(
-				"MANDATORY: The **absolute** working directory to run the command from. **Do not use relative paths like '.' or '../'**. Provide the full path (e.g., '/Users/me/myproject'). This setting is required.",
-			),
+			.min(1)
+			.describe("The working directory where the command should be executed."),
 		verification_pattern: z
 			.string()
 			.optional()
 			.describe(
-				"Optional regex pattern (JS syntax) to verify successful startup from stdout.",
+				"Optional regex pattern to match in stdout/stderr to verify successful startup.",
 			),
 		verification_timeout_ms: z
 			.number()
 			.int()
-			.positive()
+			.min(-1)
 			.optional()
+			.default(DEFAULT_VERIFICATION_TIMEOUT_MS)
 			.describe(
-				`Optional timeout for verification in milliseconds (default: ${DEFAULT_VERIFICATION_TIMEOUT_MS}ms).`,
+				"Milliseconds to wait for the verification pattern. -1 disables the timer (default).",
 			),
 		retry_delay_ms: z
 			.number()

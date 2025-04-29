@@ -14,9 +14,13 @@ export const BACKOFF_FACTOR = 2;
 export const STARTUP_VERIFICATION_DELAY_MS = 2000;
 export const CRASH_LOOP_DETECTION_WINDOW_MS = 60000;
 
-export const DEFAULT_LOG_LINES = 50;
-export const DEFAULT_RETRY_DELAY_MS = 500;
-export const DEFAULT_VERIFICATION_TIMEOUT_MS = -1; // -1 means no verification
+export const DEFAULT_LOG_LINES = 20;
+
+/** Timeout (ms) before assuming a verification pattern won't match. -1 disables the timer. */
+export const DEFAULT_VERIFICATION_TIMEOUT_MS = -1;
+
+/** Delay (ms) before restarting a crashed process. */
+export const DEFAULT_RETRY_DELAY_MS = 1000;
 export const ZOMBIE_CHECK_INTERVAL_MS = 60000; // 1 minute
 
 // Constants for start_process log settling
