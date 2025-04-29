@@ -145,3 +145,18 @@ export function sanitizeLabelForFilename(label: string): string {
 	}
 	return `${sanitized}.log`; // Use template literal
 }
+
+export function getTailCommand(logFilePath: string | null): string | null {
+	if (!logFilePath) return null;
+	// Windows uses PowerShell's Get-Content
+	if (process.platform === "win32") {
+		// Escape single quotes in the path for PowerShell
+		const escapedPath = logFilePath.replace(/'/g, "''");
+		// Use powershell.exe -Command to run the Get-Content command
+		return `powershell.exe -Command Get-Content -Path '${escapedPath}' -Wait -Tail 10`;
+	}
+	// Unix-like systems use tail (no else needed due to return above)
+	// Escape double quotes in the path for sh/bash
+	const escapedPath = logFilePath.replace(/"/g, '\\"');
+	return `tail -f -n 10 "${escapedPath}"`;
+}
