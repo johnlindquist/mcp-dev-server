@@ -1,83 +1,98 @@
-# .github/workflows/ci.yml
-# This workflow runs builds and smoke tests on pushes to non-main branches
-name: CI
+# .github/workflows/ci.yml  –  ultra-fast + order fixed
+name: CI (ultra-fast)
 
 on:
   push:
     branches-ignore: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
-    name: Build Project
     runs-on: ubuntu-latest
-    permissions:
-      contents: read # Need to read repo contents
-      actions: write # Need to write artifacts
+    outputs:
+      artifact-name: build
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      # 1️⃣ Install pnpm first so setup-node can find it
+      - uses: pnpm/action-setup@v4
         with:
-          node-version: "20"
-          cache: "npm"
+          version: 9 # or whatever your repo uses
+          run_install: false # we'll install after caching
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build project
-        run: npm run build
-
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+      # 2️⃣ Install Node and enable pnpm-store caching
+      - uses: actions/setup-node@v4
         with:
-          name: build-artifact
-          path: build/ # Upload the entire build directory
+          node-version: 20
+          cache: pnpm # OK now – pnpm already on PATH
+
+      # 3️⃣ One cached install, then build
+      - name: Install deps
+        run: pnpm install --frozen-lockfile --strict-peer-dependencies
+      - name: Build
+        run: pnpm run build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build
+          path: build/
 
   smoke-test:
-    name: Smoke Test Built Script
-    runs-on: ubuntu-latest
-    needs: build # Run after build job completes
-    permissions:
-      contents: read # Need to read repo contents
-      actions: read # Need to read artifacts
+    needs: build
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
-      - name: Checkout code # Needed for package.json -> npm ci
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js # Needed to run node and npm
-        uses: actions/setup-node@v4
+      # 1️⃣ Put pnpm on the PATH first
+      - uses: pnpm/action-setup@v4
         with:
-          node-version: "20"
-          cache: "npm"
+          version: 9
+          run_install: false # We'll install after caching
 
-      - name: Install dependencies # Need runtime deps (node-pty, tree-kill)
-        run: npm ci
-
-      - name: Download build artifact
-        uses: actions/download-artifact@v4
+      # 2️⃣ Now setup-node can safely enable its pnpm cache
+      - uses: actions/setup-node@v4
         with:
-          name: build-artifact
-          path: build/ # Download to the build directory
+          node-version: 20
+          cache: pnpm # now succeeds because pnpm exists
 
-      - name: Run built script with timeout
-        run: |
-          echo "Running node build/index.mjs with a 3s timeout..."
-          # Run the node script with a 3-second timeout
-          # Capture the exit code; don't exit the shell script on error immediately
-          timeout 3s node build/index.mjs
-          EXIT_CODE=$?
-          echo "Process exited with code: $EXIT_CODE"
+      # 3️⃣ Runtime deps (fast because store is cached)
+      - name: Install runtime deps only
+        run: pnpm install --prod --frozen-lockfile --ignore-scripts # Ignore Husky prepare
 
-          # Check if the exit code indicates success (0 or 124)
-          # Exit code 124 means 'timeout' killed the process (expected success)
-          # Exit code 0 means it finished cleanly within 3s (acceptable success)
-          if [ $EXIT_CODE -eq 0 ] || [ $EXIT_CODE -eq 124 ]; then
-            echo "Smoke test passed (process ran without immediate error or timed out)."
-            exit 0
-          else
-            echo "Smoke test failed (process exited with error code $EXIT_CODE)."
-            exit $EXIT_CODE
-          fi
-        shell: /usr/bin/bash {0}
+      # Windows-only: Cache compiled pty.node so we don't rebuild every run
+      - name: Cache node-pty native build (Windows)
+        if: runner.os == 'Windows'
+        id: ptycache # Give the step an ID to check its output
+        uses: actions/cache@v4
+        with:
+          # Cache the compiled binary + node-gyp header cache
+          path: |
+            node_modules/.pnpm/node-pty@1.0.0/node_modules/node-pty/build
+            ~/.cache/node-gyp
+          key: ${{ runner.os }}-node${{ steps.setup-node.outputs.node-version }}-nodepty-v1.0.0
+
+      # Rebuild only if the cache missed on Windows
+      - name: Rebuild node-pty native binding
+        if: runner.os != 'Windows' || steps.ptycache.outputs.cache-hit != 'true'
+        run: pnpm rebuild node-pty
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build.outputs['artifact-name'] }}
+          path: build/
+
+      - name: Smoke test (Bash / 3-second guard)
+        # No OS condition here - run bash test on all platforms
+        shell: bash
+        run: scripts/smoke-test.sh
+
+      - name: Smoke test (Windows PowerShell / 3-second guard)
+        if: runner.os == 'Windows' # Only run PowerShell test on Windows
+        shell: pwsh
+        run: .\scripts\smoke-test.ps1

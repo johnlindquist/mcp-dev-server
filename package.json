@@ -24,9 +24,12 @@
 	},
 	"dependencies": {
 		"@modelcontextprotocol/sdk": "^1.10.2",
+		"default-shell": "^2.2.0",
+		"fkill": "^9.0.0",
 		"node-pty": "^1.0.0",
 		"strip-ansi": "^7.1.0",
-		"tree-kill": "^1.2.2"
+		"tree-kill": "^1.2.2",
+		"zod": "^3.24.3"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^1.9.4",

@@ -25,7 +25,7 @@ import type {
 	StartSuccessPayloadSchema,
 	StopProcessPayloadSchema,
 } from "./types.ts"; // Renamed types
-import { formatLogsForResponse, log } from "./utils.js";
+import { formatLogsForResponse, getTailCommand, log } from "./utils.js";
 import { sanitizeLabelForFilename } from "./utils.js"; // Import sanitizer
 
 const killProcessTree = promisify(treeKill);
@@ -645,7 +645,7 @@ export async function _startProcess(
 
 	// --- Construct Payload ---
 	// Generate the tail command first
-	const tailCommand = logFilePath ? `tail -f "${logFilePath}"` : null;
+	const tailCommand = getTailCommand(logFilePath);
 
 	// Conditionally generate the monitoring hint based on tail command availability
 	let monitoringHint: string;
