@@ -92,8 +92,10 @@ jobs:
           fi
           echo "Running node build/index.mjs with a 3s timeout using $TIMEOUT_CMD..."
           # Run the node script with a 3-second timeout using the correct command
-          $TIMEOUT_CMD 3s node build/index.mjs
-          EXIT_CODE=$?
+          # Capture exit code even if timeout returns non-zero (124), shielding from bash -e
+          $TIMEOUT_CMD 3s node build/index.mjs || EXIT_CODE=$?
+          # Ensure EXIT_CODE is set even if the command succeeded (returned 0)
+          : "${EXIT_CODE:=$?}"
           echo "Process exited with code: $EXIT_CODE"
 
           # Check if the exit code indicates success (0 or 124 for timeout)
