@@ -1,4 +1,4 @@
-# .github/workflows/ci.yml
+# .github/workflows/ci.yml  –  ultra-fast + order fixed
 name: CI (ultra-fast)
 
 on:
@@ -13,21 +13,25 @@ jobs:
   build:
     runs-on: ubuntu-latest
     outputs:
-      artifact-name: build # let the next job know the artifact name
+      artifact-name: build
     steps:
       - uses: actions/checkout@v4
 
-      # Node first so we get cache support
+      # 1️⃣ Install pnpm first so setup-node can find it
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9 # or whatever your repo uses
+          run_install: false # we’ll install after caching
+
+      # 2️⃣ Install Node and enable pnpm-store caching
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: pnpm # real, supported input 🚀
+          cache: pnpm # OK now – pnpm already on PATH
 
-      - uses: pnpm/action-setup@v4 # v4 is latest
-        with:
-          version: 9
-          run_install: true # single, cached install
-
+      # 3️⃣ One cached install, then build
+      - name: Install deps
+        run: pnpm install --frozen-lockfile --strict-peer-dependencies
       - name: Build
         run: pnpm run build
 
@@ -42,17 +46,17 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-
     steps:
       - uses: actions/checkout@v4
 
+      # No pnpm here, so no cache flag
       - uses: actions/setup-node@v4
         with:
           node-version: 20
 
       - uses: actions/download-artifact@v4
         with:
-          name: ${{ needs.build.outputs.artifact-name }}
+          name: ${{ needs.build.outputs['artifact-name'] }}
           path: build/
 
       - name: Smoke test (3-second guard)
