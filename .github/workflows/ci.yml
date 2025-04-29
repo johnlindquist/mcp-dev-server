@@ -80,3 +80,4 @@ jobs:
             echo "Smoke test failed (process exited with error code $EXIT_CODE)."
             exit $EXIT_CODE
           fi
+        shell: /usr/bin/bash {0}
