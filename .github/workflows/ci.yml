@@ -90,8 +90,8 @@ jobs:
       # 6️⃣ Install runtime deps (fast because store is cached, node-pty handled)
 
       # pin-node-gyp-windows.yml  (snippet)
-      - name: Install runtime deps only
-        run: pnpm install --prod --frozen-lockfile
+      - name: pnpm install
+        run: pnpm install --frozen-lockfile
 
       # 5️⃣ (Windows only) Save node-pty cache if it was rebuilt BEFORE install
       - name: Save node-pty cache
