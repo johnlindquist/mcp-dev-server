@@ -530,4 +530,113 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 		},
 		TEST_TIMEOUT,
 	);
+
+	// Test #4: List Processes (after start)
+	it(
+		"should list one running process after starting it",
+		async () => {
+			console.log("[TEST][listOne] Starting test...");
+			if (!serverProcess) {
+				throw new Error("Server process not initialized in beforeAll");
+			}
+
+			// --- Start a process first ---
+			const uniqueLabel = `test-list-${Date.now()}`;
+			const command = "node";
+			const args = [
+				"-e",
+				"console.log('Process for listing test'); setInterval(() => {}, 1000);",
+			]; // Keep alive
+			const workingDirectory = path.resolve(__dirname);
+			console.log(`[TEST][listOne] Starting process ${uniqueLabel}...`);
+			const startRequest = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "start_process",
+					arguments: { command, args, workingDirectory, label: uniqueLabel },
+				},
+				id: "req-start-for-list-1",
+			};
+			// We need to wait for the start request to complete, but we don't need to assert its result here
+			await sendRequest(serverProcess, startRequest);
+			console.log(`[TEST][listOne] Process ${uniqueLabel} started.`);
+			// --- End Process Start ---
+
+			// --- Now List Processes ---
+			const listRequest = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "list_processes",
+					arguments: { log_lines: 5 }, // Get a few log lines
+				},
+				id: "req-list-one-1",
+			};
+
+			console.log("[TEST][listOne] Sending list_processes request...");
+			const response = (await sendRequest(
+				serverProcess,
+				listRequest,
+			)) as MCPResponse;
+			console.log(
+				"[TEST][listOne] Received response:",
+				JSON.stringify(response),
+			);
+
+			console.log("[TEST][listOne] Asserting response properties...");
+			expect(response.error).toBeUndefined();
+			expect(response.result).toBeDefined();
+
+			const resultContent = response.result as {
+				content: Array<{ type: string; text: string }>;
+			};
+			expect(resultContent?.content?.[0]?.text).toBeDefined();
+
+			let listResult: ProcessStatusResult[] | null = null;
+			try {
+				listResult = JSON.parse(resultContent.content[0].text);
+			} catch (e) {
+				throw new Error(`Failed to parse list_processes result payload: ${e}`);
+			}
+
+			expect(listResult).toBeInstanceOf(Array);
+			// Check that the list contains at least the process we just started
+			expect(listResult?.length).toBeGreaterThanOrEqual(1);
+
+			// Find the specific running process we started in this test
+			const processInfo = listResult?.find((p) => p.label === uniqueLabel);
+			expect(
+				processInfo,
+				`Process with label ${uniqueLabel} not found in list`,
+			).toBeDefined();
+
+			// Now assert properties of the found process
+			expect(processInfo?.label).toBe(uniqueLabel);
+			expect(processInfo?.status).toBe("running");
+			expect(processInfo?.command).toBe(command);
+			expect(processInfo?.pid).toBeGreaterThan(0);
+			expect(processInfo?.logs?.length).toBeGreaterThanOrEqual(1); // Should have at least the spawn log
+			console.log("[TEST][listOne] Assertions passed.");
+			// --- End List Processes ---
+
+			// --- Cleanup: Stop the process ---
+			const stopRequest = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "stop_process",
+					arguments: { label: uniqueLabel },
+				},
+				id: "req-stop-cleanup-list-1",
+			};
+			console.log(
+				`[TEST][listOne] Sending stop request for cleanup (${uniqueLabel})...`,
+			);
+			await sendRequest(serverProcess, stopRequest);
+			console.log("[TEST][listOne] Cleanup stop request sent. Test finished.");
+			// --- End Cleanup ---
+		},
+		TEST_TIMEOUT,
+	);
 });
