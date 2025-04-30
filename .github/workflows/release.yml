@@ -7,7 +7,7 @@ on:
       - main # Trigger only on pushes (including merges) to the main branch
 
 permissions:
-  contents: write # Needed to create GitHub releases
+  contents: write # Needed to create GitHub releases and commit version changes
   issues: write # Needed to comment on issues/PRs linked in commits
   pull-requests: write # Needed to comment on issues/PRs linked in commits
   id-token: write # Needed for potential future OIDC auth
@@ -38,11 +38,13 @@ jobs:
         with:
           node-version-file: "package.json" # Use Node.js version from package.json
           cache: "pnpm" # OK now – pnpm already on PATH
+          registry-url: "https://registry.npmjs.org" # Needed for pnpm publish auth
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile # Use pnpm install
 
-      - name: Build project
+      # Run initial build to ensure it passes before release process
+      - name: Build project (Pre-Release Check)
         run: pnpm run build # Run the build script defined in package.json
 
       - name: Run semantic-release
@@ -51,11 +53,25 @@ jobs:
         env:
           # Provide the tokens needed by semantic-release plugins
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Provided by GitHub Actions automatically
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }} # Your secret NPM token
+          # NPM_TOKEN is not strictly needed here as publish is false, but harmless
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      # Re-build the project AFTER semantic-release has updated package.json
+      - name: Build project (Post-Release Version)
+        if: steps.semantic.outputs.new_release_published == 'true' # Only build if a release happened
+        run: pnpm run build
+
+      # Publish to NPM using pnpm, only if a new release was created
+      - name: Publish to NPM
+        if: steps.semantic.outputs.new_release_published == 'true' # Check output
+        run: pnpm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }} # Use NODE_AUTH_TOKEN for pnpm auth
+
+      # Optional: Output status based on semantic-release outputs
       - name: Output Publish Status (Published)
         if: steps.semantic.outputs.new_release_published == 'true' # Check output
-        run: echo "✅ New version ${{ steps.semantic.outputs.new_release_version }} published to npm."
+        run: echo "✅ New version ${{ steps.semantic.outputs.new_release_version }} tagged, released on GitHub, and published to npm."
 
       - name: Output Publish Status (Not Published)
         if: steps.semantic.outputs.new_release_published != 'true' # Check output
