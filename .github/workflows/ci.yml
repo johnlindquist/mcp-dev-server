@@ -77,6 +77,11 @@ jobs:
             node_modules/.pnpm/**/node_modules/node-pty/build/Release/*.node
           key: pty-${{ runner.os }}-${{ needs.build.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml') }}
 
+      # If windows, install node-gyp
+      - name: Install node-gyp
+        if: runner.os == 'Windows'
+        run: pnpm install -D node-gyp
+
       # 4️⃣ Rebuild node-pty if needed (always on non-Windows, only on cache miss on Windows) BEFORE install
       - name: Rebuild node-pty
         if: runner.os != 'Windows' || steps.pty-cache.outputs.cache-hit != 'true'
