@@ -90,15 +90,6 @@ jobs:
       # 6️⃣ Install runtime deps (fast because store is cached, node-pty handled)
 
       # pin-node-gyp-windows.yml  (snippet)
-      - name: Force node-gyp 11.2.0 on Windows
-        if: runner.os == 'Windows'
-        run: |
-          # 1️⃣ make sure the good version is on the box
-          pnpm install -g "node-gyp@11.2.0"
-          # 2️⃣ teach all package managers to use it
-          $prefix = pnpm prefix -g
-          pnpm config set node_gyp "$prefix\node_modules\node-gyp\bin\node-gyp.js"
-
       - name: Install runtime deps only
         run: pnpm install --prod --frozen-lockfile
 
