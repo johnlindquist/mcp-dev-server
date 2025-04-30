@@ -37,7 +37,7 @@ jobs:
 
       # 3️⃣ One cached install, then build
       - name: Install deps
-        run: pnpm install --frozen-lockfile --strict-peer-dependencies
+        run: pnpm install --frozen-lockfile --strict-peer-dependencies --ignore-scripts
       - name: Build
         run: pnpm run build
 
@@ -68,7 +68,7 @@ jobs:
 
       # 3️⃣ Install runtime deps (fast because store is cached)
       - name: pnpm install
-        run: pnpm install --prod --frozen-lockfile
+        run: pnpm install --prod --frozen-lockfile --ignore-scripts
 
       # 4️⃣ Pull artefacts & run smoke tests
       - uses: actions/download-artifact@v4
