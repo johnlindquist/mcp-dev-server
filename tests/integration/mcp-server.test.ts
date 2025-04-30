@@ -305,6 +305,67 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 		});
 	}
 
+	// --- Test Cases ---
+
+	// Test #1: List initially empty
+	it(
+		"should list zero processes initially",
+		async () => {
+			console.log("[TEST][listEmpty] Starting test...");
+			if (!serverProcess) {
+				throw new Error("Server process not initialized in beforeAll");
+			}
+
+			const listRequest = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "list_processes",
+					arguments: { log_lines: 0 }, // Default log_lines = 0
+				},
+				id: "req-list-empty-1",
+			};
+
+			console.log("[TEST][listEmpty] Sending list_processes request...");
+			const response = (await sendRequest(
+				serverProcess,
+				listRequest,
+			)) as MCPResponse;
+			console.log(
+				"[TEST][listEmpty] Received response:",
+				JSON.stringify(response),
+			);
+
+			console.log("[TEST][listEmpty] Asserting response properties...");
+			expect(
+				response.error,
+				`Expected error to be undefined, got: ${JSON.stringify(response.error)}`,
+			).toBeUndefined();
+			expect(
+				response.result,
+				`Expected result to be defined, error: ${JSON.stringify(response.error)}`,
+			).toBeDefined();
+
+			const resultContent = response.result as {
+				content: Array<{ type: string; text: string }>;
+			};
+			expect(resultContent?.content?.[0]?.text).toBeDefined();
+
+			let listResult: ProcessStatusResult[] | null = null;
+			try {
+				listResult = JSON.parse(resultContent.content[0].text);
+			} catch (e) {
+				throw new Error(`Failed to parse list_processes result payload: ${e}`);
+			}
+
+			expect(listResult).toBeInstanceOf(Array);
+			expect(listResult?.length).toBe(0);
+			console.log("[TEST][listEmpty] Assertions passed. Test finished.");
+		},
+		TEST_TIMEOUT,
+	);
+
+	// Test #2: Health Check
 	it(
 		"should respond successfully to health_check",
 		async () => {
@@ -316,8 +377,11 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 
 			const healthRequest = {
 				jsonrpc: "2.0",
-				method: "health_check",
-				params: {},
+				method: "tools/call",
+				params: {
+					name: "health_check",
+					arguments: {},
+				},
 				id: "req-health-1",
 			};
 			console.log("[TEST][healthCheck] Sending health_check request...");
@@ -343,11 +407,14 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			).toBeUndefined();
 
 			console.log("[TEST][healthCheck] Asserting result properties...");
-			// Basic check for health_check result structure (adapt if needed)
-			const result = response.result as { payload: { content: string } };
-			expect(result?.payload?.content).toBeDefined();
+			// Correctly access and parse the result payload
+			const resultContent = response.result as {
+				content: Array<{ type: string; text: string }>;
+			};
+			expect(resultContent?.content?.[0]?.text).toBeDefined();
+
 			try {
-				const healthStatus = JSON.parse(result.payload.content);
+				const healthStatus = JSON.parse(resultContent.content[0].text);
 				expect(healthStatus.status).toBe("ok");
 				expect(healthStatus.server_name).toBe("mcp-pm");
 			} catch (e) {
@@ -360,6 +427,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 		TEST_TIMEOUT,
 	);
 
+	// Test #3: Start Process
 	// Add back the start_process test, ensuring it runs AFTER health_check
 	it(
 		"should start a simple process and receive confirmation",
@@ -382,12 +450,15 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 
 			const startRequest = {
 				jsonrpc: "2.0",
-				method: "start_process", // Using underscore notation
+				method: "tools/call",
 				params: {
-					command,
-					args,
-					workingDirectory,
-					label: uniqueLabel,
+					name: "start_process",
+					arguments: {
+						command,
+						args,
+						workingDirectory,
+						label: uniqueLabel,
+					},
 				},
 				id: "req-start-1",
 			};
@@ -414,9 +485,20 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			).toBeUndefined();
 
 			console.log("[TEST][startProcess] Asserting result properties...");
-			const result = response.result as ProcessStatusResult; // Further cast for specific result
-			expect(result.label).toBe(uniqueLabel);
-			expect(result.status).toBe("running"); // Or 'starting' if verification is used
+			// Correctly access and parse the result payload
+			const startResultContent = response.result as {
+				content: Array<{ type: string; text: string }>;
+			};
+			expect(startResultContent?.content?.[0]?.text).toBeDefined();
+			let startResult: ProcessStatusResult | null = null;
+			try {
+				startResult = JSON.parse(startResultContent.content[0].text);
+			} catch (e) {
+				throw new Error(`Failed to parse start_process result payload: ${e}`);
+			}
+			expect(startResult).not.toBeNull();
+			expect(startResult.label).toBe(uniqueLabel);
+			expect(startResult.status).toBe("running"); // Or 'starting' if verification is used
 			console.log("[TEST][startProcess] Assertions passed.");
 
 			// Optional: Add a short delay and check status again (tests checkProcessStatus)
@@ -426,8 +508,11 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			// Cleanup: Stop the process (tests stopProcess)
 			const stopRequest = {
 				jsonrpc: "2.0",
-				method: "stop_process", // Using underscore notation
-				params: { label: uniqueLabel },
+				method: "tools/call",
+				params: {
+					name: "stop_process",
+					arguments: { label: uniqueLabel },
+				},
 				id: "req-stop-cleanup-1",
 			};
 			console.log("[TEST][startProcess] Sending stop request for cleanup...");
