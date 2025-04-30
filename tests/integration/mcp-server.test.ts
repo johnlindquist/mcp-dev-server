@@ -13,6 +13,28 @@ const SERVER_READY_OUTPUT = "MCP Server connected and listening via stdio.";
 const STARTUP_TIMEOUT = 20000; // 20 seconds (adjust as needed)
 const TEST_TIMEOUT = STARTUP_TIMEOUT + 5000; // Test timeout slightly longer than startup
 
+// --- Type definitions for MCP responses (simplified) ---
+type MCPResponse = {
+	jsonrpc: "2.0";
+	id: string;
+	result?: unknown;
+	error?: { code: number; message: string; data?: unknown };
+};
+
+type ProcessStatusResult = {
+	label: string;
+	status: "running" | "stopped" | "starting" | "error" | "crashed";
+	pid?: number;
+	command?: string;
+	args?: string[];
+	cwd?: string;
+	exitCode?: number | null;
+	signal?: string | null;
+	logs?: string[];
+	log_hint?: string;
+	// Other fields omitted for simplicity
+};
+
 describe("MCP Process Manager Server (Stdio Integration)", () => {
 	let serverProcess: ChildProcessWithoutNullStreams | null = null;
 	let serverReadyPromise: Promise<void>;
@@ -513,18 +535,17 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 					name: "stop_process",
 					arguments: { label: uniqueLabel },
 				},
-				id: "req-stop-cleanup-1",
+				id: `req-stop-${uniqueLabel}`,
 			};
-			console.log("[TEST][startProcess] Sending stop request for cleanup...");
-			// Check serverProcess again before sending stop request
-			if (!serverProcess) {
-				console.warn(
-					"[TEST][startProcess] Server process was unexpectedly null before sending stop request",
-				);
-				return; // Avoid error if process disappeared
-			}
-			await sendRequest(serverProcess, stopRequest);
-			console.log("[TEST][startProcess] Stop request sent.");
+			console.log("[TEST][stop] Sending stop_process request...");
+			const stopResponse = (await sendRequest(
+				serverProcess,
+				stopRequest,
+			)) as MCPResponse;
+			console.log(
+				"[TEST][stop] Received stop response:",
+				JSON.stringify(stopResponse),
+			);
 			// We don't strictly need to await or check the stop response here, main goal is cleanup
 			console.log("[TEST][startProcess] Test finished.");
 		},
