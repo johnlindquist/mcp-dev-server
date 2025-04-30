@@ -92,7 +92,6 @@ jobs:
       # pin-node-gyp-windows.yml  (snippet)
       - name: Force node-gyp 11.2.0 on Windows
         if: runner.os == 'Windows'
-        shell: pwsh
         run: |
           # 1️⃣ make sure the good version is on the box
           pnpm install -g "node-gyp@11.2.0"
