@@ -771,4 +771,159 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 		},
 		TEST_TIMEOUT,
 	);
+
+	// Test #7: Restart Process
+	it(
+		"should restart a running process",
+		async () => {
+			console.log("[TEST][restart] Starting test...");
+			if (!serverProcess) {
+				throw new Error("Server process not initialized in beforeAll");
+			}
+
+			// --- Start a process first ---
+			const uniqueLabel = `test-restart-${Date.now()}`;
+			const command = "node";
+			// Log PID to verify it changes after restart
+			const args = [
+				"-e",
+				"console.log(`Restart test process started PID: ${process.pid}`); setInterval(() => {}, 1000);",
+			];
+			const workingDirectory = path.resolve(__dirname);
+			console.log(`[TEST][restart] Starting initial process ${uniqueLabel}...`);
+			const startRequest = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "start_process",
+					arguments: { command, args, workingDirectory, label: uniqueLabel },
+				},
+				id: `req-start-for-restart-${uniqueLabel}`,
+			};
+			const startResponse = (await sendRequest(
+				serverProcess,
+				startRequest,
+			)) as MCPResponse;
+			console.log(`[TEST][restart] Initial process ${uniqueLabel} started.`);
+			const startResultContent = startResponse.result as {
+				content: Array<{ type: string; text: string }>;
+			};
+			const initialProcessInfo = JSON.parse(
+				startResultContent.content[0].text,
+			) as ProcessStatusResult;
+			const initialPid = initialProcessInfo.pid;
+			expect(initialPid).toBeGreaterThan(0);
+			console.log(`[TEST][restart] Initial PID: ${initialPid}`);
+			// --- End Process Start ---
+
+			// --- Now Restart the Process ---
+			const restartRequest = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "restart_process",
+					arguments: { label: uniqueLabel },
+				},
+				id: `req-restart-${uniqueLabel}`,
+			};
+			console.log("[TEST][restart] Sending restart_process request...");
+			const restartResponse = (await sendRequest(
+				serverProcess,
+				restartRequest,
+			)) as MCPResponse;
+			console.log(
+				"[TEST][restart] Received restart response:",
+				JSON.stringify(restartResponse),
+			);
+
+			console.log("[TEST][restart] Asserting restart response properties...");
+			// Check for direct error from the tool call itself
+			expect(
+				restartResponse.error,
+				`Restart tool call failed: ${JSON.stringify(restartResponse.error)}`,
+			).toBeUndefined();
+			expect(
+				restartResponse.result,
+				`Restart tool call expected result but got none. Error: ${JSON.stringify(restartResponse.error)}`,
+			).toBeDefined();
+
+			const restartResultWrapper = restartResponse.result as {
+				isError?: boolean;
+				content: Array<{ type: string; text: string }>;
+			};
+			// Check for error *within* the result payload (isError flag)
+			expect(
+				restartResultWrapper.isError,
+				`Restart result indicates an error: ${restartResultWrapper.content?.[0]?.text}`,
+			).toBeFalsy();
+			expect(restartResultWrapper?.content?.[0]?.text).toBeDefined();
+
+			let restartResult: ProcessStatusResult | null = null;
+			try {
+				restartResult = JSON.parse(restartResultWrapper.content[0].text);
+			} catch (e) {
+				throw new Error(`Failed to parse restart_process result payload: ${e}`);
+			}
+			expect(restartResult?.label).toBe(uniqueLabel);
+			expect(restartResult?.status).toBe("running");
+			const restartedPid = restartResult?.pid;
+			expect(restartedPid).toBeGreaterThan(0);
+			expect(restartedPid).not.toBe(initialPid); // Verify PID has changed
+			console.log(`[TEST][restart] Restarted PID: ${restartedPid}`);
+			console.log("[TEST][restart] Restart response assertions passed.");
+			// --- End Restart Process ---
+
+			// --- Verify Status after Restart (Optional but good practice) ---
+			const checkRequest = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "check_process_status",
+					arguments: { label: uniqueLabel, log_lines: 0 },
+				},
+				id: `req-check-after-restart-${uniqueLabel}`,
+			};
+
+			console.log(
+				"[TEST][restart] Sending check_process_status request after restart...",
+			);
+			const checkResponse = (await sendRequest(
+				serverProcess,
+				checkRequest,
+			)) as MCPResponse;
+
+			let checkResult: ProcessStatusResult | null = null;
+			const checkResultContent = checkResponse.result as {
+				content: Array<{ type: string; text: string }>;
+			};
+			try {
+				checkResult = JSON.parse(checkResultContent.content[0].text);
+			} catch (e) {
+				// Handle error
+			}
+
+			expect(checkResult?.status).toBe("running");
+			expect(checkResult?.pid).toBe(restartedPid);
+			console.log("[TEST][restart] Final status check passed.");
+			// --- End Verify Status ---
+
+			// --- Cleanup: Stop the process ---
+			const stopRequest = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "stop_process",
+					arguments: { label: uniqueLabel },
+				},
+				id: `req-stop-cleanup-restart-${uniqueLabel}`,
+			};
+			console.log(
+				`[TEST][restart] Sending stop request for cleanup (${uniqueLabel})...`,
+			);
+			await sendRequest(serverProcess, stopRequest);
+			console.log("[TEST][restart] Cleanup stop request sent. Test finished.");
+			// --- End Cleanup ---
+		},
+		TEST_TIMEOUT * 2,
+	); // Give restart more time
 });
