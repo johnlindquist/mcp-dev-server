@@ -64,7 +64,7 @@ jobs:
       # Publish to NPM using pnpm, only if a new release was created
       - name: Publish to NPM
         if: steps.semantic.outputs.new_release_published == 'true' # Check output
-        run: pnpm publish --access public
+        run: pnpm publish --access public --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }} # Use NODE_AUTH_TOKEN for pnpm auth
 
