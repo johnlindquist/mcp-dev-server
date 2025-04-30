@@ -90,18 +90,16 @@ jobs:
       # 6️⃣ Install runtime deps (fast because store is cached, node-pty handled)
 
       # pin-node-gyp-windows.yml  (snippet)
-      - name: Pin node-gyp 11.2.0 on Windows
+      - name: Pin node-gyp 11.2.0 on Windows (env-based)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          # 1) Install the good version globally
+          # 1) Install the fixed node-gyp globally
           npm install -g node-gyp@11.2.0
-          # 2) Point npm/pnpm at it (official PowerShell recipe)
-          npm prefix -g | % {
-            npm config set node_gyp "$_\\node_modules\\node-gyp\\bin\\node-gyp.js"
-          }
-          # 3) Verify
-          Write-Host "Using node-gyp at $(npm config get node_gyp)"
+          # 2) Export the path so every later npm/pnpm call uses it
+          $gyp = "$(npm prefix -g)\\node_modules\\node-gyp\\bin\\node-gyp.js"
+          echo "NPM_CONFIG_NODE_GYP=$gyp" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Will use node-gyp at $gyp"
 
       - name: pnpm install
         run: pnpm install --prod --frozen-lockfile
