@@ -14,19 +14,25 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       artifact-name: build
+      node-version: ${{ steps.extract-node.outputs.version }} # Expose node version
     steps:
       - uses: actions/checkout@v4
 
       # 1️⃣ Install pnpm first so setup-node can find it
       - uses: pnpm/action-setup@v4
         with:
-          version: 9 # or whatever your repo uses
           run_install: false # we'll install after caching
+
+      # Extract Node version from pnpm-workspace.yaml
+      - id: extract-node
+        shell: bash
+        run: |
+          echo "version=$(yq -e '.useNodeVersion // .executionEnv.nodeVersion' pnpm-workspace.yaml)" >> "$GITHUB_OUTPUT"
 
       # 2️⃣ Install Node and enable pnpm-store caching
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ steps.extract-node.outputs.version }}
           cache: pnpm # OK now – pnpm already on PATH
 
       # 3️⃣ One cached install, then build
@@ -52,36 +58,63 @@ jobs:
       # 1️⃣ Put pnpm on the PATH first
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
           run_install: false # We'll install after caching
 
       # 2️⃣ Now setup-node can safely enable its pnpm cache
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ needs.build.outputs.node-version }} # Reuse version from build job
           cache: pnpm # now succeeds because pnpm exists
 
-      # 3️⃣ Runtime deps (fast because store is cached)
-      - name: Install runtime deps only
-        run: pnpm install --prod --frozen-lockfile --ignore-scripts # Ignore Husky prepare
-
-      # Windows-only: Cache compiled pty.node so we don't rebuild every run
-      - name: Cache node-pty native build (Windows)
+      # 3️⃣ (Windows only) Restore node-pty cache BEFORE install
+      - name: Restore node-pty cache
         if: runner.os == 'Windows'
-        id: ptycache # Give the step an ID to check its output
-        uses: actions/cache@v4
+        id: pty-cache
+        uses: actions/cache/restore@v4
         with:
-          # Cache the compiled binary + node-gyp header cache
           path: |
-            node_modules/.pnpm/node-pty@1.0.0/node_modules/node-pty/build
-            ~/.cache/node-gyp
-          key: ${{ runner.os }}-node${{ steps.setup-node.outputs.node-version }}-nodepty-v1.0.0
+            ~/.pnpm-store
+            node_modules/.pnpm/**/node_modules/node-pty/build/Release/*.node
+          key: pty-${{ runner.os }}-${{ needs.build.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml') }}
 
-      # Rebuild only if the cache missed on Windows
-      - name: Rebuild node-pty native binding
-        if: runner.os != 'Windows' || steps.ptycache.outputs.cache-hit != 'true'
-        run: pnpm rebuild node-pty
+      # If windows, install node-gyp
+      # - name: Install node-gyp
+      #   if: runner.os == 'Windows'
+      #   run: pnpm install -D node-gyp
 
+      # 4️⃣ Rebuild node-pty if needed (always on non-Windows, only on cache miss on Windows) BEFORE install
+      # - name: Rebuild node-pty
+      #   if: runner.os != 'Windows' || steps.pty-cache.outputs.cache-hit != 'true'
+      #   run: pnpm rebuild node-pty # Be specific about rebuilding node-pty
+
+      # 6️⃣ Install runtime deps (fast because store is cached, node-pty handled)
+
+      # pin-node-gyp-windows.yml  (snippet)
+      - name: Pin node-gyp 11.2.0 on Windows (env-based)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # 1) Install the fixed node-gyp globally
+          npm install -g node-gyp@11.2.0
+          # 2) Export the path so every later npm/pnpm call uses it
+          $gyp = "$(npm prefix -g)\\node_modules\\node-gyp\\bin\\node-gyp.js"
+          echo "NPM_CONFIG_NODE_GYP=$gyp" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Will use node-gyp at $gyp"
+
+      - name: pnpm install
+        run: pnpm install --prod --frozen-lockfile
+
+      # 5️⃣ (Windows only) Save node-pty cache if it was rebuilt BEFORE install
+      - name: Save node-pty cache
+        if: runner.os == 'Windows' && steps.pty-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.pnpm-store
+            node_modules/.pnpm/**/node_modules/node-pty/build/Release/*.node
+          key: pty-${{ runner.os }}-${{ needs.build.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      # 7️⃣ Pull artefacts & run smoke tests
       - uses: actions/download-artifact@v4
         with:
           name: ${{ needs.build.outputs['artifact-name'] }}

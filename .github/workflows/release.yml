@@ -37,7 +37,7 @@ jobs:
       # 2️⃣ Install Node and enable pnpm-store caching
       - uses: actions/setup-node@v4
         with:
-          node-version: "20" # Use Node.js version 20.x
+          node-version-file: "package.json" # Use Node.js version from package.json
           cache: "pnpm" # OK now – pnpm already on PATH
 
       - name: Install dependencies
@@ -47,8 +47,17 @@ jobs:
         run: pnpm run build # Run the build script defined in package.json
 
       - name: Run semantic-release
-        run: npx semantic-release
+        id: semantic # Add an ID to reference outputs
+        uses: cycjimmy/semantic-release-action@v4 # Use the action
         env:
           # Provide the tokens needed by semantic-release plugins
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Provided by GitHub Actions automatically
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }} # Your secret NPM token
+
+      - name: Output Publish Status (Published)
+        if: steps.semantic.outputs.new_release_published == 'true' # Check output
+        run: echo "✅ New version ${{ steps.semantic.outputs.new_release_version }} published to npm."
+
+      - name: Output Publish Status (Not Published)
+        if: steps.semantic.outputs.new_release_published != 'true' # Check output
+        run: echo "ℹ️ No new version published."
