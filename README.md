@@ -113,7 +113,7 @@ Since MCP servers communicate over stdio, standard debugging methods can be tric
 
 *   Node.js / TypeScript
 *   `@modelcontextprotocol/sdk`: Core MCP server framework.
-*   `node-pty`: For robust pseudo-terminal process management.
+*   `node-pty-prebuilt-multiarch`: For robust pseudo-terminal process management.
 *   `zod`: For runtime validation of tool parameters.
 *   `biomejs`: For formatting and linting.
 *   `semantic-release`: For automated versioning and publishing.

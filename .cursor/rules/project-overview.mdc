@@ -38,12 +38,14 @@ This MCP server allows an AI agent to:
 
 ## Key Components
 
-- **`[src/index.ts](mdc:src/index.ts)**: The main entry point and server logic. It sets up an MCP server using `@modelcontextprotocol/sdk` and defines tools for managing development server processes. It utilizes `node-pty` for robust process management and communication, including handling logs, status tracking, crashes, and retries.
+- **`[src/index.ts](mdc:src/index.ts)**: The main entry point and server logic. It sets up an MCP server using `@modelcontextprotocol/sdk` and defines tools for managing development server processes. It utilizes `node-pty-prebuilt-multiarch` for robust process management and communication, including handling logs, status tracking, crashes, and retries.
 - **`[src/types.ts](mdc:src/types.ts)**: Defines TypeScript types and helper functions used throughout the project, particularly for standardizing the `CallToolResult` structure returned by the MCP tools and providing utility functions.
 
 ## Technology Stack
 
 - Node.js / TypeScript
 - `@modelcontextprotocol/sdk`: For creating the MCP server and defining tools.
-- `node-pty`: For spawning and managing child processes in pseudo-terminals.
+- `node-pty-prebuilt-multiarch`: For spawning and managing child processes in pseudo-terminals.
 - `zod`: For schema validation of tool inputs.
+- `fkill`: To reliably terminate processes, especially on Windows.
+- `tree-kill`: To ensure entire process trees are terminated.
