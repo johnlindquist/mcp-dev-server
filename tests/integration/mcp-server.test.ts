@@ -163,6 +163,134 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 		// Optional: Cleanup temporary directories/files if created by tests
 	});
 
+	// Can be placed inside the describe block or outside (if exported from a helper module)
+	// Using the guide's version directly, ensure it's adapted for TypeScript/Vitest context
+	async function sendRequest(
+		process: ChildProcessWithoutNullStreams,
+		request: Record<string, unknown>,
+		timeoutMs = 10000, // 10 second timeout
+	): Promise<unknown> {
+		const requestId = request.id as string;
+		if (!requestId) {
+			throw new Error('Request must have an "id" property');
+		}
+		const requestString = `${JSON.stringify(request)}\n`;
+
+		return new Promise((resolve, reject) => {
+			let responseBuffer = "";
+			let responseReceived = false;
+			let responseListenersAttached = false; // Flag to prevent attaching multiple listeners
+
+			const timeoutTimer = setTimeout(() => {
+				if (!responseReceived) {
+					cleanup();
+					reject(
+						new Error(
+							`Timeout waiting for response ID ${requestId} after ${timeoutMs}ms. Request: ${JSON.stringify(request)}`,
+						),
+					);
+				}
+			}, timeoutMs);
+
+			const onData = (data: Buffer) => {
+				responseBuffer += data.toString();
+				// console.log(`[Raw STDOUT chunk]: ${data.toString()}`); // Debugging chunks
+				const lines = responseBuffer.split("\n");
+				responseBuffer = lines.pop() || ""; // Keep incomplete line fragment
+
+				for (const line of lines) {
+					if (line.trim() === "") continue;
+					// console.log(`[Processing line]: ${line}`); // Debugging lines
+					try {
+						const parsedResponse = JSON.parse(line);
+						if (parsedResponse.id === requestId) {
+							console.log(
+								`Received response for ID ${requestId}: ${line.trim()}`,
+							);
+							responseReceived = true;
+							cleanup();
+							resolve(parsedResponse);
+							return; // Found the response
+						}
+					} catch (e) {
+						// Ignore lines that aren't valid JSON or don't match ID
+						console.warn(
+							`Failed to parse potential JSON line or non-matching ID: ${line}`,
+							e,
+						);
+					}
+				}
+			};
+
+			const onError = (err: Error) => {
+				if (!responseReceived) {
+					cleanup();
+					reject(
+						new Error(
+							`Server process emitted error while waiting for ID ${requestId}: ${err.message}`,
+						),
+					);
+				}
+			};
+
+			const onExit = (code: number | null, signal: string | null) => {
+				if (!responseReceived) {
+					cleanup();
+					reject(
+						new Error(
+							`Server process exited (code ${code}, signal ${signal}) before response ID ${requestId} was received.`,
+						),
+					);
+				}
+			};
+
+			const cleanup = () => {
+				clearTimeout(timeoutTimer);
+				if (responseListenersAttached) {
+					process.stdout.removeListener("data", onData);
+					process.stderr.removeListener("data", logStderr); // Also remove stderr listener if added
+					process.removeListener("error", onError);
+					process.removeListener("exit", onExit);
+					responseListenersAttached = false; // Mark as removed
+					// console.log(`Listeners removed for request ID ${requestId}`);
+				}
+			};
+
+			// Temporary stderr listener during request wait (optional, for debugging)
+			const logStderr = (data: Buffer) => {
+				console.error(
+					`[Server STDERR during request ${requestId}]: ${data.toString().trim()}`,
+				);
+			};
+
+			// Attach listeners only once per request
+			if (!responseListenersAttached) {
+				process.stdout.on("data", onData);
+				process.stderr.on("data", logStderr); // Listen to stderr too
+				process.once("error", onError); // Use once for exit/error during wait
+				process.once("exit", onExit);
+				responseListenersAttached = true;
+				// console.log(`Listeners attached for request ID ${requestId}`);
+			}
+
+			// Write the request to stdin
+			console.log(`Sending request (ID ${requestId}): ${requestString.trim()}`);
+			process.stdin.write(requestString, (err) => {
+				if (err) {
+					if (!responseReceived) {
+						// Check if already resolved/rejected
+						cleanup();
+						reject(
+							new Error(
+								`Failed to write to server stdin for ID ${requestId}: ${err.message}`,
+							),
+						);
+					}
+				}
+			});
+		});
+	}
+
 	// Test cases will go here (Step 8 onwards)
 	it("placeholder test", () => {
 		expect(true).toBe(true);
