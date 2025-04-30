@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { promisify } from "node:util";
-import type { IDisposable, IPty } from "node-pty"; // Import only types if needed
+import type { IDisposable, IPty } from "node-pty-prebuilt-multiarch"; // Import only types if needed
 import treeKill from "tree-kill";
 import type { z } from "zod"; // Import zod
 import {

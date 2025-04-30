@@ -1,6 +1,6 @@
 import defaultShell from "default-shell";
 import fkill from "fkill";
-import * as pty from "node-pty";
+import * as pty from "node-pty-prebuilt-multiarch";
 import { log } from "./utils.js";
 
 export function spawnPtyProcess(
