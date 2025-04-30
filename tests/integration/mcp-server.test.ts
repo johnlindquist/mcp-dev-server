@@ -141,6 +141,10 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			}
 			throw err; // Re-throw to fail the test setup
 		}
+
+		// Add a small delay after server is ready before proceeding
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		console.log("[TEST] Short delay after server ready signal completed.");
 	}, TEST_TIMEOUT); // Vitest timeout for the hook
 
 	afterAll(async () => {
@@ -302,6 +306,62 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 	}
 
 	it(
+		"should respond successfully to health_check",
+		async () => {
+			console.log("[TEST][healthCheck] Starting test...");
+			if (!serverProcess) {
+				throw new Error("Server process not initialized in beforeAll");
+			}
+			console.log("[TEST][healthCheck] Server process check passed.");
+
+			const healthRequest = {
+				jsonrpc: "2.0",
+				method: "health_check",
+				params: {},
+				id: "req-health-1",
+			};
+			console.log("[TEST][healthCheck] Sending health_check request...");
+
+			const response = (await sendRequest(
+				serverProcess,
+				healthRequest,
+			)) as MCPResponse;
+			console.log(
+				"[TEST][healthCheck] Received response:",
+				JSON.stringify(response),
+			);
+
+			console.log("[TEST][healthCheck] Asserting response properties...");
+			expect(response.id).toBe("req-health-1");
+			expect(
+				response.result,
+				`Expected result to be defined, error: ${JSON.stringify(response.error)}`,
+			).toBeDefined();
+			expect(
+				response.error,
+				`Expected error to be undefined, got: ${JSON.stringify(response.error)}`,
+			).toBeUndefined();
+
+			console.log("[TEST][healthCheck] Asserting result properties...");
+			// Basic check for health_check result structure (adapt if needed)
+			const result = response.result as { payload: { content: string } };
+			expect(result?.payload?.content).toBeDefined();
+			try {
+				const healthStatus = JSON.parse(result.payload.content);
+				expect(healthStatus.status).toBe("ok");
+				expect(healthStatus.server_name).toBe("mcp-pm");
+			} catch (e) {
+				throw new Error(`Failed to parse health_check result payload: ${e}`);
+			}
+
+			console.log("[TEST][healthCheck] Assertions passed.");
+			console.log("[TEST][healthCheck] Test finished.");
+		},
+		TEST_TIMEOUT,
+	);
+
+	// Add back the start_process test, ensuring it runs AFTER health_check
+	it(
 		"should start a simple process and receive confirmation",
 		async () => {
 			console.log("[TEST][startProcess] Starting test...");
@@ -322,7 +382,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 
 			const startRequest = {
 				jsonrpc: "2.0",
-				method: "start_process", // Final revert to underscore notation
+				method: "start_process", // Using underscore notation
 				params: {
 					command,
 					args,
@@ -366,7 +426,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			// Cleanup: Stop the process (tests stopProcess)
 			const stopRequest = {
 				jsonrpc: "2.0",
-				method: "stop_process", // Final revert to underscore notation
+				method: "stop_process", // Using underscore notation
 				params: { label: uniqueLabel },
 				id: "req-stop-cleanup-1",
 			};
@@ -384,5 +444,5 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			console.log("[TEST][startProcess] Test finished.");
 		},
 		TEST_TIMEOUT,
-	); // Use longer timeout for test involving process lifetime
+	);
 });
