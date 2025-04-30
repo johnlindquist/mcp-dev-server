@@ -271,8 +271,8 @@ export async function restartProcessImpl(
 	if (!processInfo) {
 		const errorPayload: z.infer<typeof RestartErrorPayloadSchema> = {
 			error: `Process with label "${label}" not found for restart.`,
-			status: "not_found",
-			pid: null,
+			status: "error",
+			pid: undefined,
 		};
 		return fail(textPayload(JSON.stringify(errorPayload)));
 	}
@@ -287,7 +287,7 @@ export async function restartProcessImpl(
 		maxRetries,
 	} = processInfo;
 
-	const stopSuccess = true;
+	let stopSucceeded = false;
 	if (
 		["starting", "running", "verifying", "restarting", "stopping"].includes(
 			processInfo.status,
@@ -299,6 +299,10 @@ export async function restartProcessImpl(
 		);
 		addLogEntry(label, "Stopping process before restart...");
 		const stopResult = await _stopProcess(label, false);
+		log.info(
+			label,
+			`[Restart] Stop process result: ${JSON.stringify(stopResult)}`,
+		);
 		if (stopResult.isError) {
 			const errorMsg = `Failed to stop process "${label}" before restart. Error: ${getResultText(stopResult)}`;
 			log.error(label, errorMsg);
@@ -312,6 +316,11 @@ export async function restartProcessImpl(
 		}
 		log.info(label, "Process stopped successfully before restart.");
 		addLogEntry(label, "Process stopped before restart.");
+		stopSucceeded = true;
+
+		// Add a small delay after confirming stop before starting again
+		log.info(label, "[Restart] Waiting 500ms after stop before starting...");
+		await new Promise((resolve) => setTimeout(resolve, 500));
 	} else {
 		log.info(
 			label,
@@ -334,6 +343,11 @@ export async function restartProcessImpl(
 		retryDelayMs,
 		maxRetries,
 		true,
+	);
+
+	log.info(
+		label,
+		`[Restart] Start attempt completed. Result: ${JSON.stringify(startResult)}`,
 	);
 
 	if (startResult.isError) {

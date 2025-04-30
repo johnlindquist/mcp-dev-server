@@ -245,18 +245,10 @@ export async function _startProcess(
 
 	if (serverLogDirectory) {
 		try {
-			const safeFilename = sanitizeLabelForFilename(label);
+			const safeFilename = `${sanitizeLabelForFilename(label)}.log`; // Ensure .log extension
 			logFilePath = path.join(serverLogDirectory, safeFilename);
-
-			// Create/Open the stream in append mode. Truncate if restarting.
-			const fileExists = fs.existsSync(logFilePath);
-			const flags = isRestart && fileExists ? "w" : "a"; // 'w' (write/truncate) on restart, 'a' (append) otherwise
-
-			logFileStream = fs.createWriteStream(logFilePath, {
-				flags: flags,
-				encoding: "utf8",
-			});
-
+			log.info(label, `Logging process output to: ${logFilePath} (mode: a)`);
+			logFileStream = fs.createWriteStream(logFilePath, { flags: "a" });
 			logFileStream.on("error", (err) => {
 				log.error(label, `Error writing to log file ${logFilePath}:`, err);
 				// Optionally try to close/nullify the stream here?
@@ -269,10 +261,7 @@ export async function _startProcess(
 					}
 				}
 			});
-			log.info(
-				label,
-				`Logging process output to: ${logFilePath} (mode: ${flags})`,
-			);
+			log.info(label, `Logging process output to: ${logFilePath} (mode: a)`);
 			addLogEntry(
 				label,
 				`--- Process Started (${new Date().toISOString()}) ---`,
@@ -558,6 +547,10 @@ export async function _startProcess(
 	const mainExitDisposable = ptyProcess.onExit(({ exitCode, signal }) => {
 		log.debug(label, "Main onExit handler triggered.", { exitCode, signal });
 		mainDataDisposable.dispose(); // Dispose data listener on exit
+		log.info(
+			label,
+			`[ExitHandler] Process exited. Code: ${exitCode}, Signal: ${signal}`,
+		); // Added log
 
 		// Get fresh info before calling handleExit
 		const currentInfo = managedProcesses.get(label);
@@ -694,15 +687,7 @@ export async function _startProcess(
 		const errorPayload: z.infer<typeof StartErrorPayloadSchema> = {
 			error: infoMessage, // Use the detailed message as the error
 			status: finalStatus,
-			pid: successPayload.pid,
-			command: successPayload.command,
-			args: successPayload.args,
-			cwd: successPayload.cwd,
-			logs: successPayload.logs,
-			log_file_path: successPayload.log_file_path,
-			tail_command: successPayload.tail_command,
-			exitCode: successPayload.exitCode,
-			signal: successPayload.signal,
+			cwd: effectiveWorkingDirectory, // CWD is allowed in the schema
 			error_type: "process_exit_error", // General error type
 		};
 		log.error(
@@ -846,9 +831,14 @@ export async function _stopProcess(
 		// Prepare success payload
 		// Get the LATEST status again, as handleExit might have run during SIGKILL/wait
 		const latestInfo = managedProcesses.get(label);
+		// Ensure the status is one of the allowed enum values or undefined
+		const finalPayloadStatus =
+			(latestInfo?.status as ProcessStatus | undefined) ??
+			(finalStatus as ProcessStatus | undefined);
+
 		const payload: z.infer<typeof StopProcessPayloadSchema> = {
 			label,
-			status: latestInfo?.status ?? finalStatus, // Use latest known status
+			status: finalPayloadStatus, // Use type-checked status
 			message: finalMessage,
 			pid: latestInfo?.pid ?? pidToKill, // Use latest known PID
 		};

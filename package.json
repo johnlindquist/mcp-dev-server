@@ -20,6 +20,8 @@
 		"lint:fix": "biome check --write .",
 		"verify": "npm run build && npm run lint:fix",
 		"start": "node build/index.mjs",
+		"test": "vitest run",
+		"test:watch": "vitest",
 		"postinstall": "pnpm rebuild node-pty"
 	},
 	"dependencies": {
@@ -44,7 +46,8 @@
 		"lint-staged": "^15.5.1",
 		"node-gyp": "^11.2.0",
 		"semantic-release": "^24.2.3",
-		"typescript": "^5.8.3"
+		"typescript": "^5.8.3",
+		"vitest": "^3.1.2"
 	},
 	"lint-staged": {
 		"*.{ts,tsx,js,jsx,json,md}": [
