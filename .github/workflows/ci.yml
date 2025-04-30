@@ -75,7 +75,7 @@ jobs:
 
       - name: Install Visual Studio Build Tools
         if: runner.os == 'Windows'
-        uses: microsoft/setup-msvc@v1
+        uses: microsoft/setup-msvc@v2
         with:
           vs-version: "latest"
 
