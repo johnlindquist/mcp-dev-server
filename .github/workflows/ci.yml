@@ -90,8 +90,32 @@ jobs:
       # 6️⃣ Install runtime deps (fast because store is cached, node-pty handled)
 
       # pin-node-gyp-windows.yml  (snippet)
+      - name: Force node-gyp 11.2.0 on Windows (correct path)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          npm install -g node-gyp@11.2.0
+          # npm root -g → the actual global node_modules folder (…\lib\node_modules)
+          $globalNodeModules = npm root -g
+          # Tell every future npm/pnpm run to use it
+          npm config set node_gyp "$globalNodeModules\\node-gyp\\bin\\node-gyp.js"
+          Write-Host "node-gyp wired up at $globalNodeModules\\node-gyp\\bin\\node-gyp.js"
+
+      - name: Verify node-gyp path
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $globalNodeModules = npm root -g
+          $nodeGypPath = Join-Path $globalNodeModules "node-gyp\\bin\\node-gyp.js"
+          Write-Host "Checking for node-gyp at $nodeGypPath"
+          if (-not (Test-Path $nodeGypPath -PathType Leaf)) {
+            Write-Error "node-gyp.js not found at expected path: $nodeGypPath"
+            exit 1
+          }
+          Write-Host "node-gyp.js found successfully."
+
       - name: pnpm install
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --prod --frozen-lockfile
 
       # 5️⃣ (Windows only) Save node-pty cache if it was rebuilt BEFORE install
       - name: Save node-pty cache
