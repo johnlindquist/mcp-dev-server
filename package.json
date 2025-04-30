@@ -21,7 +21,8 @@
 		"verify": "npm run build && npm run lint:fix",
 		"start": "node build/index.mjs",
 		"test": "vitest run",
-		"test:watch": "vitest"
+		"test:watch": "vitest",
+		"postinstall": "pnpm rebuild"
 	},
 	"dependencies": {
 		"@modelcontextprotocol/sdk": "^1.10.2",
@@ -53,5 +54,12 @@
 			"npx biome check --write --no-errors-on-unmatched"
 		]
 	},
-	"packageManager": "pnpm@10.10.0"
+	"packageManager": "pnpm@10.10.0",
+	"pnpm": {
+		"onlyBuiltDependencies": [
+			"node-pty-prebuilt-multiarch",
+			"esbuild",
+			"@biomejs/biome"
+		]
+	}
 }
