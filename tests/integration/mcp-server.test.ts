@@ -639,4 +639,115 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 		},
 		TEST_TIMEOUT,
 	);
+
+	// Test #5: Check Process Status
+	it(
+		"should check the status of a running process",
+		async () => {
+			console.log("[TEST][checkStatus] Starting test...");
+			if (!serverProcess) {
+				throw new Error("Server process not initialized in beforeAll");
+			}
+
+			// --- Start a process first ---
+			const uniqueLabel = `test-check-${Date.now()}`;
+			const command = "node";
+			const args = [
+				"-e",
+				"console.log('Process for checking status'); setInterval(() => {}, 1000);",
+			]; // Keep alive
+			const workingDirectory = path.resolve(__dirname);
+			console.log(`[TEST][checkStatus] Starting process ${uniqueLabel}...`);
+			const startRequest = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "start_process",
+					arguments: { command, args, workingDirectory, label: uniqueLabel },
+				},
+				id: "req-start-for-check-1",
+			};
+			// We need to wait for the start request to complete, but we don't need to assert its result here
+			await sendRequest(serverProcess, startRequest);
+			console.log(`[TEST][checkStatus] Process ${uniqueLabel} started.`);
+			// --- End Process Start ---
+
+			// --- Now Check Process Status ---
+			const checkRequest = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "check_process_status",
+					arguments: { label: uniqueLabel },
+				},
+				id: "req-check-1",
+			};
+			console.log(
+				"[TEST][checkStatus] Sending check_process_status request...",
+			);
+
+			const response = (await sendRequest(
+				serverProcess,
+				checkRequest,
+			)) as MCPResponse;
+			console.log(
+				"[TEST][checkStatus] Received response:",
+				JSON.stringify(response),
+			);
+
+			console.log("[TEST][checkStatus] Asserting response properties...");
+			expect(response.id).toBe("req-check-1");
+			expect(
+				response.result,
+				`Expected result to be defined, error: ${JSON.stringify(response.error)}`,
+			).toBeDefined();
+			expect(
+				response.error,
+				`Expected error to be undefined, got: ${JSON.stringify(response.error)}`,
+			).toBeUndefined();
+
+			console.log("[TEST][checkStatus] Asserting result properties...");
+			// Correctly access and parse the result payload
+			const resultContent = response.result as {
+				content: Array<{ type: string; text: string }>;
+			};
+			expect(resultContent?.content?.[0]?.text).toBeDefined();
+
+			try {
+				const processStatus = JSON.parse(resultContent.content[0].text);
+				expect(processStatus.status).toBe("running");
+				expect(processStatus.label).toBe(uniqueLabel);
+				expect(processStatus.command).toBe(command);
+				expect(processStatus.pid).toBeGreaterThan(0);
+				expect(processStatus.logs?.length).toBeGreaterThanOrEqual(1); // Should have at least the spawn log
+			} catch (e) {
+				throw new Error(
+					`Failed to parse check_process_status result payload: ${e}`,
+				);
+			}
+
+			console.log("[TEST][checkStatus] Assertions passed.");
+			console.log("[TEST][checkStatus] Test finished.");
+
+			// --- Cleanup: Stop the process ---
+			const stopRequest = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "stop_process",
+					arguments: { label: uniqueLabel },
+				},
+				id: "req-stop-cleanup-check-1",
+			};
+			console.log(
+				`[TEST][checkStatus] Sending stop request for cleanup (${uniqueLabel})...`,
+			);
+			await sendRequest(serverProcess, stopRequest);
+			console.log(
+				"[TEST][checkStatus] Cleanup stop request sent. Test finished.",
+			);
+			// --- End Cleanup ---
+		},
+		TEST_TIMEOUT,
+	);
 });
