@@ -1,7 +1,7 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { spawn } from "node:child_process";
 import path from "node:path";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 // --- Configuration ---
 const SERVER_EXECUTABLE = "node";
@@ -138,6 +138,30 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			throw err; // Re-throw to fail the test setup
 		}
 	}, TEST_TIMEOUT); // Vitest timeout for the hook
+
+	afterAll(async () => {
+		if (serverProcess && !serverProcess.killed) {
+			console.log("Terminating server process...");
+			serverWasKilled = true; // Signal that we initiated the kill
+			serverProcess.stdin.end(); // Close stdin first
+			const killed = serverProcess.kill("SIGTERM"); // Attempt graceful shutdown
+			if (killed) {
+				console.log("Sent SIGTERM to server process.");
+				// Wait briefly for graceful exit
+				await new Promise((resolve) => setTimeout(resolve, 500));
+				if (!serverProcess.killed) {
+					console.warn("Server did not exit after SIGTERM, sending SIGKILL.");
+					serverProcess.kill("SIGKILL");
+				}
+			} else {
+				console.warn("Failed to send SIGTERM, attempting SIGKILL directly.");
+				serverProcess.kill("SIGKILL");
+			}
+		} else {
+			console.log("Server process already terminated or not started.");
+		}
+		// Optional: Cleanup temporary directories/files if created by tests
+	});
 
 	// Test cases will go here (Step 8 onwards)
 	it("placeholder test", () => {
