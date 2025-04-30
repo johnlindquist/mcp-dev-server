@@ -37,7 +37,7 @@ jobs:
 
       # 3️⃣ One cached install, then build
       - name: Install deps
-        run: pnpm install --frozen-lockfile --strict-peer-dependencies
+        run: pnpm install --frozen-lockfile --strict-peer-dependencies --ignore-scripts
       - name: Build
         run: pnpm run build
 
@@ -66,55 +66,27 @@ jobs:
           node-version: ${{ needs.build.outputs.node-version }} # Reuse version from build job
           cache: pnpm # now succeeds because pnpm exists
 
-      # 3️⃣ (Windows only) Restore node-pty cache BEFORE install
-      - name: Restore node-pty cache
+      # 🏗️ Install Windows Build Tools (needed for node-pty source fallback)
+      - name: Set up Python for node-gyp
         if: runner.os == 'Windows'
-        id: pty-cache
-        uses: actions/cache/restore@v4
+        uses: actions/setup-python@v5
         with:
-          path: |
-            ~/.pnpm-store
-            node_modules/.pnpm/**/node_modules/node-pty/build/Release/*.node
-          key: pty-${{ runner.os }}-${{ needs.build.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml') }}
+          python-version: "3.11" # Or a version compatible with node-gyp
 
-      # If windows, install node-gyp
-      # - name: Install node-gyp
-      #   if: runner.os == 'Windows'
-      #   run: pnpm install -D node-gyp
-
-      # 4️⃣ Rebuild node-pty if needed (always on non-Windows, only on cache miss on Windows) BEFORE install
-      # - name: Rebuild node-pty
-      #   if: runner.os != 'Windows' || steps.pty-cache.outputs.cache-hit != 'true'
-      #   run: pnpm rebuild node-pty # Be specific about rebuilding node-pty
-
-      # 6️⃣ Install runtime deps (fast because store is cached, node-pty handled)
-
-      # pin-node-gyp-windows.yml  (snippet)
-      - name: Pin node-gyp 11.2.0 on Windows (env-based)
+      - name: Install Visual Studio Build Tools
         if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          # 1) Install the fixed node-gyp globally
-          npm install -g node-gyp@11.2.0
-          # 2) Export the path so every later npm/pnpm call uses it
-          $gyp = "$(npm prefix -g)\\node_modules\\node-gyp\\bin\\node-gyp.js"
-          echo "NPM_CONFIG_NODE_GYP=$gyp" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
-          Write-Host "Will use node-gyp at $gyp"
+        uses: microsoft/setup-msvc@v2
+        with:
+          vs-version: "latest"
 
+      # 3️⃣ Install runtime deps (fast because store is cached)
       - name: pnpm install
-        run: pnpm install --prod --frozen-lockfile
+        run: pnpm install --prod --frozen-lockfile --ignore-scripts
 
-      # 5️⃣ (Windows only) Save node-pty cache if it was rebuilt BEFORE install
-      - name: Save node-pty cache
-        if: runner.os == 'Windows' && steps.pty-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ~/.pnpm-store
-            node_modules/.pnpm/**/node_modules/node-pty/build/Release/*.node
-          key: pty-${{ runner.os }}-${{ needs.build.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - name: Rebuild node-pty native addon # Necessary because we use --ignore-scripts
+        run: pnpm rebuild node-pty-prebuilt-multiarch
 
-      # 7️⃣ Pull artefacts & run smoke tests
+      # 4️⃣ Pull artefacts & run smoke tests
       - uses: actions/download-artifact@v4
         with:
           name: ${{ needs.build.outputs['artifact-name'] }}

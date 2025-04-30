@@ -1,6 +1,5 @@
 import type * as fs from "node:fs";
-import type { IPty } from "node-pty";
-import type { IDisposable } from "node-pty";
+import type { IDisposable, IPty } from "node-pty-prebuilt-multiarch";
 import { z } from "zod";
 
 /* ------------------------------------------------------------------------ */

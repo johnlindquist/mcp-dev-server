@@ -1,12 +1,14 @@
 ### 🚧 Multi-platform sanity-check (focus = Windows)  
-The Linux/macOS path is already solid. Below are the **four Windows trip-wires** I found, followed by the **exact fixes / snippets / steps**—all accomplished with small, battle-tested NPM packages (no bespoke “clever hacks”).
+The Linux/macOS path is already solid. Below are the **four Windows trip-wires** I found, followed by the **exact fixes / snippets / steps**—all accomplished with small, battle-tested NPM packages (no bespoke "clever hacks").
 
 | Area | Why it breaks on Win | Drop-in cure |
 |------|---------------------|--------------|
-| **Shell discovery** | `process.env.SHELL` is undefined; hard-fallback to `bash` explodes. | [`default-shell`](https://www.npmjs.com/package/default-shell) gives you the user’s actual default shell (`cmd.exe`, PowerShell, Git Bash, etc.). |
-| **Killing the PTY** | `node-pty.kill("SIGTERM")` ignores the signal on Windows (docs literally say “signal not supported”). | [`fkill`](https://www.npmjs.com/package/fkill) (already uses `taskkill /T /F` under the hood). |
-| **Tail hint in logs** | The Unix hint you emit: `tail -f /path/to/log` → 🐛 `tail` isn’t a thing on stock Windows. | [`powershell-tail`](https://www.npmjs.com/package/powershell-tail) (tiny wrapper that shells out to `Get-Content -Wait -Tail …`). |
+| **Shell discovery** | `process.env.SHELL` is undefined; hard-fallback to `bash` explodes. | [`default-shell`](https://www.npmjs.com/package/default-shell) gives you the user's actual default shell (`cmd.exe`, PowerShell, Git Bash, etc.). |
+| **Killing the PTY** | `node-pty-prebuilt-multiarch.kill("SIGTERM")` ignores the signal on Windows (docs literally say "signal not supported"). | [`fkill`](https://www.npmjs.com/package/fkill) (already uses `taskkill /T /F` under the hood). |
+| **Tail hint in logs** | The Unix hint you emit: `tail -f /path/to/log` → 🐛 `tail` isn't a thing on stock Windows. | [`powershell-tail`](https://www.npmjs.com/package/powershell-tail) (tiny wrapper that shells out to `Get-Content -Wait -Tail …`). |
 | **CI coverage** | No Windows job, so breakage sneaks in. | Add a simple `windows-latest` matrix leg; everything else stays identical. |
+| **Finding Default Shell** | `process.env.SHELL` (or `COMSPEC` on Win) often doesn't reflect the *user*'s actual configured default shell (e.g., Git Bash, PowerShell Core). | [`default-shell`](https://www.npmjs.com/package/default-shell) |
+| **ANSI Stripping** | Manually writing regex for all ANSI codes is fragile. | [`strip-ansi`](https://www.npmjs.com/package/strip-ansi) |
 
 ---
 
@@ -16,7 +18,7 @@ The Linux/macOS path is already solid. Below are the **four Windows trip-wires**
 pnpm add default-shell fkill powershell-tail
 ```
 
-*(They’re tiny, no native bindings, so they install instantly on all OSes.)*
+*(They're tiny, no native bindings, so they install instantly on all OSes.)*
 
 ---
 
@@ -38,7 +40,7 @@ export function spawnPtyProcess(
 }
 ```
 
-*Why:* `default-shell` resolves to *“whatever the user normally types commands in”* and supports WSL out-of-box.
+*Why:* `default-shell` resolves to *"whatever the user normally types commands in"* and supports WSL out-of-box.
 
 ---
 
@@ -63,7 +65,7 @@ export async function killPtyProcess(
 }
 ```
 
-No more “signal unsupported” warnings—`fkill` delegates to **`taskkill` on Windows** and normal signals elsewhere.
+No more "signal unsupported" warnings—`fkill` delegates to **`taskkill` on Windows** and normal signals elsewhere.
 
 ---
 
@@ -106,7 +108,7 @@ jobs:
 ---
 
 ## 6 ️⃣ Reserved-filename edge-case (very quick win)  
-Your `sanitizeLabelForFilename` doesn’t catch Windows reserved names (`CON`, `PRN`, `NUL`, etc.). Add this single guard at the end:
+Your `sanitizeLabelForFilename` doesn't catch Windows reserved names (`CON`, `PRN`, `NUL`, etc.). Add this single guard at the end:
 
 ```ts
 if (/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\.|$)/i.test(sanitized))
@@ -122,7 +124,7 @@ if (/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\.|$)/i.test(sanitized))
    - Start a dummy server:  
      `{"tool":"start_process", … "command":"npm", "args":["run","dev"] …}`  
    - Stop it – verify `SIGTERM` and fallback **work**.  
-3. View the “tail” hint → should output PowerShell flavour.  
+3. View the "tail" hint → should output PowerShell flavour.  
 4. Run the new CI job – pass ✅.
 
 ---

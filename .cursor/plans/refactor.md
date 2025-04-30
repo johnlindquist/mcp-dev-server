@@ -69,90 +69,22 @@ Okay, let's break down the file organization refactoring for the `mcp-dev-server
 
 **Phase 3: Isolating PTY Management**
 
-1.  **Create `src/ptyManager.ts`:** This file will handle the direct interaction with `node-pty`.
+1.  **Create `src/ptyManager.ts`:** This file will handle the direct interaction with `node-pty-prebuilt-multiarch`.
     *   Create the file: `src/ptyManager.ts`
-    *   **Goal:** Move the core PTY spawning, writing, and basic signal handling here.
-    *   **Move PTY Spawning Logic:** Extract the `pty.spawn(...)` part from `_startProcess` in `src/processLogic.ts` into a new function in `ptyManager.ts`. This function should take necessary parameters (shell, cwd, env, label) and return the `ptyProcess` instance.
-
-        ```typescript
-        // src/ptyManager.ts
-        import * as pty from "node-pty";
-        import { log } from "./utils.js";
-
-        export function spawnPtyProcess(
-        	shell: string,
-        	cwd: string,
-        	env: NodeJS.ProcessEnv,
-        	label: string,
-        	cols = 80,
-        	rows = 30,
-        ): pty.IPty {
-        	try {
-        		const ptyProcess = pty.spawn(shell, [], {
-        			name: "xterm-color",
-        			cols: cols,
-        			rows: rows,
-        			cwd: cwd,
-        			env: env,
-        			encoding: "utf8",
-        		});
-        		log.debug(label, `PTY process spawned with PID: ${ptyProcess.pid}`);
-        		return ptyProcess;
-        	} catch (error: unknown) {
-        		const errorMsg = `Failed to spawn PTY process: ${error instanceof Error ? error.message : String(error)}`;
-        		log.error(label, errorMsg);
-        		// Re-throw or handle appropriately – maybe return null or throw a custom error
-        		throw new Error(errorMsg); // Or return null and check in caller
-        	}
-        }
-
-        export function writeToPty(
-        	ptyProcess: pty.IPty,
-        	data: string,
-        	label: string,
-        ): boolean {
-        	try {
-        		ptyProcess.write(data);
-        		log.debug(label, `Wrote to PTY: ${data.length} chars`);
-        		return true;
-        	} catch (error) {
-        		log.error(
-        			label,
-        			`Failed to write to PTY process ${ptyProcess.pid}`,
-        			error,
-        		);
-        		return false;
-        	}
-        }
-
-        export function killPtyProcess(
-        	ptyProcess: pty.IPty,
-        	signal: "SIGTERM" | "SIGKILL" = "SIGTERM",
-        	label: string,
-        ): boolean {
-        	try {
-        		log.info(
-        			label,
-        			`Sending ${signal} to PTY process PID ${ptyProcess.pid}...`,
-        		);
-        		ptyProcess.kill(signal);
-        		return true;
-        	} catch (error) {
-        		log.error(
-        			label,
-        			`Failed to send ${signal} to PTY process ${ptyProcess.pid}`,
-        			error,
-        		);
-        		return false;
-        	}
-        }
+    *   Define a `spawnPtyProcess` function that takes command, args, cwd, etc., and returns an object containing the `IPty` instance and potentially other relevant info (like the PID).
+    *   ```typescript
+        import * as pty from "node-pty-prebuilt-multiarch";
+        import type { IPty } from "node-pty-prebuilt-multiarch";
+        // ... other imports
         ```
     *   **Refactor `_startProcess` (in `src/processLogic.ts`):** Update it to call `spawnPtyProcess` from `ptyManager.ts`. Handle potential errors from spawning.
     *   **Refactor `_stopProcess` (in `src/processLogic.ts`):** Update it to call `killPtyProcess` from `ptyManager.ts`.
     *   **Refactor `_sendInput` (in `src/processLogic.ts`):** Update it to call `writeToPty` from `ptyManager.ts`.
-    *   **Update Imports:** Add necessary imports in `processLogic.ts` from `./ptyManager.js` and remove the direct `node-pty` import if no longer needed there.
+    *   **Update Imports:** Add necessary imports in `processLogic.ts` from `./ptyManager.js` and remove the direct `node-pty-prebuilt-multiarch` import if no longer needed there.
+    *   **Refactor `handleCrashAndRetry`:** Ensure it correctly uses the new state structure and pty management.
+    *   **Refactor `_startProcess`:** This will become significantly simpler, primarily calling `spawnPtyProcess` from `ptyManager.ts` and updating the state.
 
-4.  **Verify:** Run `npm run lint:fix` and `npm run build`. Test process starting, stopping, and input sending.
+2.  **Verify:** Run `npm run lint:fix` and `npm run build`. Test process starting, stopping, and input sending.
 
 **Phase 4: Separating Process Lifecycle Logic**
 
