@@ -70,6 +70,9 @@ jobs:
       - name: pnpm install
         run: pnpm install --prod --frozen-lockfile --ignore-scripts
 
+      - name: Rebuild node-pty native addon # Necessary because we use --ignore-scripts
+        run: pnpm rebuild node-pty-prebuilt-multiarch
+
       # 4️⃣ Pull artefacts & run smoke tests
       - uses: actions/download-artifact@v4
         with:
