@@ -26,7 +26,6 @@
 		"postinstall": "pnpm rebuild node-pty"
 	},
 	"dependencies": {
-		"@modelcontextprotocol/sdk": "^1.10.2",
 		"default-shell": "^2.2.0",
 		"fkill": "^9.0.0",
 		"node-pty": "1.1.0-beta34",
@@ -36,6 +35,7 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^1.9.4",
+		"@modelcontextprotocol/sdk": "^1.10.2",
 		"@semantic-release/commit-analyzer": "^13.0.1",
 		"@semantic-release/github": "^11.0.2",
 		"@semantic-release/npm": "^12.0.1",

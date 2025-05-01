@@ -62,45 +62,66 @@ export function updateProcessStatus(
 	status: ProcessStatus,
 	exitInfo?: { code: number | null; signal: string | null },
 ): ProcessInfo | undefined {
-	const processInfo = managedProcesses.get(label);
-	if (!processInfo) {
+	const oldProcessInfo = managedProcesses.get(label);
+	if (!oldProcessInfo) {
 		log.warn(label, "Attempted to update status but process info missing.");
 		return undefined;
 	}
 
-	const oldStatus = processInfo.status;
-	if (oldStatus === status) return processInfo; // No change
-
-	processInfo.status = status;
-	if (exitInfo) {
-		processInfo.exitCode = exitInfo.code;
-		processInfo.signal = exitInfo.signal;
-	} else {
-		// Reset exit info if moving to a non-terminal state
-		processInfo.exitCode = null;
-		processInfo.signal = null;
+	const oldStatus = oldProcessInfo.status;
+	if (oldStatus === status) {
+		log.debug(label, `[updateProcessStatus] Status unchanged: ${status}`);
+		return oldProcessInfo; // No change, return the old object
 	}
 
 	log.info(label, `Status changing from ${oldStatus} to ${status}`);
+
+	// Create a NEW object with the updated status and other info
+	const newProcessInfo: ProcessInfo = {
+		...oldProcessInfo, // Copy existing properties
+		status: status, // Set the new status
+		// Update exit code/signal/timestamp if applicable
+		...(["stopped", "crashed", "error"].includes(status) && {
+			exitCode: exitInfo?.code ?? oldProcessInfo.exitCode ?? null,
+			signal: exitInfo?.signal ?? oldProcessInfo.signal ?? null,
+			lastExitTimestamp: Date.now(),
+		}),
+		// Explicitly reset exit info if moving to a non-terminal state
+		...(!["stopped", "crashed", "error"].includes(status) && {
+			exitCode: null,
+			signal: null,
+		}),
+	};
+
+	// REPLACE the object in the map
+	managedProcesses.set(label, newProcessInfo);
+
+	// Log AFTER the update
 	addLogEntry(label, `Status changed to ${status}`);
 
 	// Clear verification timer if process moves out of 'verifying' state
+	// Note: timer is on the OLD object, but clearTimeout should still work
 	if (
 		oldStatus === "verifying" &&
 		status !== "verifying" &&
-		processInfo.verificationTimer
+		oldProcessInfo.verificationTimer // Check timer on the OLD object reference
 	) {
-		clearTimeout(processInfo.verificationTimer);
-		processInfo.verificationTimer = undefined;
+		clearTimeout(oldProcessInfo.verificationTimer);
+		// No need to set newProcessInfo.verificationTimer = undefined, it wasn't copied
 	}
 
-	// Log when reaching stable running state
+	// Log when reaching stable running state or ending
 	if (status === "running" && oldStatus !== "running") {
 		log.info(label, "Process reached stable running state.");
 		addLogEntry(label, "Process reached stable running state.");
+	} else if (["stopped", "crashed", "error"].includes(status)) {
+		addLogEntry(
+			label,
+			`Process ended. Code: ${newProcessInfo.exitCode}, Signal: ${newProcessInfo.signal}`,
+		);
 	}
 
-	return processInfo;
+	return newProcessInfo; // Return the NEW object reference
 }
 
 export function stopAllProcessesOnExit(): void {
@@ -178,9 +199,5 @@ export function removeProcess(label: string): void {
 
 export function getProcessInfo(label: string): ProcessInfo | undefined {
 	const found = managedProcesses.get(label);
-	log.debug(
-		label,
-		`[state.getProcessInfo] Requested for label: ${label}. Found: ${!!found}`,
-	);
 	return found;
 }

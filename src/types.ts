@@ -113,6 +113,7 @@ export interface ProcessInfo {
 	maxRetries?: number;
 	restartAttempts?: number;
 	lastExitTimestamp?: number;
+	lastCrashTime?: number;
 	isRestarting?: boolean;
 	stopRequested?: boolean;
 	verificationTimer?: NodeJS.Timeout;

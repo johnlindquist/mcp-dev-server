@@ -6,18 +6,18 @@ import {
 	SERVER_VERSION,
 } from "./constants.js";
 import { fail, getResultText, ok, textPayload } from "./mcpUtils.js";
-import { _sendInput, _startProcess, _stopProcess } from "./processLogic.js";
+import { _startProcess, _stopProcess } from "./processLogic.js";
 import {
 	checkAndUpdateProcessStatus,
 	isZombieCheckActive,
 } from "./processSupervisor.js";
+import { writeToPty } from "./ptyManager.js";
 import { addLogEntry, managedProcesses } from "./state.js";
 import type {
 	CheckProcessStatusParams,
 	GetAllLoglinesParams,
 	ListProcessesParams,
 	RestartProcessParams,
-	SendInputParams,
 	WaitForProcessParams,
 } from "./toolDefinitions.js";
 import type { StopProcessParams } from "./toolDefinitions.js";
@@ -82,9 +82,6 @@ export async function checkProcessStatusImpl(
 	// --- Check initial status and potentially wait ---
 	const initialProcessInfo = await checkAndUpdateProcessStatus(label);
 
-	// [MCP-TEST-LOG STEP 2.1] Log initial process info
-	log.debug(label, "Initial process info:", initialProcessInfo);
-
 	if (!initialProcessInfo) {
 		log.warn(label, `Process with label "${label}" not found.`);
 		return fail(
@@ -100,22 +97,11 @@ export async function checkProcessStatusImpl(
 	const previousLastLogTimestampReturned =
 		initialProcessInfo.lastLogTimestampReturned ?? 0;
 
-	// [MCP-TEST-LOG STEP 2.2] Log previous last log timestamp
-	log.debug(
-		label,
-		`Previous last log timestamp returned: ${previousLastLogTimestampReturned}`,
-	);
-
 	const finalProcessInfo = initialProcessInfo; // Initialize with initial info
 
 	// --- Filter Logs (using finalProcessInfo) ---
 	// Use the potentially updated process info (now just initialProcessInfo)
 	const allLogs: LogEntry[] = finalProcessInfo.logs || [];
-	// ADDED LOG: Dump the entire log array before filtering
-	log.debug(
-		label,
-		`Logs available before filtering (Timestamp ${previousLastLogTimestampReturned}): ${JSON.stringify(allLogs.slice(-5))}`,
-	);
 	log.debug(
 		label,
 		`Filtering logs. Total logs available: ${allLogs.length}. Filtering for timestamp > ${previousLastLogTimestampReturned}`,
@@ -123,12 +109,6 @@ export async function checkProcessStatusImpl(
 
 	const newLogs = allLogs.filter(
 		(logEntry) => logEntry.timestamp > previousLastLogTimestampReturned,
-	);
-
-	// [MCP-TEST-LOG STEP 2.3] Log filtered new logs
-	log.debug(
-		label,
-		`New logs after filtering: ${JSON.stringify(newLogs.slice(-5))}`,
 	);
 
 	let logHint = "";
@@ -192,27 +172,12 @@ export async function checkProcessStatusImpl(
 		hint: logHint,
 	};
 
-	// [MCP-TEST-LOG STEP 4.1] Log the constructed payload OBJECT before stringify
-	log.debug(
-		label,
-		"[CheckStatus Payload] Constructed payload OBJECT:",
-		JSON.stringify(payload, null, 2),
-	);
-
-	// [MCP-TEST-LOG STEP 4.2] Log the final stringified payload just before return
-	const finalJsonString = JSON.stringify(payload);
-	log.debug(
-		label,
-		"[CheckStatus Payload] Final JSON string to be returned:",
-		finalJsonString,
-	);
-
 	log.info(
 		label,
 		`check_process_status returning final status: ${payload.status}. New logs returned: ${returnedLogs.length}. New lastLogTimestamp: ${newLastLogTimestamp}`,
 	);
 
-	return ok(textPayload(finalJsonString)); // Use the pre-stringified version
+	return ok(textPayload(JSON.stringify(payload))); // Use the pre-stringified version
 }
 
 export async function listProcessesImpl(
@@ -263,7 +228,7 @@ export async function listProcessesImpl(
 }
 
 export async function stopProcessImpl(
-	params: z.infer<typeof StopProcessParams>,
+	params: StopProcessParams,
 ): Promise<CallToolResult> {
 	const { label, force } = params;
 	const result = await _stopProcess(label, force);
@@ -567,10 +532,67 @@ export async function getAllLoglinesImpl(
 }
 
 export async function sendInputImpl(
-	params: z.infer<typeof SendInputParams>,
+	label: string,
+	input: string,
+	appendNewline = true,
 ): Promise<CallToolResult> {
-	const result = await _sendInput(params);
-	return result;
+	log.info(label, `Send input requested for process "${label}"`);
+	addLogEntry(label, `Input received: ${input}`);
+
+	const processInfo = managedProcesses.get(label);
+
+	if (!processInfo) {
+		log.warn(label, `Process "${label}" not found.`);
+		return fail(
+			textPayload(JSON.stringify({ error: `Process \"${label}\" not found.` })),
+		);
+	}
+
+	if (!processInfo.process || typeof processInfo.pid !== "number") {
+		log.warn(label, `Process "${label}" has no active PTY handle.`);
+		return fail(
+			textPayload(
+				JSON.stringify({
+					error: `Process \"${label}\" has no active PTY handle.`,
+				}),
+			),
+		);
+	}
+
+	if (processInfo.status !== "running" && processInfo.status !== "verifying") {
+		log.warn(
+			label,
+			`Cannot send input to process "${label}" in state: ${processInfo.status}`,
+		);
+		return fail(
+			textPayload(
+				JSON.stringify({
+					error: `Cannot send input to process \"${label}\" in state: ${processInfo.status}`,
+				}),
+			),
+		);
+	}
+
+	const dataToSend = appendNewline ? `${input}\r` : input;
+	const success = writeToPty(processInfo.process, dataToSend, label);
+
+	if (success) {
+		log.info(label, `Successfully sent input to process ${processInfo.pid}`);
+		return ok(
+			textPayload(
+				JSON.stringify({ message: `Input sent to process "${label}".` }),
+			),
+		);
+	}
+
+	log.error(label, `Failed to send input to process ${processInfo.pid}`);
+	return fail(
+		textPayload(
+			JSON.stringify({
+				error: `Failed to send input to process "${label}".`,
+			}),
+		),
+	);
 }
 
 export async function healthCheckImpl(): Promise<CallToolResult> {
