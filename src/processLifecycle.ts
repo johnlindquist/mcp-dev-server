@@ -163,11 +163,11 @@ export async function handleCrashAndRetry(label: string): Promise<void> {
 			processInfo.command,
 			processInfo.args, // Pass args
 			processInfo.cwd,
-			processInfo.verificationPattern,
+			processInfo.host, // Corrected: host goes here
+			processInfo.verificationPattern, // Corrected: pattern goes here
 			processInfo.verificationTimeoutMs ?? undefined, // Convert null to undefined
 			processInfo.retryDelayMs ?? undefined, // Convert null to undefined
 			processInfo.maxRetries, // Pass retry settings
-			processInfo.host, // <-- PASS host (already HostEnumType)
 			true, // Indicate this is a restart
 		);
 	}

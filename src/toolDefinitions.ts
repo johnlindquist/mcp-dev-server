@@ -1,3 +1,4 @@
+import type { McpServer, RequestHandlerExtra } from "@modelcontextprotocol/sdk";
 import { z } from "zod";
 import {
 	DEFAULT_LOG_LINES,

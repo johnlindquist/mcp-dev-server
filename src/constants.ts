@@ -59,3 +59,6 @@ export const LOG_SETTLE_DURATION_MS = ms(2000, 75);
 
 /** Maximum time (ms) to wait for log settling before considering startup complete or failed. */
 export const OVERALL_LOG_WAIT_TIMEOUT_MS = ms(15000, 500);
+
+/** Duration (ms) to potentially wait during check_process_status for active processes (if needed). */
+export const CHECK_STATUS_WAIT_DURATION_MS = ms(2000, 50); // Use ms helper
