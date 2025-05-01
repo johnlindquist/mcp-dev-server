@@ -82,6 +82,9 @@ export async function checkProcessStatusImpl(
 	// --- Check initial status and potentially wait ---
 	const initialProcessInfo = await checkAndUpdateProcessStatus(label);
 
+	// [MCP-TEST-LOG STEP 2.1] Log initial process info
+	log.debug(label, "Initial process info:", initialProcessInfo);
+
 	if (!initialProcessInfo) {
 		log.warn(label, `Process with label "${label}" not found.`);
 		return fail(
@@ -96,6 +99,12 @@ export async function checkProcessStatusImpl(
 	const initialStatus = initialProcessInfo.status;
 	const previousLastLogTimestampReturned =
 		initialProcessInfo.lastLogTimestampReturned ?? 0;
+
+	// [MCP-TEST-LOG STEP 2.2] Log previous last log timestamp
+	log.debug(
+		label,
+		`Previous last log timestamp returned: ${previousLastLogTimestampReturned}`,
+	);
 
 	const finalProcessInfo = initialProcessInfo; // Initialize with initial info
 
@@ -114,6 +123,12 @@ export async function checkProcessStatusImpl(
 
 	const newLogs = allLogs.filter(
 		(logEntry) => logEntry.timestamp > previousLastLogTimestampReturned,
+	);
+
+	// [MCP-TEST-LOG STEP 2.3] Log filtered new logs
+	log.debug(
+		label,
+		`New logs after filtering: ${JSON.stringify(newLogs.slice(-5))}`,
 	);
 
 	let logHint = "";
@@ -176,6 +191,9 @@ export async function checkProcessStatusImpl(
 			: undefined,
 		hint: logHint,
 	};
+
+	// [MCP-TEST-LOG STEP 2.4] Log the final constructed payload before stringify
+	log.debug(label, "Final payload object before stringify:", payload);
 
 	log.info(
 		label,
