@@ -350,6 +350,7 @@ export async function restartProcessImpl(
 		verificationTimeoutMs,
 		retryDelayMs,
 		maxRetries,
+		host,
 	} = processInfo;
 
 	let stopSucceeded = false;
@@ -407,6 +408,7 @@ export async function restartProcessImpl(
 		verificationTimeoutMs,
 		retryDelayMs,
 		maxRetries,
+		host,
 		true,
 	);
 
