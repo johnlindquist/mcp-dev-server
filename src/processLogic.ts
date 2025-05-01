@@ -623,41 +623,44 @@ export async function _startProcess(
 			infoForPayload.logFilePath && serverLogDirectory
 				? getTailCommand(infoForPayload.logFilePath)
 				: null,
-		info_message:
-			verificationPattern && isVerified
-				? `Process started and verification pattern matched. Final status: ${infoForPayload.status}.`
-				: verificationPattern && !isVerified
-					? `Process started but verification failed. Final status: ${infoForPayload.status}.`
-					: `Process started. Final status: ${infoForPayload.status}.`,
 		exitCode: infoForPayload.exitCode,
 		signal: infoForPayload.signal,
-		message: "", // Will be populated below
+		message: "", // Populated below
 		instructions: undefined, // Will be populated below
 	};
 
-	payload.message = payload.info_message ?? ""; // <-- Use default value for message
+	// --- Payload Message Construction ---
+	let statusPart = `Process status: ${finalStatus}.`;
+	if (finalStatus === "running" && verificationPattern && isVerified) {
+		statusPart =
+			"Process started and verification pattern matched. Final status: running.";
+	} else if (finalStatus === "running" && !verificationPattern) {
+		statusPart = "Process started. Final status: running.";
+	} else if (finalStatus === "stopped") {
+		statusPart = "Process started. Final status: stopped.";
+	} else if (finalStatus === "error" && verificationPattern && !isVerified) {
+		statusPart = `Process started but verification failed (${infoForPayload.verificationFailureReason ?? "unknown reason"}). Final status: error.`;
+	} else if (finalStatus === "error") {
+		statusPart = "Process started but failed. Final status: error.";
+	}
 
-	// --- Build Instructions ---
 	const instructionParts: string[] = [];
-
-	// General instruction for URL rendering
+	// Generic instruction about clickable links
 	instructionParts.push(
 		"If any URLs (like http://localhost:...) appear in the logs above, please render them as clickable links.",
 	);
 
-	// Add Cursor-specific tail instructions (if applicable)
+	// Cursor-specific instruction for tailing logs
 	if (infoForPayload.host === "cursor" && payload.tail_command) {
 		instructionParts.push(
-			`For monitoring, consider running '${payload.tail_command}' in a background terminal.`, // Slightly refined wording
+			`The process is logging output to a file. You can monitor it by running the following command in a separate background terminal: ${payload.tail_command}`,
 		);
-		log.info(label, "Adding specific instructions for host 'cursor'.");
 	}
+	const instructionText =
+		instructionParts.length > 0 ? `\\n\\n${instructionParts.join("\\n")}` : "";
 
-	// Combine instructions if any exist
-	if (instructionParts.length > 0) {
-		payload.instructions = instructionParts.join("\n");
-	}
-	// --- End Build Instructions ---
+	payload.message = `${statusPart}${instructionText}`.trim();
+	// --- End Payload Message Construction ---
 
 	log.info(
 		label,
@@ -667,8 +670,7 @@ export async function _startProcess(
 	// If final status is error/crashed, return failure, otherwise success
 	if (["error", "crashed"].includes(finalStatus)) {
 		const errorPayload: z.infer<typeof StartErrorPayloadSchema> = {
-			error:
-				payload.info_message ?? `Process ended with status: ${finalStatus}`, // <-- Use default value for error
+			error: payload.message ?? `Process ended with status: ${finalStatus}`, // <-- Use default value for error
 			status: finalStatus,
 			cwd: effectiveWorkingDirectory,
 			error_type: "process_exit_error",
