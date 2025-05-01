@@ -79,49 +79,30 @@ export async function checkProcessStatusImpl(
 	const { label, log_lines } = params;
 	log.debug(label, "Tool invoked: check_process_status", { params });
 
-	// --- Get initial state ---
-	log.debug(label, "Performing initial status check...");
+	// --- Check initial status and potentially wait ---
 	const initialProcessInfo = await checkAndUpdateProcessStatus(label);
 
 	if (!initialProcessInfo) {
-		log.warn(label, "Process not found during initial check.");
-		return fail(
-			textPayload(
-				JSON.stringify({ error: `Process with label "${label}" not found.` }),
-			),
-		);
-	}
-
-	const previousLastLogTimestampReturned =
-		initialProcessInfo.lastLogTimestampReturned ?? 0;
-	log.debug(
-		label,
-		`Initial status: ${initialProcessInfo.status}. Previous lastLogTimestampReturned: ${previousLastLogTimestampReturned}`,
-	);
-
-	// --- Check initial status and potentially wait ---
-	const finalProcessInfo = initialProcessInfo; // Start with initial info
-
-	// Check if initialProcessInfo is null before accessing status
-	if (!initialProcessInfo) {
-		log.warn(
-			label,
-			"Process info became null unexpectedly after initial check.",
-		);
+		log.warn(label, `Process with label "${label}" not found.`);
 		return fail(
 			textPayload(
 				JSON.stringify({
-					error: `Process with label "${label}" disappeared unexpectedly.`,
+					error: `Process with label "${label}" not found.`,
 				}),
 			),
 		);
 	}
+
 	const initialStatus = initialProcessInfo.status;
+	const previousLastLogTimestampReturned =
+		initialProcessInfo.lastLogTimestampReturned ?? 0;
 
-	// No longer wait if process is active; return current status and logs immediately.
+	const finalProcessInfo = initialProcessInfo; // Initialize with initial info
 
-	// --- Filter Logs ---
+	// --- Filter Logs (using finalProcessInfo) ---
+	// Use the potentially updated process info (now just initialProcessInfo)
 	const allLogs: LogEntry[] = finalProcessInfo.logs || [];
+	// ADDED LOG: Dump the entire log array before filtering
 	log.debug(
 		label,
 		`Logs available before filtering (Timestamp ${previousLastLogTimestampReturned}): ${JSON.stringify(allLogs.slice(-5))}`,
@@ -132,96 +113,76 @@ export async function checkProcessStatusImpl(
 	);
 
 	const newLogs = allLogs.filter(
-		(entry) => entry.timestamp > previousLastLogTimestampReturned,
+		(logEntry) => logEntry.timestamp > previousLastLogTimestampReturned,
 	);
-	log.debug(label, `Found ${newLogs.length} new log entries.`);
 
-	// --- Update Timestamp ---
-	let newLastLogTimestamp = previousLastLogTimestampReturned;
+	let logHint = "";
+	const returnedLogs: string[] = [];
+	let newLastLogTimestamp = previousLastLogTimestampReturned; // Default to old value
+
+	// Decide which logs to return based on log_lines parameter
 	if (newLogs.length > 0) {
-		// Use the timestamp of the very last entry in the *newLogs* array
+		log.debug(label, `Found ${newLogs.length} new log entries.`);
+		// Update the timestamp in the processInfo state
 		newLastLogTimestamp = newLogs[newLogs.length - 1].timestamp;
-		if (finalProcessInfo) {
-			// Check if finalProcessInfo exists before updating
-			finalProcessInfo.lastLogTimestampReturned = newLastLogTimestamp; // Update the state in memory
-			log.debug(
-				label,
-				`Updating lastLogTimestampReturned in process state to ${newLastLogTimestamp}`,
-			);
+		log.debug(
+			label,
+			`Updating lastLogTimestampReturned in process state to ${newLastLogTimestamp}`,
+		);
+		// Ensure we update the actual state object (finalProcessInfo holds the reference)
+		finalProcessInfo.lastLogTimestampReturned = newLastLogTimestamp;
+
+		const numLogsToReturn = Math.max(0, log_lines ?? DEFAULT_LOG_LINES); // Ensure non-negative
+		const startIndex = Math.max(0, newLogs.length - numLogsToReturn);
+		returnedLogs.push(...newLogs.slice(startIndex).map((l) => l.content));
+
+		log.debug(
+			label,
+			`Requested log lines: ${numLogsToReturn} (Default: ${DEFAULT_LOG_LINES})`,
+		);
+		log.debug(
+			label,
+			`Returning ${returnedLogs.length} raw log lines (limited by request).`,
+		);
+
+		if (returnedLogs.length < newLogs.length) {
+			const omittedCount = newLogs.length - returnedLogs.length;
+			logHint = `Returned ${returnedLogs.length} newest log lines since last check (${previousLastLogTimestampReturned}). ${omittedCount} more new lines were generated but not shown due to limit (${numLogsToReturn}).`;
+		} else {
+			logHint = `Returned all ${returnedLogs.length} new log lines since last check (${previousLastLogTimestampReturned}).`;
 		}
 	} else {
 		log.debug(
 			label,
-			`No new logs found, lastLogTimestampReturned remains ${previousLastLogTimestampReturned}`,
+			`No new logs found using filter timestamp ${previousLastLogTimestampReturned}`,
 		);
+		logHint = `No new log lines since last check (${previousLastLogTimestampReturned}).`; // Use variable here too
 	}
 
-	// --- Format and Construct Response ---
-	const requestedLines = log_lines ?? DEFAULT_LOG_LINES; // Use default if not specified
-	log.debug(
-		label,
-		`Requested log lines: ${requestedLines} (Default: ${DEFAULT_LOG_LINES})`,
-	);
-	// Apply requestedLines limit *to the new logs only*
-	const logsToReturnRaw =
-		requestedLines > 0 ? newLogs.slice(-requestedLines) : []; // Handle log_lines = 0
-	log.debug(
-		label,
-		`Returning ${logsToReturnRaw.length} raw log lines (limited by request).`,
-	);
-
-	const formattedLogs = formatLogsForResponse(
-		logsToReturnRaw.map((l) => l.content), // Format only the selected new logs
-		logsToReturnRaw.length, // Pass the actual count being formatted
-	);
-
-	const responsePayload: z.infer<typeof CheckStatusPayloadSchema> = {
+	// Construct payload using data AFTER the wait
+	const payload: z.infer<typeof CheckStatusPayloadSchema> = {
 		label: finalProcessInfo.label,
-		status: finalProcessInfo.status,
+		status: finalProcessInfo.status, // Status from AFTER the wait
 		pid: finalProcessInfo.pid,
 		command: finalProcessInfo.command,
 		args: finalProcessInfo.args,
 		cwd: finalProcessInfo.cwd,
 		exitCode: finalProcessInfo.exitCode,
 		signal: finalProcessInfo.signal,
-		logs: formattedLogs, // Return only new, formatted logs
+		logs: returnedLogs,
 		log_file_path: finalProcessInfo.logFilePath,
 		tail_command: finalProcessInfo.logFilePath
 			? `tail -f "${finalProcessInfo.logFilePath}"`
-			: null, // Regenerate just in case
+			: undefined,
+		hint: logHint,
 	};
-
-	// Update hint to reflect new log behavior
-	const totalNewLogs = newLogs.length;
-	if (requestedLines > 0 && totalNewLogs > formattedLogs.length) {
-		const shownCount = formattedLogs.length;
-		const hiddenCount = totalNewLogs - shownCount;
-		responsePayload.hint = `Returned ${shownCount} newest log lines since last check (${previousLastLogTimestampReturned}). ${hiddenCount} more new lines were generated but not shown due to limit (${requestedLines}).`;
-		log.debug(label, `Generated hint: ${responsePayload.hint}`);
-	} else if (totalNewLogs > 0 && requestedLines > 0) {
-		responsePayload.hint = `Returned all ${totalNewLogs} new log lines since last check (${previousLastLogTimestampReturned}).`;
-		log.debug(label, `Generated hint: ${responsePayload.hint}`);
-	} else if (requestedLines === 0) {
-		responsePayload.hint = `Log lines were not requested (log_lines=0). ${totalNewLogs} new log lines were generated since last check (${previousLastLogTimestampReturned}).`;
-		log.debug(label, `Generated hint: ${responsePayload.hint}`);
-	} else {
-		// No new logs
-		responsePayload.hint = `No new log lines since last check (${previousLastLogTimestampReturned}).`;
-		log.debug(label, `Generated hint: ${responsePayload.hint}`);
-	}
-	// Add hint if storage limit reached for *all* logs
-	if (allLogs.length >= MAX_STORED_LOG_LINES) {
-		const limitHint = `(Log storage limit: ${MAX_STORED_LOG_LINES} reached).`;
-		responsePayload.hint =
-			(responsePayload.hint ? `${responsePayload.hint} ` : "") + limitHint;
-		log.debug(label, "Appending storage limit hint.");
-	}
 
 	log.info(
 		label,
-		`check_process_status returning final status: ${finalProcessInfo.status}. New logs returned: ${formattedLogs.length}. New lastLogTimestamp: ${finalProcessInfo.lastLogTimestampReturned ?? "unchanged"}`,
+		`check_process_status returning final status: ${payload.status}. New logs returned: ${returnedLogs.length}. New lastLogTimestamp: ${newLastLogTimestamp}`,
 	);
-	return ok(textPayload(JSON.stringify(responsePayload, null, 2)));
+
+	return ok(textPayload(JSON.stringify(payload)));
 }
 
 export async function listProcessesImpl(

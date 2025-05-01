@@ -2,6 +2,8 @@ import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+// import { delay } from "../../build/utils.js"; // Original ESM import
+// const { delay } = require("../../build/utils.js"); // CJS require workaround
 
 // --- Configuration ---
 const SERVER_EXECUTABLE = "node";
@@ -936,7 +938,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			console.log("[TEST][checkLogsFilter] Starting test...");
 			const label = `test-log-filter-${Date.now()}`;
 			const logIntervalMs = 500; // Log every 500ms
-			const initialWaitMs = 1500; // Wait longer than interval for first logs
+			const initialWaitMs = 4000; // Wait longer than interval for first logs
 			const secondWaitMs = 1500; // Wait again for more logs
 
 			// Start a process that logs periodically
@@ -970,17 +972,18 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			);
 			expect(startResponse).toHaveProperty("result");
 
-			// Wait for some logs to be generated
+			// Wait for verification and status update to likely occur
 			console.log(
-				`[TEST][checkLogsFilter] Waiting ${initialWaitMs}ms for initial logs...`,
-			);
-			await new Promise((resolve) => setTimeout(resolve, initialWaitMs));
+				`[TEST][checkLogsFilter] Waiting ${initialWaitMs}ms for initial logs and status update...`,
+			); // Increased wait time
+			await new Promise((resolve) => setTimeout(resolve, initialWaitMs)); // Inline delay
+			console.log("[TEST][checkLogsFilter] Initial wait complete.");
 
-			// First check_process_status call
+			// --- First Check: Expect 'running' status and initial logs ---
 			console.log(
 				`[TEST][checkLogsFilter] Sending first check_process_status for ${label}...`,
 			);
-			const check1Request = {
+			const checkRequest1 = {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
@@ -992,7 +995,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			if (!serverProcess) throw new Error("Server process is null"); // Check before use
 			const check1Response = (await sendRequest(
 				serverProcess,
-				check1Request,
+				checkRequest1,
 			)) as MCPResponse;
 			console.log("[TEST][checkLogsFilter] Received first check response.");
 			expect(check1Response).toHaveProperty("result");
@@ -1015,11 +1018,12 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			const hasCounterLog1 = logs1.some((log) => log.includes("Log:"));
 			expect(hasStartLog1 || hasCounterLog1).toBe(true); // Should have some output
 
-			// Wait for more logs
+			// Wait again for more logs to be generated
 			console.log(
-				`[TEST][checkLogsFilter] Waiting ${secondWaitMs}ms for more logs...`,
+				`[TEST][checkLogsFilter] Waiting ${secondWaitMs}ms for second batch of logs...`,
 			);
-			await new Promise((resolve) => setTimeout(resolve, secondWaitMs));
+			await new Promise((resolve) => setTimeout(resolve, secondWaitMs)); // Inline delay
+			console.log("[TEST][checkLogsFilter] Second wait complete.");
 
 			// Second check_process_status call
 			console.log(
