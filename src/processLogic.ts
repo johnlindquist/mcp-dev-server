@@ -623,61 +623,27 @@ export async function _startProcess(
 			infoForPayload.logFilePath && serverLogDirectory
 				? getTailCommand(infoForPayload.logFilePath)
 				: null,
-		info_message:
-			verificationPattern && isVerified
-				? `Process started and verification pattern matched. Final status: ${infoForPayload.status}.`
-				: verificationPattern && !isVerified
-					? `Process started but verification failed. Final status: ${infoForPayload.status}.`
-					: `Process started. Final status: ${infoForPayload.status}.`,
 		exitCode: infoForPayload.exitCode,
 		signal: infoForPayload.signal,
 		message: "", // Will be populated below
 		instructions: undefined, // Will be populated below
 	};
 
-	// --- Payload Message & Instructions Construction ---
-	// Start with the base technical info message
-	const info_message_parts: string[] = [];
-	if (finalStatus === "running" && isVerified) {
-		info_message_parts.push("Process started and is running.");
-	} else if (finalStatus === "running" && !isVerified && verificationPattern) {
-		info_message_parts.push(
-			"Process started and verification pattern matched. Final status: running.",
-		);
+	// --- Payload Message Construction ---
+	let statusPart = `Process status: ${finalStatus}.`;
+	if (finalStatus === "running" && verificationPattern && isVerified) {
+		statusPart =
+			"Process started and verification pattern matched. Final status: running.";
 	} else if (finalStatus === "running" && !verificationPattern) {
-		info_message_parts.push("Process started. Final status: running.");
+		statusPart = "Process started. Final status: running.";
 	} else if (finalStatus === "stopped") {
-		info_message_parts.push("Process started. Final status: stopped.");
-	} else if (finalStatus === "error" && !isVerified && verificationPattern) {
-		info_message_parts.push(
-			"Process started but verification failed (timed out or exited during verification). Final status: error.",
-		);
+		statusPart = "Process started. Final status: stopped.";
+	} else if (finalStatus === "error" && verificationPattern && !isVerified) {
+		statusPart = `Process started but verification failed (${infoForPayload.verificationFailureReason ?? "unknown reason"}). Final status: error.`;
 	} else if (finalStatus === "error") {
-		info_message_parts.push("Process started but failed. Final status: error.");
-	} else {
-		info_message_parts.push(
-			`Process started. Final status: ${finalStatus}. Verification: ${isVerified ? "passed" : "failed/NA"}.`,
-		);
+		statusPart = "Process started but failed. Final status: error.";
 	}
 
-	// Add log settling info if applicable
-	if (infoForPayload?.process) {
-		const logSettleResult = await _waitForLogSettleOrTimeout(
-			label,
-			infoForPayload.process,
-		);
-		if (logSettleResult.timedOut) {
-			info_message_parts.push("Log settling timed out.");
-		} else if (logSettleResult.settled) {
-			info_message_parts.push("Log settling completed.");
-		} else {
-			info_message_parts.push("Log settling status unknown.");
-		}
-	}
-
-	const baseMessage = info_message_parts.join(" ");
-
-	// Instructions based on host and features
 	const instructionParts: string[] = [];
 	// Generic instruction about clickable links
 	instructionParts.push(
@@ -690,40 +656,58 @@ export async function _startProcess(
 			`The process is logging output to a file. You can monitor it by running the following command in a separate background terminal: ${payload.tail_command}`,
 		);
 	}
-
-	// Combine base message and instructions
 	const instructionText =
-		instructionParts.length > 0 ? `\n\n${instructionParts.join("\n")}` : "";
-	payload.message = `${baseMessage}${instructionText}`.trim();
+		instructionParts.length > 0 ? `\\n\\n${instructionParts.join("\\n")}` : "";
 
-	// --- End Payload Message & Instructions Construction ---
+	payload.message = `${statusPart}${instructionText}`.trim();
+	// --- End Payload Message Construction ---
 
 	log.info(
 		label,
-		`Returning success payload for start_process. Status: ${finalStatus}, PID: ${payload.pid}, Logs returned: ${payload.logs.length}`,
+		`Returning success payload for start_process. Status: ${payload.status}, PID: ${payload.pid}, Logs returned: ${payload.logs.length}`,
 	);
 
-	// Handle non-running final status
-	if (finalStatus !== "running") {
-		if (finalStatus === "stopped") {
-			log.info(
-				label,
-				"start_process returning success, but final status is stopped due to clean exit.",
-			);
-		} else if (finalStatus === "error") {
-			log.warn(
-				label,
-				"start_process returning success, but final status is error.",
-			);
-		} else {
-			log.warn(
-				label,
-				`start_process returning success, but final status is ${finalStatus}.`,
-			);
-		}
+	// If final status is error/crashed, return failure, otherwise success
+	if (["error", "crashed"].includes(finalStatus)) {
+		const errorPayload: z.infer<typeof StartErrorPayloadSchema> = {
+			error: payload.message ?? `Process ended with status: ${finalStatus}`, // <-- Use default value for error
+			status: finalStatus,
+			cwd: effectiveWorkingDirectory,
+			error_type: "process_exit_error",
+		};
+		log.error(
+			label,
+			`start_process returning failure. Status: ${finalStatus}, Exit Code: ${payload.exitCode}, Signal: ${payload.signal}`,
+		);
+		return fail(textPayload(JSON.stringify(errorPayload, null, 2)));
 	}
 
-	return ok(textPayload(JSON.stringify(payload, null, 2))); // Return full status
+	// Ensure success payload reflects stopped status if process exited cleanly during startup
+	if (payload.status === "stopped" && payload.exitCode === 0) {
+		log.info(
+			label,
+			"start_process returning success, but final status is stopped due to clean exit.",
+		);
+		return ok(textPayload(JSON.stringify(payload, null, 2)));
+	}
+
+	// If status is running, return standard success
+	if (payload.status === "running") {
+		return ok(textPayload(JSON.stringify(payload, null, 2)));
+	}
+
+	// Fallback: Should not happen if logic above is correct, but return failure if status is unexpected
+	log.error(
+		label,
+		`start_process reached unexpected final state. Status: ${payload.status}`,
+	);
+	const fallbackErrorPayload: z.infer<typeof StartErrorPayloadSchema> = {
+		error: `Process ended in unexpected state: ${payload.status}`,
+		status: payload.status,
+		cwd: effectiveWorkingDirectory,
+		error_type: "unexpected_process_state",
+	};
+	return fail(textPayload(JSON.stringify(fallbackErrorPayload)));
 }
 
 /**
