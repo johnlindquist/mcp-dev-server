@@ -1,5 +1,3 @@
-import { promisify } from "node:util"; // Add import
-import treeKill from "tree-kill"; // Add import
 import { MAX_STORED_LOG_LINES } from "./constants.js";
 import type { LogEntry, ProcessInfo, ProcessStatus } from "./types.ts"; // Import LogEntry from types.ts
 import { log } from "./utils.js";
@@ -7,7 +5,7 @@ import { log } from "./utils.js";
 // Renamed Map
 export const managedProcesses: Map<string, ProcessInfo> = new Map();
 
-const killProcessTree = promisify(treeKill); // Define killProcessTree here
+// REMOVE: const killProcessTree = promisify(treeKill); // Define killProcessTree here
 
 export function addLogEntry(label: string, content: string): void {
 	const processInfo = managedProcesses.get(label);
@@ -122,71 +120,6 @@ export function updateProcessStatus(
 	}
 
 	return newProcessInfo; // Return the NEW object reference
-}
-
-export function stopAllProcessesOnExit(): void {
-	log.info(null, "Stopping all managed processes on exit...");
-	const stopPromises: Promise<void>[] = [];
-
-	managedProcesses.forEach((processInfo, label) => {
-		log.info(
-			label,
-			`Attempting to stop process ${label} (PID: ${processInfo.pid})...`,
-		);
-		if (processInfo.process && processInfo.pid) {
-			updateProcessStatus(label, "stopping");
-			// Create a promise for each stop operation
-			const stopPromise = new Promise<void>((resolve) => {
-				// Add null check for pid
-				if (processInfo.pid) {
-					// promisify(treeKill) expects only pid
-					killProcessTree(processInfo.pid)
-						.then(() => {
-							// Resolve after successful kill
-							resolve();
-						})
-						.catch((err: Error | null) => {
-							if (err) {
-								log.error(
-									label,
-									`Error stopping process tree for ${label}:`,
-									err,
-								);
-							}
-							// Resolve regardless of error to not block shutdown
-							resolve();
-						});
-				} else {
-					log.warn(label, "Cannot kill process tree, PID is missing.");
-					resolve(); // Resolve anyway
-				}
-			});
-			stopPromises.push(stopPromise);
-		} else {
-			log.warn(label, `Process ${label} has no active process or PID to stop.`);
-		}
-
-		// --- Close Log Stream on Shutdown ---
-		if (processInfo.logFileStream) {
-			log.info(
-				label,
-				`Closing log stream for ${label} during server shutdown.`,
-			);
-			processInfo.logFileStream.end();
-			processInfo.logFileStream = null; // Nullify
-		}
-		// --- End Close Log Stream ---
-	});
-
-	// Clear the map *before* awaiting promises, as handleExit might be called
-	// managedProcesses.clear(); // Let handleExit clear individual entries
-
-	// Optionally wait for all stop commands to be issued (not necessarily completed)
-	// await Promise.all(stopPromises); // Doesn't guarantee processes are dead
-
-	// For a more robust shutdown, might need a timeout or check loop here
-	log.info(null, "Issued stop commands for all processes.");
-	managedProcesses.clear(); // Clear the map finally
 }
 
 export function removeProcess(label: string): void {

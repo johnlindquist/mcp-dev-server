@@ -8,11 +8,11 @@ import {
 	SERVER_VERSION,
 	ZOMBIE_CHECK_INTERVAL_MS,
 } from "./constants.js";
+import { stopAllProcessesOnExit } from "./processLifecycle.js";
 import {
 	clearZombieCheckInterval,
 	setZombieCheckInterval,
 } from "./processSupervisor.js";
-import { stopAllProcessesOnExit } from "./state.js";
 import { registerToolDefinitions } from "./toolDefinitions.js";
 import { log } from "./utils.js";
 
