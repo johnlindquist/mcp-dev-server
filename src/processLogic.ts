@@ -1025,7 +1025,11 @@ export async function _sendInput(
 }
 
 function handleData(label: string, data: string, source: "stdout" | "stderr") {
-	// log.debug(label, `[processLogic.handleData ENTRY] Source: ${source}, Data: ${JSON.stringify(data)}`); // Keep commented out or remove if redundant
+	// [MCP-TEST-LOG STEP 4.1] Log raw incoming data
+	log.debug(
+		label,
+		`[processLogic.handleData RAW ENTRY] Source: ${source}, Raw Data: ${JSON.stringify(data)}`,
+	);
 	const processInfo = getProcessInfo(label); // <-- Use getProcessInfo helper
 	if (!processInfo) {
 		log.warn(label, `[handleData] Received data for unknown process: ${label}`);
