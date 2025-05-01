@@ -26,7 +26,7 @@ export const HostEnum = z.enum([
 	"claude",
 	"chatgpt",
 	"vscode",
-	"indesurf",
+	"windsurf",
 	"unknown", // Default value
 ]);
 export type HostEnumType = z.infer<typeof HostEnum>;

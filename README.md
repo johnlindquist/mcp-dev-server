@@ -132,7 +132,7 @@ Starts a background process (like a dev server or script) and manages it.
 *   `workingDirectory` (string, required): The absolute working directory to run the command from. This setting is required. Do not use relative paths like '.' or '../'. Provide the full path (e.g., /Users/me/myproject).
 *   `label` (string, optional): Optional human-readable identifier (e.g. 'dev-server'). Leave blank to let the server generate one based on CWD and command.
 *   `args` (array of strings, optional, default: `[]`): Optional arguments for the command.
-*   `host` (string, optional, enum: `"cursor"`, `"claude"`, `"chatgpt"`, `"vscode"`, `"indesurf"`, `"unknown"`, default: `"unknown"`): Identifier for the client initiating the process. Helps tailor responses or instructions.
+*   `host` (string, optional, enum: `"cursor"`, `"claude"`, `"chatgpt"`, `"vscode"`, `"windsurf"`, `"unknown"`, default: `"unknown"`): Identifier for the client initiating the process. Helps tailor responses or instructions.
 *   `verification_pattern` (string, optional): Optional regex pattern to match in stdout/stderr to verify successful startup.
 *   `verification_timeout_ms` (integer, optional, default: `-1`): Milliseconds to wait for the verification pattern. -1 disables the timer (default).
 *   `retry_delay_ms` (integer, optional, default: 1000): Optional delay before restarting a crashed process in milliseconds.
