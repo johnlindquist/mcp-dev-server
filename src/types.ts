@@ -3,7 +3,7 @@ import type * as fs from "node:fs";
 // import type { ProcessInfo as OriginalProcessInfo } from "@cursor/types"; // REMOVED
 import type { IDisposable, IPty } from "node-pty";
 import { z } from "zod";
-import type { HostEnumType } from "./toolDefinitions.js"; // <-- IMPORT HostEnumType
+import { HostEnum } from "./toolDefinitions.js"; // <-- IMPORT HostEnum Zod object
 // REMOVE: import { ProcessInfo as OriginalProcessInfo } from "@cursor/types"; // ADD back temporarily for ProcessInfo extension
 
 /* ------------------------------------------------------------------------ */
@@ -102,7 +102,7 @@ export interface ProcessInfo {
 	command: string;
 	args: string[];
 	cwd: string;
-	host: HostEnumType;
+	host: HostEnum;
 	status: ProcessStatus;
 	logs: LogEntry[];
 	pid: number | undefined;
@@ -195,7 +195,7 @@ export const StartSuccessPayloadSchema = z
 		pid: z.number(),
 		workingDirectory: z.string(),
 		message: z.string(),
-		host: HostEnumSchema.optional(),
+		host: HostEnum.optional(),
 		// The below are added during _startProcess but not part of initial definition
 		tail_command: z.string().optional(),
 		info_message: z.string().optional(),
@@ -376,4 +376,11 @@ export const HealthCheckPayloadSchema = z
 	})
 	.describe("Response payload for health_check.");
 
-export type { HostEnumType }; // <-- EXPORT HostEnumType
+export type { HostEnum }; // <-- EXPORT HostEnum
+
+export type StartSuccessPayload = z.infer<typeof StartSuccessPayloadSchema> & {
+	status: ProcessStatus;
+	logs?: string[];
+	monitoring_hint?: string;
+	info_message?: string; // ADDED FOR TEMP COMPATIBILITY
+};

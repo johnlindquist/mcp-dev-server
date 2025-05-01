@@ -661,7 +661,7 @@ export async function _startProcess(
 	}
 
 	// Add log settling info if applicable
-	if (infoForPayload) {
+	if (infoForPayload?.process) {
 		const logSettleResult = await _waitForLogSettleOrTimeout(
 			label,
 			infoForPayload.process,
