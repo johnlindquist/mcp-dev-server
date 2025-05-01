@@ -1,7 +1,9 @@
 import type * as fs from "node:fs";
+import type { ProcessInfo as OriginalProcessInfo } from "@cursor/types";
 // import type { ProcessInfo as OriginalProcessInfo } from "@cursor/types"; // REMOVED
 import type { IDisposable, IPty } from "node-pty";
 import { z } from "zod";
+import type { HostEnumType } from "./toolDefinitions.js"; // <-- IMPORT HostEnumType
 
 /* ------------------------------------------------------------------------ */
 /*  1.  MCP payload primitives - RESTORED LOCAL DEFINITIONS                 */
@@ -94,11 +96,12 @@ export interface LogEntry {
 }
 
 /** Detailed information about a managed process. */
-export interface ProcessInfo {
+export interface ProcessInfo extends OriginalProcessInfo {
 	label: string;
 	command: string;
 	args: string[];
 	cwd: string;
+	host: HostEnumType;
 	status: ProcessStatus;
 	logs: LogEntry[];
 	pid: number | undefined;
