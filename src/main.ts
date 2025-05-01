@@ -16,6 +16,12 @@ import { stopAllProcessesOnExit } from "./state.js";
 import { registerToolDefinitions } from "./toolDefinitions.js";
 import { log } from "./utils.js";
 
+// [MCP-TEST-LOG STEP 1.1] Log server start with timestamp
+const startTimestamp = new Date().toISOString();
+console.error(
+	`[MCP-TEST-LOG STEP 1.1] Server main.ts started at: ${startTimestamp}`,
+);
+
 // Add a global variable (or pass it down) to store the log directory path
 export let serverLogDirectory: string | null = null; // Export for potential use elsewhere
 

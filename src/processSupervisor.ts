@@ -1,5 +1,4 @@
-import { handleCrashAndRetry } from "./processLifecycle.js"; // Import retry logic
-import { addLogEntry, managedProcesses, updateProcessStatus } from "./state.js";
+import { managedProcesses, updateProcessStatus } from "./state.js";
 import type { ProcessInfo } from "./types.js"; // Import necessary types
 import { log } from "./utils.js";
 
@@ -24,41 +23,80 @@ export function doesProcessExist(pid: number): boolean {
 // This function now calls handleCrashAndRetry if correction leads to 'crashed' state
 export async function checkAndUpdateProcessStatus(
 	label: string,
-): Promise<ProcessInfo | null> {
-	const processInfo = managedProcesses.get(label);
-	if (!processInfo) {
-		return null;
+): Promise<ProcessInfo | undefined> {
+	const initialProcessInfo = managedProcesses.get(label);
+	// ---> ADDED LOG: Log status at start
+	log.debug(
+		label,
+		`[checkAndUpdateProcessStatus START] Initial ProcessInfo found: ${!!initialProcessInfo}, Status: ${initialProcessInfo?.status}`,
+	);
+	// ---> END ADDED LOG
+
+	if (!initialProcessInfo) {
+		log.warn(label, "checkAndUpdateProcessStatus: Process not found.");
+		return undefined;
 	}
 
+	// Only update if the process is potentially active
 	if (
-		processInfo.pid &&
-		(processInfo.status === "running" ||
-			processInfo.status === "starting" ||
-			processInfo.status === "verifying" ||
-			processInfo.status === "restarting")
+		initialProcessInfo.status === "running" ||
+		initialProcessInfo.status === "verifying" ||
+		initialProcessInfo.status === "starting"
 	) {
-		if (!doesProcessExist(processInfo.pid)) {
-			log.warn(
-				label,
-				`Correcting status: Process PID ${processInfo.pid} not found, but status was '${processInfo.status}'. Marking as crashed.`,
-			);
-			addLogEntry(
-				label,
-				`Detected process PID ${processInfo.pid} no longer exists.`,
-			);
-			updateProcessStatus(label, "crashed", { code: -1, signal: null });
-			// Trigger retry if configured
-			if (
-				processInfo.maxRetries !== undefined &&
-				processInfo.maxRetries > 0 &&
-				processInfo.retryDelayMs !== undefined
-			) {
-				void handleCrashAndRetry(label); // Fire and forget retry
+		// Use process.kill(0) to check if the process exists
+		try {
+			if (initialProcessInfo.pid) {
+				process.kill(initialProcessInfo.pid, 0);
+				// Process exists, status remains the same unless PTY exit event handled it
+				log.debug(
+					label,
+					`Process check (kill 0): PID ${initialProcessInfo.pid} exists. Status remains ${initialProcessInfo.status}.`,
+				);
+			} else {
+				log.warn(
+					label,
+					`Process check: Status is ${initialProcessInfo.status} but PID is missing. Updating to error.`,
+				);
+				updateProcessStatus(label, "error");
+			}
+		} catch (error: unknown) {
+			// If kill(0) throws, process likely doesn't exist
+			if (error && typeof error === "object" && "code" in error) {
+				if (error.code === "ESRCH") {
+					log.warn(
+						label,
+						`Process check (kill 0): PID ${initialProcessInfo.pid} not found (ESRCH). Updating status to crashed.`,
+					);
+					updateProcessStatus(label, "crashed");
+				} else {
+					log.error(
+						label,
+						`Process check (kill 0): Unexpected error for PID ${
+							initialProcessInfo.pid
+						}: ${error.message}. Status remains ${initialProcessInfo.status}.`,
+						error,
+					);
+				}
 			}
 		}
+	} else {
+		log.debug(
+			label,
+			`Process check: Status is ${initialProcessInfo.status}. No update needed.`,
+		);
 	}
 
-	return processInfo;
+	// Re-fetch the potentially updated info from state
+	const finalProcessInfo = managedProcesses.get(label);
+	// ---> ADDED LOG: Log status just before returning
+	log.debug(
+		label,
+		`[checkAndUpdateProcessStatus END] Returning ProcessInfo. Status: ${
+			finalProcessInfo?.status
+		}`,
+	);
+	// ---> END ADDED LOG
+	return finalProcessInfo;
 }
 
 // --- reapZombies function --- (Copied from state.ts)

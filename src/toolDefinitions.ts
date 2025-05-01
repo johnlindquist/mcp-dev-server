@@ -1,4 +1,4 @@
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer, RequestHandlerExtra } from "@modelcontextprotocol/sdk";
 import { z } from "zod";
 import {
 	DEFAULT_LOG_LINES,
@@ -7,7 +7,7 @@ import {
 	MAX_RETRIES,
 	MAX_STORED_LOG_LINES,
 } from "./constants.js";
-import { _sendInput, _startProcess, _stopProcess } from "./processLogic.js";
+import { _startProcess, _stopProcess } from "./processLogic.js";
 import { handleToolCall } from "./toolHandler.js";
 import {
 	checkProcessStatusImpl,
@@ -15,9 +15,11 @@ import {
 	healthCheckImpl,
 	listProcessesImpl,
 	restartProcessImpl,
+	sendInputImpl,
 	stopAllProcessesImpl,
 	waitForProcessImpl,
 } from "./toolImplementations.js";
+import type { CallToolResult } from "./types.js";
 import { log } from "./utils.js";
 
 export const labelSchema = z
@@ -207,7 +209,10 @@ export function registerToolDefinitions(server: McpServer): void {
 		"start_process",
 		"Starts a background process (like a dev server or script) and manages it.",
 		shape(StartProcessParams.shape),
-		(params: z.infer<typeof StartProcessParams>) => {
+		(
+			params: z.infer<typeof StartProcessParams>,
+			extra: RequestHandlerExtra,
+		) => {
 			const cwdForLabel = params.workingDirectory;
 			const effectiveLabel = params.label || `${cwdForLabel}:${params.command}`;
 
@@ -220,7 +225,7 @@ export function registerToolDefinitions(server: McpServer): void {
 				effectiveLabel,
 				"start_process",
 				params,
-				async () => {
+				async (): Promise<CallToolResult> => {
 					const verificationPattern = params.verification_pattern
 						? new RegExp(params.verification_pattern)
 						: undefined;
@@ -245,7 +250,10 @@ export function registerToolDefinitions(server: McpServer): void {
 		"check_process_status",
 		"Checks the status and retrieves recent logs of a managed background process.",
 		shape(CheckProcessStatusParams.shape),
-		(params: z.infer<typeof CheckProcessStatusParams>) =>
+		(
+			params: z.infer<typeof CheckProcessStatusParams>,
+			extra: RequestHandlerExtra,
+		) =>
 			handleToolCall(params.label, "check_process_status", params, () =>
 				checkProcessStatusImpl(params),
 			),
@@ -255,7 +263,7 @@ export function registerToolDefinitions(server: McpServer): void {
 		"stop_process",
 		"Stops a specific background process.",
 		shape(StopProcessParams.shape),
-		(params: z.infer<typeof StopProcessParams>) =>
+		(params: z.infer<typeof StopProcessParams>, extra: RequestHandlerExtra) =>
 			handleToolCall(params.label, "stop_process", params, async () => {
 				return await _stopProcess(params.label, params.force);
 			}),
@@ -265,7 +273,7 @@ export function registerToolDefinitions(server: McpServer): void {
 		"list_processes",
 		"Lists all managed background processes and their statuses.",
 		shape(ListProcessesParams.shape),
-		(params: z.infer<typeof ListProcessesParams>) =>
+		(params: z.infer<typeof ListProcessesParams>, extra: RequestHandlerExtra) =>
 			handleToolCall(null, "list_processes", params, () =>
 				listProcessesImpl(params),
 			),
@@ -275,7 +283,7 @@ export function registerToolDefinitions(server: McpServer): void {
 		"stop_all_processes",
 		"Attempts to gracefully stop all active background processes.",
 		{},
-		(params: Record<string, never>) =>
+		(params: Record<string, never>, extra: RequestHandlerExtra) =>
 			handleToolCall(null, "stop_all_processes", params, stopAllProcessesImpl),
 	);
 
@@ -283,7 +291,10 @@ export function registerToolDefinitions(server: McpServer): void {
 		"restart_process",
 		"Restarts a specific background process by stopping and then starting it again.",
 		shape(RestartProcessParams.shape),
-		(params: z.infer<typeof RestartProcessParams>) =>
+		(
+			params: z.infer<typeof RestartProcessParams>,
+			extra: RequestHandlerExtra,
+		) =>
 			handleToolCall(params.label, "restart_process", params, () =>
 				restartProcessImpl(params),
 			),
@@ -293,7 +304,10 @@ export function registerToolDefinitions(server: McpServer): void {
 		"wait_for_process",
 		"Waits for a specific background process to reach a target status (e.g., running).",
 		shape(WaitForProcessParams.shape),
-		(params: z.infer<typeof WaitForProcessParams>) =>
+		(
+			params: z.infer<typeof WaitForProcessParams>,
+			extra: RequestHandlerExtra,
+		) =>
 			handleToolCall(params.label, "wait_for_process", params, () =>
 				waitForProcessImpl(params),
 			),
@@ -303,7 +317,10 @@ export function registerToolDefinitions(server: McpServer): void {
 		"get_all_loglines",
 		"Retrieves the complete remaining log history for a specific managed process.",
 		shape(GetAllLoglinesParams.shape),
-		(params: z.infer<typeof GetAllLoglinesParams>) =>
+		(
+			params: z.infer<typeof GetAllLoglinesParams>,
+			extra: RequestHandlerExtra,
+		) =>
 			handleToolCall(params.label, "get_all_loglines", params, () =>
 				getAllLoglinesImpl(params),
 			),
@@ -313,7 +330,7 @@ export function registerToolDefinitions(server: McpServer): void {
 		"health_check",
 		"Provides a health status summary of the MCP Process Manager itself.",
 		{},
-		(params: Record<string, never>) =>
+		(params: Record<string, never>, extra: RequestHandlerExtra) =>
 			handleToolCall(null, "health_check", params, healthCheckImpl),
 	);
 
@@ -321,9 +338,9 @@ export function registerToolDefinitions(server: McpServer): void {
 		"send_input",
 		"Sends input to a specific managed process.",
 		shape(SendInputParams.shape),
-		(params: z.infer<typeof SendInputParams>) =>
+		(params: z.infer<typeof SendInputParams>, extra: RequestHandlerExtra) =>
 			handleToolCall(params.label, "send_input", params, () =>
-				_sendInput(params),
+				sendInputImpl(params.label, params.input, params.append_newline),
 			),
 	);
 

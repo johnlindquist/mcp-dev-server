@@ -13,14 +13,18 @@ import { serverLogDirectory } from "./main.js"; // Import the log dir path
 import { fail, ok, textPayload } from "./mcpUtils.js";
 import { handleExit } from "./processLifecycle.js"; // Import handleExit from new location
 import { checkAndUpdateProcessStatus } from "./processSupervisor.js"; // Import from supervisor
-import { killPtyProcess, spawnPtyProcess, writeToPty } from "./ptyManager.js"; // Import new functions
-import { addLogEntry, managedProcesses, updateProcessStatus } from "./state.js";
-import type { SendInputParams } from "./toolDefinitions.js"; // Import the schema type
+import { killPtyProcess, spawnPtyProcess } from "./ptyManager.js"; // Import new functions
+import {
+	addLogEntry,
+	getProcessInfo,
+	managedProcesses,
+	updateProcessStatus,
+} from "./state.js";
 import type {
 	CallToolResult,
 	LogEntry,
 	ProcessInfo,
-	SendInputPayloadSchema,
+	ProcessStatus, // Import ProcessStatus
 	StartErrorPayloadSchema,
 	StartSuccessPayloadSchema,
 	StopProcessPayloadSchema,
@@ -53,8 +57,20 @@ async function _waitForLogSettleOrTimeout(
 		const cleanup = () => {
 			if (settleTimerId) clearTimeout(settleTimerId);
 			if (overallTimeoutId) clearTimeout(overallTimeoutId);
-			if (dataListenerDisposable) dataListenerDisposable.dispose();
-			if (exitListenerDisposable) exitListenerDisposable.dispose(); // Dispose exit listener too
+			if (dataListenerDisposable) {
+				log.debug(
+					label,
+					"[_waitForLogSettleOrTimeout] Disposing temporary data listener.",
+				);
+				dataListenerDisposable.dispose();
+			}
+			if (exitListenerDisposable) {
+				log.debug(
+					label,
+					"[_waitForLogSettleOrTimeout] Disposing temporary exit listener.",
+				);
+				exitListenerDisposable.dispose();
+			}
 			settleTimerId = null;
 			overallTimeoutId = null;
 			dataListenerDisposable = null;
@@ -101,16 +117,14 @@ async function _waitForLogSettleOrTimeout(
 			settleTimerId = setTimeout(onSettle, LOG_SETTLE_DURATION_MS);
 		};
 
-		// Attach a *temporary* data listener
-		dataListenerDisposable = ptyProcess.onData((data: string) => {
-			// We don't need to process the data here, just reset the timer
-			resetSettleTimer();
-		});
+		// Attach temporary listeners
+		// dataListenerDisposable = ptyProcess.onData(() => { // <-- Keep this commented out
+		// 	log.debug(label, "[_waitForLogSettleOrTimeout.onData] Received data during settle wait.");
+		// 	resetSettleTimer(); // Reset settle timer on any data
+		// }); // <-- Keep this commented out
+		exitListenerDisposable = ptyProcess.onExit(onProcessExit); // Handle exit during wait
 
-		// Attach a temporary exit listener
-		exitListenerDisposable = ptyProcess.onExit(onProcessExit);
-
-		// Start the timers
+		// Start timers
 		resetSettleTimer(); // Initial settle timer
 		overallTimeoutId = setTimeout(
 			onOverallTimeout,
@@ -280,9 +294,10 @@ export async function _startProcess(
 	// --- End Log File Setup ---
 
 	try {
-		log.debug(label, `Attempting to spawn PTY with shell: ${shell}`);
+		log.debug(label, `Attempting to spawn PTY with command: ${command}`);
 		ptyProcess = spawnPtyProcess(
-			shell,
+			command,
+			args,
 			effectiveWorkingDirectory,
 			{
 				...process.env, // Pass environment variables
@@ -349,6 +364,9 @@ export async function _startProcess(
 		maxRetries: maxRetries ?? undefined, // Use undefined
 		logFilePath: logFilePath, // <-- STORED
 		logFileStream: logFileStream, // <-- STORED
+		mainDataListenerDisposable: undefined,
+		mainExitListenerDisposable: undefined,
+		partialLineBuffer: "",
 	};
 	managedProcesses.set(label, processInfo);
 	updateProcessStatus(label, "starting"); // Ensure status is set via the function
@@ -357,176 +375,114 @@ export async function _startProcess(
 		`Process spawned successfully (PID: ${ptyProcess.pid}) in ${effectiveWorkingDirectory}. Status: starting.`,
 	);
 
-	// --- Start the command in the PTY ---
-	try {
-		log.debug(label, `Writing command to PTY: ${fullCommand}`);
-		// Use ptyManager function - corrected args
-		if (!processInfo.process) {
-			log.error(label, "Cannot write command to PTY: process object is null.");
-			updateProcessStatus(label, "error");
-			addLogEntry(
-				label,
-				"Error: Failed to write initial command, PTY process object missing.",
-			);
-			return fail(
-				textPayload(
-					JSON.stringify({
-						error: "PTY process object missing",
-						status: "error",
-						error_type: "internal_error",
-					}),
-				),
-			);
-		}
-		if (!writeToPty(processInfo.process, `${fullCommand}\r`, label)) {
-			// Correct call
-			// Handle write failure - already logged by writeToPty
-			updateProcessStatus(label, "error");
-			addLogEntry(label, "Error: Failed to write initial command to PTY");
-			// Failed write is critical, attempt cleanup
-			try {
-				if (processInfo.process) {
-					// Check if process exists before killing
-					killPtyProcess(processInfo.process, label, "SIGKILL"); // Correct call
-				}
-			} catch (killError) {
-				log.error(
-					label,
-					"Failed to kill PTY process after write error",
-					killError,
-				);
-			}
-			return fail(
-				textPayload(
-					JSON.stringify({
-						error: "Failed to write initial command to PTY",
-						status: "error",
-						error_type: "pty_write_failed",
-					}),
-				),
-			);
-		}
-		log.debug(label, "Command written to PTY successfully.");
-	} catch (error: unknown) {
-		// This catch block might be redundant if writeToPty handles its errors
-		const errorMsg = `Failed to write command to PTY process ${ptyProcess.pid}: ${error instanceof Error ? error.message : String(error)}`;
-		log.error(label, errorMsg);
-		updateProcessStatus(label, "error");
-		addLogEntry(label, `Error: ${errorMsg}`);
-		// Failed write is critical, attempt cleanup
-		try {
-			if (processInfo.process) {
-				// Check if process exists before killing
-				killPtyProcess(processInfo.process, label, "SIGKILL"); // Correct call
-			}
-		} catch (killError) {
-			log.error(
-				label,
-				"Failed to kill PTY process after write error",
-				killError,
-			);
-		}
-		return fail(
-			textPayload(
-				JSON.stringify({
-					error: errorMsg,
-					status: "error",
-					error_type: "pty_write_failed",
-				}),
-			),
-		);
-	}
-
 	// --- Verification Logic ---
 	let isVerified = !verificationPattern;
-	let verificationCompletionPromise: Promise<void> | null = null;
+	let patternMatched = false;
+	let verificationPromiseResolved = false;
+	let verificationCompletionResolver: (() => void) | null = null;
+	const verificationCompletionPromise = new Promise<void>((resolve) => {
+		verificationCompletionResolver = resolve;
+	});
+	let dataListenerDisposable: IDisposable | undefined;
+	let exitListenerDisposable: IDisposable | undefined;
 
 	if (verificationPattern) {
-		const timeoutMessage =
-			processInfo.verificationTimeoutMs !== undefined
-				? `Timeout ${processInfo.verificationTimeoutMs}ms`
-				: "Timeout disabled";
+		isVerified = false;
+		const timeoutMs = processInfo.verificationTimeoutMs;
 		log.info(
 			label,
-			`Verification required: Pattern /${verificationPattern.source}/, ${timeoutMessage}`,
+			`Verification required: Pattern /${verificationPattern.source}/, Timeout: ${timeoutMs === undefined ? "disabled" : `${timeoutMs}ms`}`,
 		);
 		addLogEntry(label, "Status: verifying. Waiting for pattern or timeout.");
 		updateProcessStatus(label, "verifying");
 
 		const dataListener = (data: string): void => {
+			if (verificationPromiseResolved) return;
 			try {
+				handleData(label, data.replace(/\r?\n$/, ""), "stdout"); // Log trimmed data
+
 				if (verificationPattern.test(data)) {
-					if (processInfo.status === "verifying") {
-						// Check status before completing
-						verificationCompletionPromise = Promise.resolve();
+					if (getProcessInfo(label)?.status === "verifying") {
+						log.info(label, "Verification pattern matched.");
+						patternMatched = true;
+						verificationPromiseResolved = true;
+						if (verificationCompletionResolver)
+							verificationCompletionResolver();
 					} else {
 						log.warn(
 							label,
-							`Verification pattern matched, but status is now ${processInfo.status}. Ignoring match.`,
+							`Verification pattern matched, but status is now ${getProcessInfo(label)?.status}. Ignoring match.`,
 						);
-						// Listener disposed below if necessary
-						verificationCompletionPromise = null;
 					}
 				}
 			} catch (e: unknown) {
 				log.error(label, "Error during verification data processing", e);
-				if (processInfo.status === "verifying") {
-					verificationCompletionPromise = Promise.resolve();
+				if (!verificationPromiseResolved) {
+					verificationPromiseResolved = true;
+					if (verificationCompletionResolver) verificationCompletionResolver();
 				}
-				// Listener disposed in completeVerification
 			}
 		};
-		ptyProcess.onData(dataListener);
+		dataListenerDisposable = ptyProcess.onData(dataListener);
 
-		// Only set timeout if verificationTimeoutMs is provided (not undefined)
-		if (processInfo.verificationTimeoutMs !== undefined) {
-			const timeoutMs = processInfo.verificationTimeoutMs;
-			verificationCompletionPromise = new Promise<void>(
-				(resolveVerification) => {
-					setTimeout(() => {
-						if (processInfo.status === "verifying") {
-							// Check status before timeout failure
-							verificationCompletionPromise = Promise.resolve();
-						} else {
-							log.warn(
-								label,
-								`Verification timeout occurred, but status is now ${processInfo.status}. Ignoring timeout.`,
-							);
-							// Listener might still need cleanup if process exited without data match
-							verificationCompletionPromise = null;
-						}
-						resolveVerification();
-					}, timeoutMs);
-					// Store the timer in processInfo as well for external access/clearing (e.g., in stopProcess)
-					processInfo.verificationTimer = setTimeout(() => {
-						if (processInfo.status === "verifying") {
-							// Check status before timeout failure
-							verificationCompletionPromise = Promise.resolve();
-						} else {
-							log.warn(
-								label,
-								`Verification timeout occurred, but status is now ${processInfo.status}. Ignoring timeout.`,
-							);
-							// Listener might still need cleanup if process exited without data match
-							verificationCompletionPromise = null;
-						}
-					}, timeoutMs);
-				},
-			);
+		const exitListener = () => {
+			if (verificationPromiseResolved) return;
+			if (getProcessInfo(label)?.status === "verifying") {
+				log.warn(label, "Process exited during verification phase.");
+				verificationPromiseResolved = true;
+				if (verificationCompletionResolver) verificationCompletionResolver();
+			}
+		};
+		exitListenerDisposable = ptyProcess.onExit(exitListener);
+
+		if (timeoutMs !== undefined) {
+			processInfo.verificationTimer = setTimeout(() => {
+				if (verificationPromiseResolved) return;
+				log.warn(label, "Verification timed out.");
+				verificationPromiseResolved = true;
+				if (verificationCompletionResolver) verificationCompletionResolver();
+			}, timeoutMs);
 		}
 
-		// Ensure listener is removed on exit if verification didn't complete
-		ptyProcess.onExit(() => {
-			// Use onExit, store disposable
-			if (processInfo.status === "verifying") {
-				log.warn(label, "Process exited during verification phase.");
-				verificationCompletionPromise = null;
+		log.debug(
+			label,
+			"Waiting for verification process to complete (match, timeout, or exit)...",
+		);
+		await verificationCompletionPromise;
+		log.debug(label, "Verification process completed.");
+
+		if (dataListenerDisposable) dataListenerDisposable.dispose();
+		if (exitListenerDisposable) exitListenerDisposable.dispose();
+		if (processInfo.verificationTimer) {
+			clearTimeout(processInfo.verificationTimer);
+			processInfo.verificationTimer = undefined;
+		}
+
+		isVerified = patternMatched;
+		if (isVerified) {
+			log.info(label, "Verification successful (pattern matched).");
+			addLogEntry(label, "Verification successful (pattern matched).");
+		} else {
+			const currentStatus = getProcessInfo(label)?.status;
+			if (currentStatus === "verifying") {
+				log.warn(
+					label,
+					"Verification failed (timeout or exit during verification). Setting status to error.",
+				);
+				addLogEntry(label, "Verification failed (timeout or exit).");
+				updateProcessStatus(label, "error");
+			} else {
+				log.warn(
+					label,
+					`Verification failed, process status already changed to ${currentStatus}.`,
+				);
+				addLogEntry(
+					label,
+					`Verification failed, process already in state: ${currentStatus}`,
+				);
 			}
-			// Listener disposed in completeVerification or earlier
-		});
+		}
 	} else {
-		// No verification pattern, consider running after a short delay or immediately
-		// For simplicity, let's mark as running immediately if no pattern
 		log.info(label, "No verification pattern provided. Marking as running.");
 		addLogEntry(label, "Status: running (no verification specified).");
 		updateProcessStatus(label, "running");
@@ -534,170 +490,214 @@ export async function _startProcess(
 	}
 
 	// --- Standard Log Handling ---
-	const mainDataDisposable = ptyProcess.onData((data: string) => {
-		const lines = data.split(/\r?\n/);
-		for (const line of lines) {
-			if (line.trim()) {
-				addLogEntry(label, line); // Store raw log line
+	processInfo.mainDataListenerDisposable = ptyProcess.onData((data: string) => {
+		const currentProcessInfo = getProcessInfo(label);
+		if (!currentProcessInfo) return; // Process might have been removed
+
+		// Ensure buffer exists (initialize if somehow missing)
+		currentProcessInfo.partialLineBuffer =
+			(currentProcessInfo.partialLineBuffer || "") + data;
+
+		let newlineIndex: number;
+		// Process all complete lines in the buffer
+		// Assign first, then check in the loop condition
+		newlineIndex = currentProcessInfo.partialLineBuffer.indexOf("\n");
+		while (newlineIndex >= 0) {
+			const line = currentProcessInfo.partialLineBuffer.substring(
+				0,
+				newlineIndex + 1,
+			);
+			currentProcessInfo.partialLineBuffer =
+				currentProcessInfo.partialLineBuffer.substring(newlineIndex + 1);
+
+			// Trim newline characters (\r\n or \n)
+			const trimmedLine = line.replace(/\r?\n$/, "");
+
+			if (trimmedLine) {
+				// Check if line not empty after removing newline
+				handleData(label, trimmedLine, "stdout"); // Process the complete line
 			}
+			// Re-assign for the next iteration of the loop
+			newlineIndex = currentProcessInfo.partialLineBuffer.indexOf("\n");
 		}
+		// Remaining data in currentProcessInfo.partialLineBuffer is kept for the next chunk
 	});
 
 	// --- Exit/Error Handling ---
-	const mainExitDisposable = ptyProcess.onExit(({ exitCode, signal }) => {
-		log.debug(label, "Main onExit handler triggered.", { exitCode, signal });
-		mainDataDisposable.dispose(); // Dispose data listener on exit
-		log.info(
-			label,
-			`[ExitHandler] Process exited. Code: ${exitCode}, Signal: ${signal}`,
-		); // Added log
-
-		// Get fresh info before calling handleExit
-		const currentInfo = managedProcesses.get(label);
-		// Call the imported handleExit
-		handleExit(
-			label,
-			exitCode ?? null,
-			signal !== undefined ? String(signal) : null,
-		);
-		mainExitDisposable.dispose(); // Dispose self
-	});
-
-	// --- Wait for settling or timeout ---
-	const { settled, timedOut } = await _waitForLogSettleOrTimeout(
-		label,
-		ptyProcess,
-	);
-	// --- End Wait ---
-
-	// --- Determine Final Status and Message ---
-	const currentInfoAfterWait = managedProcesses.get(label);
-	if (!currentInfoAfterWait) {
-		// This should ideally not happen if the process was just started
-		log.error(label, "Process info unexpectedly missing after log settling.");
-		return fail(
-			textPayload(
-				JSON.stringify({
-					error: "Internal error: Process state lost after startup.",
-					status: "error",
-					error_type: "internal_state_error",
-				}),
-			),
-		);
-	}
-
-	let finalStatus = currentInfoAfterWait.status;
-	let message = "Process started."; // Default message
-
-	if (finalStatus === "verifying") {
-		message = "Process started, verification pattern matched.";
-		// No status change needed, already implicitly successful if verifying passed
-	} else if (finalStatus === "starting") {
-		// If verification was NOT used, or timed out without a match/exit, consider it 'running'
-		if (!verificationPattern) {
-			finalStatus = "running"; // Promote to running if no verification
-			updateProcessStatus(label, "running");
-			message = "Process started and is now considered running.";
-		} else {
-			// Verification timed out or settled without match, but didn't crash/error
-			finalStatus = "running"; // Still treat as running, but mention timeout
-			updateProcessStatus(label, "running");
-			message = `Process started, but verification pattern did not match within the timeout (${verificationTimeoutMs || "default"}ms). Considered running.`;
-			log.warn(
+	processInfo.mainExitListenerDisposable = ptyProcess.onExit(
+		({ exitCode, signal }) => {
+			log.info(
 				label,
-				`Verification pattern did not match within timeout. Process status set to '${finalStatus}'.`,
+				`[ExitHandler] Process exited. Code: ${exitCode}, Signal: ${signal}`,
 			);
+
+			// Get fresh info before calling handleExit
+			const currentInfo = managedProcesses.get(label);
+			// Call the imported handleExit
+			handleExit(
+				label,
+				exitCode ?? null,
+				signal !== undefined ? String(signal) : null,
+			);
+		},
+	);
+
+	// --- Wait for logs to potentially settle after verification ---
+	let infoForPayload: ProcessInfo | undefined = undefined; // Variable to hold the definitive info for payload
+
+	if (["verifying", "running"].includes(getProcessInfo(label)?.status ?? "")) {
+		await _waitForLogSettleOrTimeout(label, ptyProcess);
+
+		const processInfoAfterSettle = getProcessInfo(label);
+		if (processInfoAfterSettle) {
+			const statusAfterSettle = processInfoAfterSettle.status;
+			if (isVerified && statusAfterSettle === "verifying") {
+				log.info(
+					label,
+					`Verification successful and logs settled (status=${statusAfterSettle}), updating status to running.`,
+				);
+				// *** Capture the returned updated object ***
+				const updatedInfo = updateProcessStatus(label, "running");
+				addLogEntry(label, "Status changed to running after verification.");
+
+				// *** Use this updated info directly for payload ***
+				infoForPayload = updatedInfo;
+			} else {
+				log.info(
+					label,
+					`Verification state: ${isVerified}, Status after settle: ${statusAfterSettle}. Not updating status to running.`,
+				);
+				// If not updated, fetch latest for payload
+				infoForPayload = getProcessInfo(label);
+			}
+		} else {
+			log.warn(label, "Process vanished during log settle wait.");
+			// Process gone, ensure payload reflects error or vanished state
+			infoForPayload = undefined;
 		}
-	} else if (finalStatus === "crashed" || finalStatus === "error") {
-		message = `Process failed to start or exited unexpectedly. Final status: ${finalStatus}. Check logs for details.`;
-		log.error(label, message);
+	} else {
+		// If not verifying/running initially, just get the current state for the payload
+		infoForPayload = getProcessInfo(label);
 	}
 
-	if (settled && !timedOut) {
-		message += " Logs settled quickly.";
-	} else if (timedOut) {
-		message += ` Log settling wait timed out after ${OVERALL_LOG_WAIT_TIMEOUT_MS}ms.`;
+	// --- Construct SUCCESS Payload ---
+	// *** Use the infoForPayload object determined above ***
+	if (!infoForPayload) {
+		// Check if process vanished
+		log.error(
+			label,
+			"Process info unavailable for constructing final success payload!",
+		);
+		return fail(textPayload("Process disappeared unexpectedly"));
 	}
 
-	// Include exit code/signal if applicable
-	if (currentInfoAfterWait.exitCode !== null) {
-		message += ` Exit Code: ${currentInfoAfterWait.exitCode}.`;
-	}
-	if (currentInfoAfterWait.signal !== null) {
-		message += ` Signal: ${currentInfoAfterWait.signal}.`;
-	}
+	const finalStatus = infoForPayload.status;
+	log.info(label, `Final status for payload construction: ${finalStatus}`);
 
-	log.info(label, `Final status after settling/wait: ${finalStatus}`);
+	// Initialize payload with common fields from infoForPayload
+	const payload: z.infer<typeof StartSuccessPayloadSchema> = {
+		label: infoForPayload.label,
+		status: finalStatus,
+		pid: infoForPayload.pid,
+		command: infoForPayload.command,
+		args: infoForPayload.args,
+		cwd: infoForPayload.cwd,
+		logs: [], // Will be populated below
+		monitoring_hint: "", // Will be populated below
+		log_file_path: infoForPayload.logFilePath,
+		tail_command: getTailCommand(infoForPayload.logFilePath),
+		info_message: "", // Will be populated below
+		exitCode: infoForPayload.exitCode ?? null,
+		signal: infoForPayload.signal ?? null,
+		message: "", // Will be populated below
+	};
+
+	// Determine message based on verification outcome and potential early exit
+	let message = `Process "${label}" started. Final status: ${finalStatus}.`;
+	if (infoForPayload.exitCode === 0 && infoForPayload.signal === null) {
+		message = `Process "${label}" started and exited cleanly (code 0) during startup/verification. Final status: stopped.`;
+		// Override status if it exited cleanly before reaching 'running'
+		if (payload.status !== "stopped") {
+			// Check payload.status
+			log.info(
+				label,
+				`Overriding payload status to 'stopped' due to clean exit during startup.`,
+			);
+			payload.status = "stopped";
+		}
+	} else if (verificationPattern) {
+		message += isVerified
+			? " Verification pattern matched."
+			: " Verification failed (timeout or exit).";
+	}
 
 	// Retrieve potentially updated logs after settling/timeout
 	const logsToReturn = formatLogsForResponse(
-		currentInfoAfterWait.logs.map((l) => l.content),
-		currentInfoAfterWait.logs.length, // Use the full length here for payload, actual return might be capped by transport
+		infoForPayload.logs.map((l: LogEntry) => l.content),
+		infoForPayload.logs.length,
 	);
-	// --- End Determine Final Status and Message ---
 
-	// --- Construct Payload ---
-	// Generate the tail command first
-	const tailCommand = getTailCommand(logFilePath);
+	// Populate the rest of the payload fields
+	payload.message = message;
+	payload.info_message = message; // Assuming info_message is same as main message for now
+	payload.logs = logsToReturn;
+	payload.monitoring_hint = `For status updates or recent inline logs, use check_process_status('${label}'). File logging is ${payload.log_file_path ? "enabled" : "not enabled for this process."}`;
 
-	// Conditionally generate the monitoring hint based on tail command availability
-	let monitoringHint: string;
-	if (tailCommand) {
-		// Phrasing for when file logging (and thus tailing) is possible
-		monitoringHint = `If you requested to tail the '${label}' process, please run this command in a separate background terminal: ${tailCommand}. For status updates or recent inline logs, use check_process_status('${label}').`;
-	} else {
-		// Phrasing for when file logging is disabled
-		monitoringHint = `For status updates or recent inline logs, use check_process_status('${label}'). File logging is not enabled for this process.`;
+	// *** Ensure payload status matches exit reality ***
+	if (
+		payload.exitCode === 0 &&
+		payload.signal === null &&
+		payload.status !== "stopped"
+	) {
+		payload.status = "stopped";
 	}
-
-	// Keep the detailed startup/settling message separate if needed
-	const infoMessage = message; // 'message' contains the details about settling/timeout
-
-	// Construct the final payload
-	const successPayload: z.infer<typeof StartSuccessPayloadSchema> = {
-		label,
-		// Keep the primary message concise about the start status
-		message: `Process "${label}" started with status: ${finalStatus}.`,
-		status: finalStatus,
-		pid: currentInfoAfterWait.pid,
-		command: command,
-		args: args,
-		cwd: effectiveWorkingDirectory,
-		// Ensure logsToReturn uses the full length from the earlier modification
-		logs: formatLogsForResponse(
-			currentInfoAfterWait.logs.map((l: LogEntry) => l.content),
-			currentInfoAfterWait.logs.length, // Use the full length here for payload, actual return might be capped by transport
-		),
-		monitoring_hint: monitoringHint, // Use the newly formatted hint
-		log_file_path: logFilePath,
-		tail_command: tailCommand, // Include the generated tail command
-		info_message: infoMessage, // Use the separate variable for settling details
-		exitCode: currentInfoAfterWait.exitCode ?? null,
-		signal: currentInfoAfterWait.signal ?? null,
-	};
 
 	log.info(
 		label,
-		`Returning result for start_process. Included ${successPayload.logs.length} log lines. Status: ${finalStatus}.`,
+		`Returning result for start_process. Included ${payload.logs.length} log lines. Status: ${payload.status}.`,
 	);
-	// --- End Construct Payload ---
 
 	// If final status is error/crashed, return failure, otherwise success
 	if (["error", "crashed"].includes(finalStatus)) {
 		const errorPayload: z.infer<typeof StartErrorPayloadSchema> = {
-			error: infoMessage, // Use the detailed message as the error
+			error: message,
 			status: finalStatus,
-			cwd: effectiveWorkingDirectory, // CWD is allowed in the schema
-			error_type: "process_exit_error", // General error type
+			cwd: effectiveWorkingDirectory,
+			error_type: "process_exit_error",
 		};
 		log.error(
 			label,
-			`start_process returning failure. Status: ${finalStatus}, Exit Code: ${successPayload.exitCode}, Signal: ${successPayload.signal}`,
+			`start_process returning failure. Status: ${finalStatus}, Exit Code: ${payload.exitCode}, Signal: ${payload.signal}`,
 		);
 		return fail(textPayload(JSON.stringify(errorPayload, null, 2)));
 	}
 
-	return ok(textPayload(JSON.stringify(successPayload, null, 2))); // Ensure payload is stringified
+	// Ensure success payload reflects stopped status if process exited cleanly during startup
+	if (payload.status === "stopped" && payload.exitCode === 0) {
+		log.info(
+			label,
+			"start_process returning success, but final status is stopped due to clean exit.",
+		);
+		return ok(textPayload(JSON.stringify(payload, null, 2)));
+	}
+
+	// If status is running, return standard success
+	if (payload.status === "running") {
+		return ok(textPayload(JSON.stringify(payload, null, 2)));
+	}
+
+	// Fallback: Should not happen if logic above is correct, but return failure if status is unexpected
+	log.error(
+		label,
+		`start_process reached unexpected final state. Status: ${payload.status}`,
+	);
+	const fallbackErrorPayload: z.infer<typeof StartErrorPayloadSchema> = {
+		error: `Process ended in unexpected state: ${payload.status}`,
+		status: payload.status,
+		cwd: effectiveWorkingDirectory,
+		error_type: "unexpected_process_state",
+	};
+	return fail(textPayload(JSON.stringify(fallbackErrorPayload)));
 }
 
 /**
@@ -811,106 +811,62 @@ export async function _stopProcess(
 			) {
 				log.warn(
 					label,
-					`Process did not terminate after SIGTERM and wait. Sending SIGKILL to PID ${pidToKill}...`,
+					`Process ${pidToKill} did not terminate after SIGTERM and ${STOP_WAIT_DURATION}ms wait. Sending SIGKILL.`,
 				);
-				addLogEntry(
-					label,
-					"Process unresponsive to SIGTERM, sending SIGKILL...",
-				);
-				await killPtyProcess(processToKill, label, "SIGKILL");
-				finalMessage = `Graceful stop attempted (SIGTERM), but process unresponsive. SIGKILL sent to PID ${pidToKill}.`;
-				finalStatus = "stopping"; // Assume stopping until handleExit updates
+				addLogEntry(label, "Graceful shutdown timed out. Sending SIGKILL...");
+				await killPtyProcess(processToKill, label, "SIGKILL"); // Use stored reference
+				finalMessage = `Process ${pidToKill} did not terminate gracefully. SIGKILL sent.`;
+				// Status remains 'stopping' until handleExit confirms otherwise
+				finalStatus = "stopping";
 			} else {
-				// Process likely terminated gracefully
-				finalMessage = `Graceful stop successful (SIGTERM) for PID ${pidToKill}. Final status: ${finalStatus}.`;
-				log.info(label, "Process terminated gracefully after SIGTERM.");
-				addLogEntry(label, "Process terminated gracefully after SIGTERM.");
+				finalMessage = `Process ${pidToKill} terminated gracefully after SIGTERM.`;
+				log.info(label, finalMessage);
+				addLogEntry(label, "Process terminated gracefully.");
+				// Use the status determined after the wait (likely 'stopped' or 'crashed')
+				finalStatus = infoAfterWait?.status ?? "stopped"; // Default to stopped if info disappeared
 			}
 		}
-
-		// Prepare success payload
-		// Get the LATEST status again, as handleExit might have run during SIGKILL/wait
-		const latestInfo = managedProcesses.get(label);
-		// Ensure the status is one of the allowed enum values or undefined
-		const finalPayloadStatus =
-			(latestInfo?.status as ProcessStatus | undefined) ??
-			(finalStatus as ProcessStatus | undefined);
-
-		const payload: z.infer<typeof StopProcessPayloadSchema> = {
-			label,
-			status: finalPayloadStatus, // Use type-checked status
-			message: finalMessage,
-			pid: latestInfo?.pid ?? pidToKill, // Use latest known PID
-		};
-		return ok(textPayload(JSON.stringify(payload)));
 	} catch (error) {
-		const errorMsg = `Failed to stop process "${label}" (PID: ${pidToKill}): ${error instanceof Error ? error.message : String(error)}`;
+		const errorMsg = `Error stopping process ${label} (PID: ${pidToKill}): ${error instanceof Error ? error.message : String(error)}`;
 		log.error(label, errorMsg);
-		addLogEntry(label, `Error during stop: ${errorMsg}`);
-		updateProcessStatus(label, "error"); // Mark as error on failure
-
-		// Prepare error payload
-		const payload: z.infer<typeof StopProcessPayloadSchema> = {
+		addLogEntry(label, `Error stopping process: ${errorMsg}`);
+		finalMessage = `Error stopping process: ${errorMsg}`;
+		updateProcessStatus(label, "error"); // Ensure status is error on failure
+		finalStatus = "error";
+		// Construct failure payload and return fail()
+		const errorPayload = {
 			label,
-			status: "error",
-			message: errorMsg,
-			pid: pidToKill, // PID before stop attempt
+			status: finalStatus,
+			message: finalMessage,
+			pid: pidToKill,
 		};
-		return fail(textPayload(JSON.stringify(payload)));
+		return fail(textPayload(JSON.stringify(errorPayload))); // Explicitly return fail
 	}
+
+	// --- Construct SUCCESS Payload ---
+	// Always construct and return ok() unless an explicit fail() was returned above
+	const payload: z.infer<typeof StopProcessPayloadSchema> = {
+		label,
+		status: finalStatus as ProcessStatus, // Use the determined final status (with type cast)
+		message: finalMessage,
+		pid: pidToKill, // Use the PID we attempted to stop
+	};
+	log.info(
+		label,
+		`Returning result for stop_process. Final status: ${payload.status}. PID: ${payload.pid}`,
+	);
+	return ok(textPayload(JSON.stringify(payload))); // Add final return path
 }
 
-/**
- * Internal function to send input to a running background process.
- */
-export async function _sendInput(
-	params: z.infer<typeof SendInputParams>, // Use inferred type from Zod schema
-): Promise<CallToolResult> {
-	const { label, input, append_newline } = params;
-
-	const processInfo = await checkAndUpdateProcessStatus(label); // Refresh status
-
+// Function Definition for handleData (if it's supposed to be here)
+// NOTE: If handleData is defined elsewhere, remove this. If it's used here, define it.
+function handleData(label: string, data: string, source: "stdout" | "stderr") {
+	const processInfo = getProcessInfo(label); // <-- Use getProcessInfo helper
 	if (!processInfo) {
-		return fail(textPayload(`Process "${label}" not found.`));
+		log.warn(label, `[handleData] Received data for unknown process: ${label}`);
+		return; // Exit if process not found
 	}
 
-	if (!processInfo.process || !processInfo.pid) {
-		return fail(
-			textPayload(`Process "${label}" is not currently running or accessible.`),
-		);
-	}
-
-	if (processInfo.status !== "running" && processInfo.status !== "verifying") {
-		return fail(
-			textPayload(
-				`Process "${label}" is not in a state to receive input (status: ${processInfo.status}).`,
-			),
-		);
-	}
-
-	try {
-		// Correct call to writeToPty
-		if (!processInfo.process) {
-			log.error(label, "Cannot send input: PTY process object is null.");
-			return fail(
-				textPayload(`Process "${label}" has no active process handle.`),
-			);
-		}
-		const dataToSend = append_newline ? `${input}\r` : input;
-		await writeToPty(processInfo.process, dataToSend, label);
-		log.info(label, `Sent input to process "${label}".`);
-		addLogEntry(label, `Input sent: ${JSON.stringify(input)}`);
-
-		// Use SendInputPayloadSchema
-		const payload: z.infer<typeof SendInputPayloadSchema> = {
-			label,
-			message: "Input sent successfully.",
-		};
-		return ok(textPayload(JSON.stringify(payload)));
-	} catch (error) {
-		const errorMsg = `Failed to send input to process "${label}": ${error instanceof Error ? error.message : String(error)}`;
-		log.error(label, errorMsg);
-		addLogEntry(label, `Error sending input: ${errorMsg}`);
-		return fail(textPayload(errorMsg));
-	}
+	// Add the log entry to the managed process state
+	addLogEntry(label, data); // Use addLogEntry from state.ts
 }

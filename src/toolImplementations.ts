@@ -6,18 +6,18 @@ import {
 	SERVER_VERSION,
 } from "./constants.js";
 import { fail, getResultText, ok, textPayload } from "./mcpUtils.js";
-import { _sendInput, _startProcess, _stopProcess } from "./processLogic.js";
+import { _startProcess, _stopProcess } from "./processLogic.js";
 import {
 	checkAndUpdateProcessStatus,
 	isZombieCheckActive,
 } from "./processSupervisor.js";
+import { writeToPty } from "./ptyManager.js";
 import { addLogEntry, managedProcesses } from "./state.js";
 import type {
 	CheckProcessStatusParams,
 	GetAllLoglinesParams,
 	ListProcessesParams,
 	RestartProcessParams,
-	SendInputParams,
 	WaitForProcessParams,
 } from "./toolDefinitions.js";
 import type { StopProcessParams } from "./toolDefinitions.js";
@@ -71,48 +71,113 @@ interface ListProcessDetail {
 	tail_command: string | null | undefined;
 }
 
+const WAIT_DURATION_MS = 2000; // Fixed wait time for active processes
+
 export async function checkProcessStatusImpl(
 	params: z.infer<typeof CheckProcessStatusParams>,
 ): Promise<CallToolResult> {
 	const { label, log_lines } = params;
-	const processInfo = await checkAndUpdateProcessStatus(label);
+	log.debug(label, "Tool invoked: check_process_status", { params });
 
-	if (!processInfo) {
-		return fail(textPayload(`Process with label "${label}" not found.`));
+	// --- Check initial status and potentially wait ---
+	const initialProcessInfo = await checkAndUpdateProcessStatus(label);
+
+	if (!initialProcessInfo) {
+		log.warn(label, `Process with label "${label}" not found.`);
+		return fail(
+			textPayload(
+				JSON.stringify({
+					error: `Process with label "${label}" not found.`,
+				}),
+			),
+		);
 	}
 
-	const requestedLines = log_lines ?? DEFAULT_LOG_LINES;
-	const formattedLogs = formatLogsForResponse(
-		processInfo.logs.map((l: LogEntry) => l.content),
-		requestedLines,
+	const initialStatus = initialProcessInfo.status;
+	const previousLastLogTimestampReturned =
+		initialProcessInfo.lastLogTimestampReturned ?? 0;
+
+	const finalProcessInfo = initialProcessInfo; // Initialize with initial info
+
+	// --- Filter Logs (using finalProcessInfo) ---
+	// Use the potentially updated process info (now just initialProcessInfo)
+	const allLogs: LogEntry[] = finalProcessInfo.logs || [];
+	log.debug(
+		label,
+		`Filtering logs. Total logs available: ${allLogs.length}. Filtering for timestamp > ${previousLastLogTimestampReturned}`,
 	);
 
-	const responsePayload: z.infer<typeof CheckStatusPayloadSchema> = {
-		label: processInfo.label,
-		status: processInfo.status,
-		pid: processInfo.pid,
-		command: processInfo.command,
-		args: processInfo.args,
-		cwd: processInfo.cwd,
-		exitCode: processInfo.exitCode,
-		signal: processInfo.signal,
-		logs: formattedLogs,
-		log_file_path: processInfo.logFilePath,
-		tail_command: processInfo.logFilePath
-			? `tail -f "${processInfo.logFilePath}"`
-			: null,
-	};
+	const newLogs = allLogs.filter(
+		(logEntry) => logEntry.timestamp > previousLastLogTimestampReturned,
+	);
 
-	const totalStoredLogs = processInfo.logs.length;
-	if (requestedLines > 0 && totalStoredLogs > formattedLogs.length) {
-		const hiddenLines = totalStoredLogs - formattedLogs.length;
-		const limitReached = totalStoredLogs >= MAX_STORED_LOG_LINES;
-		responsePayload.hint = `Returned latest ${formattedLogs.length} lines. ${hiddenLines} older lines stored${limitReached ? ` (limit: ${MAX_STORED_LOG_LINES})` : ""}.`;
-	} else if (requestedLines === 0 && totalStoredLogs > 0) {
-		responsePayload.hint = `Logs are stored (${totalStoredLogs} lines). Specify 'log_lines > 0' to view.`;
+	let logHint = "";
+	const returnedLogs: string[] = [];
+	let newLastLogTimestamp = previousLastLogTimestampReturned; // Default to old value
+
+	// Decide which logs to return based on log_lines parameter
+	if (newLogs.length > 0) {
+		log.debug(label, `Found ${newLogs.length} new log entries.`);
+		// Update the timestamp in the processInfo state
+		newLastLogTimestamp = newLogs[newLogs.length - 1].timestamp;
+		log.debug(
+			label,
+			`Updating lastLogTimestampReturned in process state to ${newLastLogTimestamp}`,
+		);
+		// Ensure we update the actual state object (finalProcessInfo holds the reference)
+		finalProcessInfo.lastLogTimestampReturned = newLastLogTimestamp;
+
+		const numLogsToReturn = Math.max(0, log_lines ?? DEFAULT_LOG_LINES); // Ensure non-negative
+		const startIndex = Math.max(0, newLogs.length - numLogsToReturn);
+		returnedLogs.push(...newLogs.slice(startIndex).map((l) => l.content));
+
+		log.debug(
+			label,
+			`Requested log lines: ${numLogsToReturn} (Default: ${DEFAULT_LOG_LINES})`,
+		);
+		log.debug(
+			label,
+			`Returning ${returnedLogs.length} raw log lines (limited by request).`,
+		);
+
+		if (returnedLogs.length < newLogs.length) {
+			const omittedCount = newLogs.length - returnedLogs.length;
+			logHint = `Returned ${returnedLogs.length} newest log lines since last check (${previousLastLogTimestampReturned}). ${omittedCount} more new lines were generated but not shown due to limit (${numLogsToReturn}).`;
+		} else {
+			logHint = `Returned all ${returnedLogs.length} new log lines since last check (${previousLastLogTimestampReturned}).`;
+		}
+	} else {
+		log.debug(
+			label,
+			`No new logs found using filter timestamp ${previousLastLogTimestampReturned}`,
+		);
+		logHint = `No new log lines since last check (${previousLastLogTimestampReturned}).`; // Use variable here too
 	}
 
-	return ok(textPayload(JSON.stringify(responsePayload, null, 2)));
+	// Construct payload using data AFTER the wait
+	const payload: z.infer<typeof CheckStatusPayloadSchema> = {
+		label: finalProcessInfo.label,
+		status: finalProcessInfo.status, // Status from AFTER the wait
+		pid: finalProcessInfo.pid,
+		command: finalProcessInfo.command,
+		args: finalProcessInfo.args,
+		cwd: finalProcessInfo.cwd,
+		exitCode: finalProcessInfo.exitCode,
+		signal: finalProcessInfo.signal,
+		logs: returnedLogs,
+		log_file_path: finalProcessInfo.logFilePath,
+		tail_command: finalProcessInfo.logFilePath
+			? `tail -f "${finalProcessInfo.logFilePath}"`
+			: undefined,
+		hint: logHint,
+	};
+
+	log.info(
+		label,
+		`check_process_status returning final status: ${payload.status}. New logs returned: ${returnedLogs.length}. New lastLogTimestamp: ${newLastLogTimestamp}`,
+	);
+
+	return ok(textPayload(JSON.stringify(payload))); // Use the pre-stringified version
 }
 
 export async function listProcessesImpl(
@@ -163,7 +228,7 @@ export async function listProcessesImpl(
 }
 
 export async function stopProcessImpl(
-	params: z.infer<typeof StopProcessParams>,
+	params: StopProcessParams,
 ): Promise<CallToolResult> {
 	const { label, force } = params;
 	const result = await _stopProcess(label, force);
@@ -467,10 +532,67 @@ export async function getAllLoglinesImpl(
 }
 
 export async function sendInputImpl(
-	params: z.infer<typeof SendInputParams>,
+	label: string,
+	input: string,
+	appendNewline = true,
 ): Promise<CallToolResult> {
-	const result = await _sendInput(params);
-	return result;
+	log.info(label, `Send input requested for process "${label}"`);
+	addLogEntry(label, `Input received: ${input}`);
+
+	const processInfo = managedProcesses.get(label);
+
+	if (!processInfo) {
+		log.warn(label, `Process "${label}" not found.`);
+		return fail(
+			textPayload(JSON.stringify({ error: `Process \"${label}\" not found.` })),
+		);
+	}
+
+	if (!processInfo.process || typeof processInfo.pid !== "number") {
+		log.warn(label, `Process "${label}" has no active PTY handle.`);
+		return fail(
+			textPayload(
+				JSON.stringify({
+					error: `Process \"${label}\" has no active PTY handle.`,
+				}),
+			),
+		);
+	}
+
+	if (processInfo.status !== "running" && processInfo.status !== "verifying") {
+		log.warn(
+			label,
+			`Cannot send input to process "${label}" in state: ${processInfo.status}`,
+		);
+		return fail(
+			textPayload(
+				JSON.stringify({
+					error: `Cannot send input to process \"${label}\" in state: ${processInfo.status}`,
+				}),
+			),
+		);
+	}
+
+	const dataToSend = appendNewline ? `${input}\r` : input;
+	const success = writeToPty(processInfo.process, dataToSend, label);
+
+	if (success) {
+		log.info(label, `Successfully sent input to process ${processInfo.pid}`);
+		return ok(
+			textPayload(
+				JSON.stringify({ message: `Input sent to process "${label}".` }),
+			),
+		);
+	}
+
+	log.error(label, `Failed to send input to process ${processInfo.pid}`);
+	return fail(
+		textPayload(
+			JSON.stringify({
+				error: `Failed to send input to process "${label}".`,
+			}),
+		),
+	);
 }
 
 export async function healthCheckImpl(): Promise<CallToolResult> {

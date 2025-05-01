@@ -39,11 +39,39 @@ export function handleExit(
 
 	const status = processInfo.status;
 
-	// If the process was explicitly stopped, don't treat it as a crash
+	// If the process was explicitly stopped, mark as stopped
 	if (status === "stopping") {
+		log.info(
+			label,
+			`Process was explicitly stopped. Final code: ${code}, signal: ${signal}`,
+		);
 		updateProcessStatus(label, "stopped", { code, signal });
-	} else if (status !== "stopped" && status !== "error") {
-		// Any other unexpected exit is treated as a crash
+	} // If process exited cleanly (code 0) BUT was still starting/verifying, let _startProcess decide final status.
+	else if (code === 0 && (status === "starting" || status === "verifying")) {
+		log.info(
+			label,
+			`Process exited cleanly (code 0) during ${status} phase. _startProcess will determine final payload status.`,
+		);
+		// DO NOT update status here. Let _startProcess check the exit code after settling.
+		// We need to store the exit info though for _startProcess to see it.
+		processInfo.exitCode = code;
+		processInfo.signal = signal;
+		processInfo.lastExitTimestamp = Date.now(); // Record exit time
+	}
+	// Check for clean exit code 0 AFTER it was running
+	else if (code === 0 && status === "running") {
+		log.info(
+			label,
+			"Process exited cleanly (code 0) from running state. Marking as stopped.",
+		);
+		updateProcessStatus(label, "stopped", { code, signal });
+	}
+	// Otherwise (non-zero code or signal), treat as crash or error
+	else if (status !== "stopped" && status !== "error" && status !== "crashed") {
+		log.warn(
+			label,
+			`Process exited unexpectedly (code: ${code}, signal: ${signal}). Marking as crashed.`,
+		);
 		updateProcessStatus(label, "crashed", { code, signal });
 		// Check if retry is configured and appropriate
 		if (

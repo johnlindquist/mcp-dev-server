@@ -1,6 +1,6 @@
 import type * as fs from "node:fs";
-import type { IPty } from "node-pty";
-import type { IDisposable } from "node-pty";
+// import type { ProcessInfo as OriginalProcessInfo } from "@cursor/types"; // REMOVED
+import type { IDisposable, IPty } from "node-pty";
 import { z } from "zod";
 
 /* ------------------------------------------------------------------------ */
@@ -101,7 +101,7 @@ export interface ProcessInfo {
 	cwd: string;
 	status: ProcessStatus;
 	logs: LogEntry[];
-	pid?: number;
+	pid: number | undefined;
 	process: IPty | null;
 	dataListener?: IDisposable;
 	onExitListener?: IDisposable;
@@ -113,11 +113,16 @@ export interface ProcessInfo {
 	maxRetries?: number;
 	restartAttempts?: number;
 	lastExitTimestamp?: number;
+	lastCrashTime?: number;
 	isRestarting?: boolean;
 	stopRequested?: boolean;
 	verificationTimer?: NodeJS.Timeout;
 	logFilePath: string | null; // Path to the log file
 	logFileStream: fs.WriteStream | null; // Stream for writing to the log file
+	lastLogTimestampReturned?: number;
+	mainDataListenerDisposable?: IDisposable;
+	mainExitListenerDisposable?: IDisposable;
+	partialLineBuffer?: string;
 }
 
 /** Result structure for tool calls, indicating success or failure. */
