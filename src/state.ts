@@ -12,12 +12,22 @@ const killProcessTree = promisify(treeKill); // Define killProcessTree here
 export function addLogEntry(label: string, content: string): void {
 	const processInfo = managedProcesses.get(label);
 	if (!processInfo) {
-		// Log warning removed for brevity, handled elsewhere if needed
+		log.warn(
+			label,
+			`[addLogEntry] Attempted to add log entry for unknown process: ${label}`,
+		);
 		return;
 	}
-
 	const entry: LogEntry = { timestamp: Date.now(), content };
+	log.debug(
+		label,
+		`[state.addLogEntry] Pushing log entry (ts: ${entry.timestamp}): ${content.substring(0, 100)}`,
+	);
 	processInfo.logs.push(entry);
+	log.debug(
+		label,
+		`[state.addLogEntry] Pushed entry. New log count: ${processInfo.logs.length}`,
+	);
 
 	// Enforce the maximum in-memory log line limit
 	if (processInfo.logs.length > MAX_STORED_LOG_LINES) {
@@ -164,4 +174,13 @@ export function removeProcess(label: string): void {
 	// If cleanup logic is needed for processInfo.process, it should go here.
 	managedProcesses.delete(label);
 	log.debug(label, "Removed process info from management.");
+}
+
+export function getProcessInfo(label: string): ProcessInfo | undefined {
+	const found = managedProcesses.get(label);
+	log.debug(
+		label,
+		`[state.getProcessInfo] Requested for label: ${label}. Found: ${!!found}`,
+	);
+	return found;
 }

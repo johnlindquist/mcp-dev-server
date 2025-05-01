@@ -20,6 +20,7 @@ import type {
 	CallToolResult,
 	LogEntry,
 	ProcessInfo,
+	ProcessStatus,
 	SendInputPayloadSchema,
 	StartErrorPayloadSchema,
 	StartSuccessPayloadSchema,
@@ -53,8 +54,20 @@ async function _waitForLogSettleOrTimeout(
 		const cleanup = () => {
 			if (settleTimerId) clearTimeout(settleTimerId);
 			if (overallTimeoutId) clearTimeout(overallTimeoutId);
-			if (dataListenerDisposable) dataListenerDisposable.dispose();
-			if (exitListenerDisposable) exitListenerDisposable.dispose(); // Dispose exit listener too
+			if (dataListenerDisposable) {
+				log.debug(
+					label,
+					"[_waitForLogSettleOrTimeout] Disposing temporary data listener.",
+				);
+				dataListenerDisposable.dispose();
+			}
+			if (exitListenerDisposable) {
+				log.debug(
+					label,
+					"[_waitForLogSettleOrTimeout] Disposing temporary exit listener.",
+				);
+				exitListenerDisposable.dispose();
+			}
 			settleTimerId = null;
 			overallTimeoutId = null;
 			dataListenerDisposable = null;
@@ -101,16 +114,14 @@ async function _waitForLogSettleOrTimeout(
 			settleTimerId = setTimeout(onSettle, LOG_SETTLE_DURATION_MS);
 		};
 
-		// Attach a *temporary* data listener
-		dataListenerDisposable = ptyProcess.onData((data: string) => {
-			// We don't need to process the data here, just reset the timer
-			resetSettleTimer();
-		});
+		// Attach temporary listeners
+		// dataListenerDisposable = ptyProcess.onData(() => { // <-- Keep this commented out
+		// 	log.debug(label, "[_waitForLogSettleOrTimeout.onData] Received data during settle wait.");
+		// 	resetSettleTimer(); // Reset settle timer on any data
+		// }); // <-- Keep this commented out
+		exitListenerDisposable = ptyProcess.onExit(onProcessExit); // Handle exit during wait
 
-		// Attach a temporary exit listener
-		exitListenerDisposable = ptyProcess.onExit(onProcessExit);
-
-		// Start the timers
+		// Start timers
 		resetSettleTimer(); // Initial settle timer
 		overallTimeoutId = setTimeout(
 			onOverallTimeout,
@@ -349,6 +360,9 @@ export async function _startProcess(
 		maxRetries: maxRetries ?? undefined, // Use undefined
 		logFilePath: logFilePath, // <-- STORED
 		logFileStream: logFileStream, // <-- STORED
+		mainDataListenerDisposable: undefined,
+		mainExitListenerDisposable: undefined,
+		partialLineBuffer: "",
 	};
 	managedProcesses.set(label, processInfo);
 	updateProcessStatus(label, "starting"); // Ensure status is set via the function
@@ -534,34 +548,129 @@ export async function _startProcess(
 	}
 
 	// --- Standard Log Handling ---
-	const mainDataDisposable = ptyProcess.onData((data: string) => {
-		const lines = data.split(/\r?\n/);
-		for (const line of lines) {
-			if (line.trim()) {
-				addLogEntry(label, line); // Store raw log line
+	processInfo.mainDataListenerDisposable = ptyProcess.onData((data: string) => {
+		log.debug(
+			label,
+			`[processLogic._startProcess.onData RAW] Received ${data.length} chars: ${JSON.stringify(data)}`,
+		);
+
+		const currentProcessInfo = getProcessInfo(label);
+		if (!currentProcessInfo) return; // Process might have been removed
+
+		// Ensure buffer exists (initialize if somehow missing)
+		currentProcessInfo.partialLineBuffer =
+			(currentProcessInfo.partialLineBuffer || "") + data;
+
+		let newlineIndex: number;
+		// Process all complete lines in the buffer
+		// Assign first, then check in the loop condition
+		newlineIndex = currentProcessInfo.partialLineBuffer.indexOf("\n");
+		while (newlineIndex >= 0) {
+			const line = currentProcessInfo.partialLineBuffer.substring(
+				0,
+				newlineIndex + 1,
+			);
+			currentProcessInfo.partialLineBuffer =
+				currentProcessInfo.partialLineBuffer.substring(newlineIndex + 1);
+
+			// Trim newline characters (\r\n or \n)
+			const trimmedLine = line.replace(/\r?\n$/, "");
+
+			log.debug(
+				label,
+				`[processLogic._startProcess.onData BUFFER] Extracted line: ${JSON.stringify(trimmedLine)}`,
+			);
+
+			if (trimmedLine) {
+				// Check if line not empty after removing newline
+				handleData(label, trimmedLine, "stdout"); // Process the complete line
 			}
+			// Re-assign for the next iteration of the loop
+			newlineIndex = currentProcessInfo.partialLineBuffer.indexOf("\n");
 		}
+		// Remaining data in currentProcessInfo.partialLineBuffer is kept for the next chunk
 	});
 
 	// --- Exit/Error Handling ---
-	const mainExitDisposable = ptyProcess.onExit(({ exitCode, signal }) => {
-		log.debug(label, "Main onExit handler triggered.", { exitCode, signal });
-		mainDataDisposable.dispose(); // Dispose data listener on exit
-		log.info(
-			label,
-			`[ExitHandler] Process exited. Code: ${exitCode}, Signal: ${signal}`,
-		); // Added log
+	processInfo.mainExitListenerDisposable = ptyProcess.onExit(
+		({ exitCode, signal }) => {
+			log.debug(label, "Main onExit handler triggered.", { exitCode, signal });
+			log.debug(
+				label,
+				`[processLogic._startProcess.mainExitListener] Exited with code ${exitCode}, signal ${signal}. Disposing mainDataListener.`,
+			);
 
-		// Get fresh info before calling handleExit
-		const currentInfo = managedProcesses.get(label);
-		// Call the imported handleExit
-		handleExit(
+			// Get the CURRENT process info to dispose the correct listeners
+			const currentProcessInfo = managedProcesses.get(label);
+			if (currentProcessInfo) {
+				if (currentProcessInfo.mainDataListenerDisposable) {
+					log.debug(
+						label,
+						"[processLogic._startProcess.mainExitListener] Found mainDataListenerDisposable. Disposing now...",
+					);
+					log.debug(label, "Disposing main data listener from onExit handler.");
+					currentProcessInfo.mainDataListenerDisposable.dispose();
+					currentProcessInfo.mainDataListenerDisposable = undefined; // Clear disposed listener
+				} else {
+					log.warn(
+						label,
+						"[processLogic._startProcess.mainExitListener] mainDataListenerDisposable was already undefined before explicit disposal.",
+					);
+				}
+				if (currentProcessInfo.mainExitListenerDisposable) {
+					log.debug(
+						label,
+						"Disposing main exit listener (self) from onExit handler.",
+					);
+					// Dispose self - important to prevent multiple calls if exit event fires again somehow
+					currentProcessInfo.mainExitListenerDisposable.dispose();
+					currentProcessInfo.mainExitListenerDisposable = undefined;
+				}
+			} else {
+				log.warn(
+					label,
+					"ProcessInfo not found during onExit handling, cannot dispose listeners.",
+				);
+			}
+
+			log.info(
+				label,
+				`[ExitHandler] Process exited. Code: ${exitCode}, Signal: ${signal}`,
+			); // Added log
+
+			// Get fresh info before calling handleExit
+			const currentInfo = managedProcesses.get(label);
+			// Call the imported handleExit
+			handleExit(
+				label,
+				exitCode ?? null,
+				signal !== undefined ? String(signal) : null,
+			);
+		},
+	);
+
+	// --- Wait for Verification Completion (if applicable) ---
+	if (verificationCompletionPromise) {
+		log.debug(
 			label,
-			exitCode ?? null,
-			signal !== undefined ? String(signal) : null,
+			"Waiting for verification process to complete (match, timeout, or exit)...",
 		);
-		mainExitDisposable.dispose(); // Dispose self
-	});
+		await verificationCompletionPromise; // Wait for the verification listener/timeout to resolve
+		log.debug(label, "Verification process completed.");
+		// Re-fetch info as status might have changed during verification wait
+		const infoAfterVerification = managedProcesses.get(label);
+		if (infoAfterVerification) {
+			log.debug(
+				label,
+				`Status after verification wait: ${infoAfterVerification.status}`,
+			);
+			processInfo.status = infoAfterVerification.status; // Update local status
+		} else {
+			log.warn(label, "ProcessInfo missing after verification wait.");
+			// Handle potential error? For now, proceed might lead to failure later.
+		}
+	}
+	// --- End Verification Wait ---
 
 	// --- Wait for settling or timeout ---
 	const { settled, timedOut } = await _waitForLogSettleOrTimeout(
@@ -913,4 +1022,81 @@ export async function _sendInput(
 		addLogEntry(label, `Error sending input: ${errorMsg}`);
 		return fail(textPayload(errorMsg));
 	}
+}
+
+function handleData(label: string, data: string, source: "stdout" | "stderr") {
+	// log.debug(label, `[processLogic.handleData ENTRY] Source: ${source}, Data: ${JSON.stringify(data)}`); // Keep commented out or remove if redundant
+	const processInfo = getProcessInfo(label); // <-- Use getProcessInfo helper
+	if (!processInfo) {
+		log.warn(label, `[handleData] Received data for unknown process: ${label}`);
+		return;
+	}
+	// >> ADDED: Log retrieved processInfo state (partially)
+	log.debug(
+		label,
+		`[processLogic.handleData STATE] Found processInfo. Status: ${processInfo.status}, Log Count: ${processInfo.logs.length}`,
+	);
+
+	log.debug(
+		label,
+		`[processLogic.handleData ENTRY] Received ${source} line: ${JSON.stringify(data)}`,
+	); // Use the new simpler entry log
+
+	log.debug(
+		label,
+		`[processLogic.handleData] Adding line: ${data.substring(0, 100)}`,
+	);
+	const content = data; // Use the line directly
+	log.debug(
+		label,
+		`[processLogic.handleData] Calling addLogEntry for line: ${content.substring(0, 100)}`,
+	);
+	addLogEntry(label, content); // Pass the single line to addLogEntry
+
+	// No file stream write here anymore, handled within addLogEntry
+}
+
+function getProcessInfo(label: string): ProcessInfo | undefined {
+	const found = managedProcesses.get(label);
+	log.debug(
+		label,
+		`[state.getProcessInfo] Requested for label: ${label}. Found: ${!!found}`,
+	);
+	return found;
+}
+
+// Initialize the buffer when creating ProcessInfo
+export function initializeProcessInfo(
+	label: string,
+	command: string,
+	args: string[],
+	cwd: string,
+	ptyProcess: IPty,
+	verificationPattern: RegExp | undefined,
+	verificationTimeoutMs: number | undefined,
+	retryDelayMs: number | undefined,
+	maxRetries: number | undefined,
+	logFilePath: string | null,
+	logFileStream: fs.WriteStream | null,
+): ProcessInfo {
+	const info: ProcessInfo = {
+		label,
+		command,
+		args,
+		cwd,
+		status: "starting",
+		logs: [],
+		pid: ptyProcess.pid,
+		process: ptyProcess,
+		exitCode: null,
+		signal: null,
+		verificationPattern,
+		verificationTimeoutMs: verificationTimeoutMs ?? undefined,
+		retryDelayMs: retryDelayMs ?? undefined,
+		maxRetries: maxRetries ?? undefined,
+		logFilePath,
+		logFileStream,
+		partialLineBuffer: "", // Initialize buffer
+	};
+	return info;
 }

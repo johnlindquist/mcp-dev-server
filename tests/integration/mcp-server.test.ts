@@ -519,8 +519,10 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				throw new Error(`Failed to parse start_process result payload: ${e}`);
 			}
 			expect(startResult).not.toBeNull();
-			expect(startResult.label).toBe(uniqueLabel);
-			expect(startResult.status).toBe("running"); // Or 'starting' if verification is used
+			if (startResult) {
+				expect(startResult.label).toBe(uniqueLabel);
+				expect(startResult.status).toBe("running"); // Or 'starting' if verification is used
+			}
 			console.log("[TEST][startProcess] Assertions passed.");
 
 			// Optional: Add a short delay and check status again (tests checkProcessStatus)
@@ -926,4 +928,171 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 		},
 		TEST_TIMEOUT * 2,
 	); // Give restart more time
+
+	// Test #8: Check Process Status Filtering
+	it(
+		"should filter logs correctly on repeated checks of an active process",
+		async () => {
+			console.log("[TEST][checkLogsFilter] Starting test...");
+			const label = `test-log-filter-${Date.now()}`;
+			const logIntervalMs = 500; // Log every 500ms
+			const initialWaitMs = 1500; // Wait longer than interval for first logs
+			const secondWaitMs = 1500; // Wait again for more logs
+
+			// Start a process that logs periodically
+			console.log(`[TEST][checkLogsFilter] Starting process ${label}...`);
+			const startRequest = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "start_process",
+					arguments: {
+						command: "node",
+						args: [
+							"-e",
+							"console.log('Start'); let c=0; const i = setInterval(() => { console.log('Log: '+c++); if (c > 10) clearInterval(i); }, 500);",
+						],
+						workingDirectory: path.join(__dirname),
+						label: label,
+						verification_pattern: "Start",
+						verification_timeout_ms: 5000,
+					},
+				},
+				id: `req-start-for-log-filter-${label}`,
+			};
+			if (!serverProcess) throw new Error("Server process is null"); // Check before use
+			const startResponse = (await sendRequest(
+				serverProcess,
+				startRequest,
+			)) as MCPResponse;
+			console.log(
+				`[TEST][checkLogsFilter] Process ${label} started response received.`,
+			);
+			expect(startResponse).toHaveProperty("result");
+
+			// Wait for some logs to be generated
+			console.log(
+				`[TEST][checkLogsFilter] Waiting ${initialWaitMs}ms for initial logs...`,
+			);
+			await new Promise((resolve) => setTimeout(resolve, initialWaitMs));
+
+			// First check_process_status call
+			console.log(
+				`[TEST][checkLogsFilter] Sending first check_process_status for ${label}...`,
+			);
+			const check1Request = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "check_process_status",
+					arguments: { label: label, log_lines: 100 }, // Request many lines
+				},
+				id: `req-check1-log-filter-${label}`,
+			};
+			if (!serverProcess) throw new Error("Server process is null"); // Check before use
+			const check1Response = (await sendRequest(
+				serverProcess,
+				check1Request,
+			)) as MCPResponse;
+			console.log("[TEST][checkLogsFilter] Received first check response.");
+			expect(check1Response).toHaveProperty("result");
+			// Type assertion for result content
+			const check1ResultContent = check1Response.result as {
+				content: { type: string; text: string }[];
+			};
+			const result1 = JSON.parse(
+				check1ResultContent.content[0].text,
+			) as ProcessStatusResult;
+			expect(result1.status).toBe("running");
+			expect(result1.logs).toBeDefined();
+			const logs1 = result1.logs ?? [];
+			console.log(
+				`[TEST][checkLogsFilter] First check logs (${logs1.length}):`,
+				logs1,
+			);
+			// Check if initial 'Start' and at least one counter log is present
+			const hasStartLog1 = logs1.some((log) => log.includes("Start"));
+			const hasCounterLog1 = logs1.some((log) => log.includes("Log:"));
+			expect(hasStartLog1 || hasCounterLog1).toBe(true); // Should have some output
+
+			// Wait for more logs
+			console.log(
+				`[TEST][checkLogsFilter] Waiting ${secondWaitMs}ms for more logs...`,
+			);
+			await new Promise((resolve) => setTimeout(resolve, secondWaitMs));
+
+			// Second check_process_status call
+			console.log(
+				`[TEST][checkLogsFilter] Sending second check_process_status for ${label}...`,
+			);
+			const check2Request = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "check_process_status",
+					arguments: { label: label, log_lines: 100 }, // Request many lines again
+				},
+				id: `req-check2-log-filter-${label}`,
+			};
+			if (!serverProcess) throw new Error("Server process is null"); // Check before use
+			const check2Response = (await sendRequest(
+				serverProcess,
+				check2Request,
+			)) as MCPResponse;
+			console.log("[TEST][checkLogsFilter] Received second check response.");
+			expect(check2Response).toHaveProperty("result");
+			// Type assertion for result content
+			const check2ResultContent = check2Response.result as {
+				content: { type: string; text: string }[];
+			};
+			const result2 = JSON.parse(
+				check2ResultContent.content[0].text,
+			) as ProcessStatusResult;
+			expect(result2.status).toBe("running"); // Should still be running
+			expect(result2.logs).toBeDefined();
+			const logs2 = result2.logs ?? [];
+			console.log(
+				`[TEST][checkLogsFilter] Second check logs (${logs2.length}):`,
+				logs2,
+			);
+
+			// --- Core Assertion: Check that logs2 contains ONLY NEW logs ---
+			// 1. logs2 should not be empty (we waited for new logs)
+			expect(logs2.length).toBeGreaterThan(0);
+			// 2. None of the logs in logs1 should be present in logs2
+			const logs1Set = new Set(logs1);
+			for (const logLine of logs2) {
+				// Allow for potential shell prompts or duplicate log lines from the process itself,
+				// but the *specific counter logs* from the first batch shouldn't reappear.
+				const isCounterLog = logLine.includes("Log:");
+				if (isCounterLog) {
+					expect(logs1Set.has(logLine)).toBe(false);
+				}
+			}
+			// 3. logs2 should contain counter logs (e.g., "Log: 1", "Log: 2", etc.)
+			expect(logs2.some((log) => log.includes("Log:"))).toBe(true);
+
+			console.log("[TEST][checkLogsFilter] Log filtering assertions passed.");
+
+			// Cleanup: Stop the process
+			console.log(
+				`[TEST][checkLogsFilter] Sending stop request for cleanup (${label})...`,
+			);
+			const stopRequest = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "stop_process",
+					arguments: { label: label },
+				},
+				id: `req-stop-cleanup-log-filter-${label}`,
+			};
+			if (!serverProcess) throw new Error("Server process is null"); // Check before use
+			await sendRequest(serverProcess, stopRequest);
+			console.log(
+				`[TEST][checkLogsFilter] Cleanup stop request sent for ${label}. Test finished.`,
+			);
+		},
+		TEST_TIMEOUT + 5000, // Slightly longer timeout for multiple waits
+	);
 });

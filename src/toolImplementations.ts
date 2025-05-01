@@ -100,46 +100,32 @@ export async function checkProcessStatusImpl(
 	);
 
 	// --- Check initial status and potentially wait ---
-	let finalProcessInfo = initialProcessInfo; // Start with initial info
-	const initialStatus = initialProcessInfo.status;
+	const finalProcessInfo = initialProcessInfo; // Start with initial info
 
-	if (
-		["running", "starting", "verifying", "restarting"].includes(initialStatus)
-	) {
-		log.debug(
+	// Check if initialProcessInfo is null before accessing status
+	if (!initialProcessInfo) {
+		log.warn(
 			label,
-			`Process is active (${initialStatus}). Waiting for ${WAIT_DURATION_MS}ms before returning status.`,
+			"Process info became null unexpectedly after initial check.",
 		);
-		await new Promise((resolve) => setTimeout(resolve, WAIT_DURATION_MS));
-
-		// Re-check status after the wait
-		log.debug(label, "Wait complete. Re-checking status...");
-		finalProcessInfo = await checkAndUpdateProcessStatus(label);
-
-		if (!finalProcessInfo) {
-			// Process might have disappeared during the wait
-			log.warn(label, "Process disappeared during status check wait.");
-			return fail(
-				textPayload(
-					JSON.stringify({
-						error: `Process "${label}" disappeared during status check.`,
-					}),
-				),
-			);
-		}
-		log.debug(
-			label,
-			`Re-check complete. Final status: ${finalProcessInfo.status}`,
-		);
-	} else {
-		log.debug(
-			label,
-			`Process is in terminal state (${initialStatus}). Returning status immediately.`,
+		return fail(
+			textPayload(
+				JSON.stringify({
+					error: `Process with label "${label}" disappeared unexpectedly.`,
+				}),
+			),
 		);
 	}
+	const initialStatus = initialProcessInfo.status;
+
+	// No longer wait if process is active; return current status and logs immediately.
 
 	// --- Filter Logs ---
 	const allLogs: LogEntry[] = finalProcessInfo.logs || [];
+	log.debug(
+		label,
+		`Logs available before filtering (Timestamp ${previousLastLogTimestampReturned}): ${JSON.stringify(allLogs.slice(-5))}`,
+	);
 	log.debug(
 		label,
 		`Filtering logs. Total logs available: ${allLogs.length}. Filtering for timestamp > ${previousLastLogTimestampReturned}`,
