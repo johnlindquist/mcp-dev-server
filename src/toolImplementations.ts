@@ -404,11 +404,11 @@ export async function restartProcessImpl(
 		command,
 		args,
 		cwd,
+		host,
 		verificationPattern,
 		verificationTimeoutMs,
 		retryDelayMs,
 		maxRetries,
-		host,
 		true,
 	);
 
