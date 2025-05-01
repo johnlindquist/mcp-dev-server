@@ -625,7 +625,7 @@ export async function _startProcess(
 				: null,
 		exitCode: infoForPayload.exitCode,
 		signal: infoForPayload.signal,
-		message: "", // Will be populated below
+		message: "", // Populated below
 		instructions: undefined, // Will be populated below
 	};
 
