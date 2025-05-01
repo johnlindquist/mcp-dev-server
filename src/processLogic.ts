@@ -5,6 +5,7 @@ import type { IDisposable, IPty } from "node-pty"; // Import only types if neede
 import treeKill from "tree-kill";
 import type { z } from "zod"; // Import zod
 import {
+	DEFAULT_RETURN_LOG_LINES,
 	LOG_SETTLE_DURATION_MS,
 	OVERALL_LOG_WAIT_TIMEOUT_MS,
 	STOP_WAIT_DURATION,
@@ -22,7 +23,7 @@ import {
 } from "./state.js";
 import type {
 	CallToolResult,
-	LogEntry,
+	HostEnumType, // <-- Import HostEnumType
 	ProcessInfo,
 	ProcessStatus, // Import ProcessStatus
 	StartErrorPayloadSchema,
@@ -147,6 +148,7 @@ export async function _startProcess(
 	command: string,
 	args: string[], // Added args
 	workingDirectoryInput: string | undefined,
+	host: HostEnumType, // <-- Use HostEnumType
 	verificationPattern: RegExp | undefined, // Added verification pattern
 	verificationTimeoutMs: number | undefined, // Added verification timeout
 	retryDelayMs: number | undefined, // Added retry delay
@@ -159,7 +161,7 @@ export async function _startProcess(
 
 	log.info(
 		label,
-		`Starting process... Command: "${command}", Args: [${args.join(", ")}], CWD: "${effectiveWorkingDirectory}", isRestart: ${isRestart}`,
+		`Starting process... Command: "${command}", Args: [${args.join(", ")}], CWD: "${effectiveWorkingDirectory}", Host: ${host}, isRestart: ${isRestart}`, // Log host
 	);
 
 	// Verify working directory
@@ -186,6 +188,7 @@ export async function _startProcess(
 				maxRetries,
 				logFilePath: null,
 				logFileStream: null,
+				host: host, // <-- ADD host
 			});
 		}
 		updateProcessStatus(label, "error"); // Simplified update
@@ -328,6 +331,7 @@ export async function _startProcess(
 				maxRetries,
 				logFilePath,
 				logFileStream,
+				host: host, // <-- ADD host
 			});
 		}
 		updateProcessStatus(label, "error");
@@ -367,6 +371,7 @@ export async function _startProcess(
 		mainDataListenerDisposable: undefined,
 		mainExitListenerDisposable: undefined,
 		partialLineBuffer: "",
+		host, // <-- Assign host of type HostEnumType
 	};
 	managedProcesses.set(label, processInfo);
 	updateProcessStatus(label, "starting"); // Ensure status is set via the function
@@ -602,65 +607,68 @@ export async function _startProcess(
 		command: infoForPayload.command,
 		args: infoForPayload.args,
 		cwd: infoForPayload.cwd,
-		logs: [], // Will be populated below
-		monitoring_hint: "", // Will be populated below
-		log_file_path: infoForPayload.logFilePath,
-		tail_command: getTailCommand(infoForPayload.logFilePath),
-		info_message: "", // Will be populated below
-		exitCode: infoForPayload.exitCode ?? null,
-		signal: infoForPayload.signal ?? null,
+		logs: formatLogsForResponse(
+			infoForPayload.logs.map((log) => log.content),
+			DEFAULT_RETURN_LOG_LINES,
+		), // <-- Map logs and use correct constant
+		monitoring_hint:
+			infoForPayload.logFilePath && serverLogDirectory
+				? `For status updates or more logs, use check_process_status('${infoForPayload.label}'). File logging enabled.`
+				: `For status updates or recent logs, use check_process_status('${infoForPayload.label}'). File logging disabled.`,
+		log_file_path:
+			infoForPayload.logFilePath && serverLogDirectory
+				? infoForPayload.logFilePath
+				: null,
+		tail_command:
+			infoForPayload.logFilePath && serverLogDirectory
+				? getTailCommand(infoForPayload.logFilePath)
+				: null,
+		info_message:
+			verificationPattern && isVerified
+				? `Process started and verification pattern matched. Final status: ${infoForPayload.status}.`
+				: verificationPattern && !isVerified
+					? `Process started but verification failed. Final status: ${infoForPayload.status}.`
+					: `Process started. Final status: ${infoForPayload.status}.`,
+		exitCode: infoForPayload.exitCode,
+		signal: infoForPayload.signal,
 		message: "", // Will be populated below
+		instructions: undefined, // Will be populated below
 	};
 
-	// Determine message based on verification outcome and potential early exit
-	let message = `Process "${label}" started. Final status: ${finalStatus}.`;
-	if (infoForPayload.exitCode === 0 && infoForPayload.signal === null) {
-		message = `Process "${label}" started and exited cleanly (code 0) during startup/verification. Final status: stopped.`;
-		// Override status if it exited cleanly before reaching 'running'
-		if (payload.status !== "stopped") {
-			// Check payload.status
-			log.info(
-				label,
-				`Overriding payload status to 'stopped' due to clean exit during startup.`,
-			);
-			payload.status = "stopped";
-		}
-	} else if (verificationPattern) {
-		message += isVerified
-			? " Verification pattern matched."
-			: " Verification failed (timeout or exit).";
-	}
+	payload.message = payload.info_message ?? ""; // <-- Use default value for message
 
-	// Retrieve potentially updated logs after settling/timeout
-	const logsToReturn = formatLogsForResponse(
-		infoForPayload.logs.map((l: LogEntry) => l.content),
-		infoForPayload.logs.length,
+	// --- Build Instructions ---
+	const instructionParts: string[] = [];
+
+	// General instruction for URL rendering
+	instructionParts.push(
+		"If any URLs (like http://localhost:...) appear in the logs above, please render them as clickable links.",
 	);
 
-	// Populate the rest of the payload fields
-	payload.message = message;
-	payload.info_message = message; // Assuming info_message is same as main message for now
-	payload.logs = logsToReturn;
-	payload.monitoring_hint = `For status updates or recent inline logs, use check_process_status('${label}'). File logging is ${payload.log_file_path ? "enabled" : "not enabled for this process."}`;
-
-	// *** Ensure payload status matches exit reality ***
-	if (
-		payload.exitCode === 0 &&
-		payload.signal === null &&
-		payload.status !== "stopped"
-	) {
-		payload.status = "stopped";
+	// Add Cursor-specific tail instructions (if applicable)
+	if (infoForPayload.host === "cursor" && payload.tail_command) {
+		instructionParts.push(
+			`For monitoring, consider running '${payload.tail_command}' in a background terminal.`, // Slightly refined wording
+		);
+		log.info(label, "Adding specific instructions for host 'cursor'.");
 	}
+
+	// Combine instructions if any exist
+	if (instructionParts.length > 0) {
+		payload.instructions = instructionParts.join("\n");
+	}
+	// --- End Build Instructions ---
 
 	log.info(
 		label,
-		`Returning result for start_process. Included ${payload.logs.length} log lines. Status: ${payload.status}.`,
+		`Returning success payload for start_process. Status: ${payload.status}, PID: ${payload.pid}, Logs returned: ${payload.logs.length}`,
 	);
 
 	// If final status is error/crashed, return failure, otherwise success
 	if (["error", "crashed"].includes(finalStatus)) {
 		const errorPayload: z.infer<typeof StartErrorPayloadSchema> = {
-			error: message,
+			error:
+				payload.info_message ?? `Process ended with status: ${finalStatus}`, // <-- Use default value for error
 			status: finalStatus,
 			cwd: effectiveWorkingDirectory,
 			error_type: "process_exit_error",

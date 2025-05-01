@@ -1,7 +1,10 @@
 import type * as fs from "node:fs";
+// import type { ProcessInfo as OriginalProcessInfo } from "@cursor/types"; // REMOVE this import
 // import type { ProcessInfo as OriginalProcessInfo } from "@cursor/types"; // REMOVED
 import type { IDisposable, IPty } from "node-pty";
 import { z } from "zod";
+import type { HostEnumType } from "./toolDefinitions.js"; // <-- IMPORT HostEnumType
+// REMOVE: import { ProcessInfo as OriginalProcessInfo } from "@cursor/types"; // ADD back temporarily for ProcessInfo extension
 
 /* ------------------------------------------------------------------------ */
 /*  1.  MCP payload primitives - RESTORED LOCAL DEFINITIONS                 */
@@ -99,6 +102,7 @@ export interface ProcessInfo {
 	command: string;
 	args: string[];
 	cwd: string;
+	host: HostEnumType;
 	status: ProcessStatus;
 	logs: LogEntry[];
 	pid: number | undefined;
@@ -117,8 +121,8 @@ export interface ProcessInfo {
 	isRestarting?: boolean;
 	stopRequested?: boolean;
 	verificationTimer?: NodeJS.Timeout;
-	logFilePath: string | null; // Path to the log file
-	logFileStream: fs.WriteStream | null; // Stream for writing to the log file
+	logFilePath: string | null;
+	logFileStream: fs.WriteStream | null;
 	lastLogTimestampReturned?: number;
 	mainDataListenerDisposable?: IDisposable;
 	mainExitListenerDisposable?: IDisposable;
@@ -210,6 +214,12 @@ export const StartSuccessPayloadSchema = ProcessStatusInfoSchema.extend({
 		.optional()
 		.describe(
 			"Optional secondary message providing technical details about startup (e.g., log settling status, timeouts).",
+		),
+	instructions: z
+		.string()
+		.optional()
+		.describe(
+			"Optional instructions for the host client (e.g., suggesting running the tail_command in a background terminal if host is 'cursor').",
 		),
 }).describe("Response payload for a successful start_process call.");
 
@@ -383,3 +393,5 @@ export const HealthCheckPayloadSchema = z
 			.describe("Indicates if the zombie process check timer is running."),
 	})
 	.describe("Response payload for health_check.");
+
+export type { HostEnumType }; // <-- EXPORT HostEnumType

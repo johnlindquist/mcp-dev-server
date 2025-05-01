@@ -132,6 +132,7 @@ Starts a background process (like a dev server or script) and manages it.
 *   `workingDirectory` (string, required): The absolute working directory to run the command from. This setting is required. Do not use relative paths like '.' or '../'. Provide the full path (e.g., /Users/me/myproject).
 *   `label` (string, optional): Optional human-readable identifier (e.g. 'dev-server'). Leave blank to let the server generate one based on CWD and command.
 *   `args` (array of strings, optional, default: `[]`): Optional arguments for the command.
+*   `host` (string, optional, enum: `"cursor"`, `"claude"`, `"chatgpt"`, `"vscode"`, `"windsurf"`, `"unknown"`, default: `"unknown"`): Identifier for the client initiating the process. Helps tailor responses or instructions.
 *   `verification_pattern` (string, optional): Optional regex pattern to match in stdout/stderr to verify successful startup.
 *   `verification_timeout_ms` (integer, optional, default: `-1`): Milliseconds to wait for the verification pattern. -1 disables the timer (default).
 *   `retry_delay_ms` (integer, optional, default: 1000): Optional delay before restarting a crashed process in milliseconds.
@@ -140,6 +141,7 @@ Starts a background process (like a dev server or script) and manages it.
 **Returns:** (JSON)
 
 Response payload for a successful start_process call. Contains fields like `label`, `status`, `pid`, `command`, `args`, `cwd`, `exitCode`, `signal`, `log_file_path`, `tail_command`, `message`, `logs`, `monitoring_hint`, `info_message`.
+*   `instructions` (string, optional): If the `host` was specified as `"cursor"` and file logging is enabled, this field will contain a suggested instruction for the Cursor IDE, like starting a background terminal to run the `tail_command`.
 On failure, returns an error object, potentially including `error`, `status`, `cwd`, `error_type`.
 
 **Example Usage:**
@@ -150,6 +152,7 @@ On failure, returns an error object, potentially including `error`, `status`, `c
   "args": ["run", "dev"],
   "workingDirectory": "/path/to/my-web-app",
   "label": "webapp-dev-server",
+  "host": "cursor",
   "verification_pattern": "ready - started server on",
   "verification_timeout_ms": 30000
 }
