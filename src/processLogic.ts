@@ -22,7 +22,6 @@ import {
 } from "./state.js";
 import type {
 	CallToolResult,
-	LogEntry,
 	ProcessInfo,
 	ProcessStatus, // Import ProcessStatus
 	StartErrorPayloadSchema,
@@ -151,6 +150,7 @@ export async function _startProcess(
 	verificationTimeoutMs: number | undefined, // Added verification timeout
 	retryDelayMs: number | undefined, // Added retry delay
 	maxRetries: number | undefined, // Added max retries
+	host: string, // <-- Moved host parameter before isRestart
 	isRestart = false, // Flag to indicate if this is a restart
 ): Promise<CallToolResult> {
 	const effectiveWorkingDirectory = workingDirectoryInput
@@ -367,6 +367,7 @@ export async function _startProcess(
 		mainDataListenerDisposable: undefined,
 		mainExitListenerDisposable: undefined,
 		partialLineBuffer: "",
+		host,
 	};
 	managedProcesses.set(label, processInfo);
 	updateProcessStatus(label, "starting"); // Ensure status is set via the function
@@ -602,65 +603,48 @@ export async function _startProcess(
 		command: infoForPayload.command,
 		args: infoForPayload.args,
 		cwd: infoForPayload.cwd,
-		logs: [], // Will be populated below
-		monitoring_hint: "", // Will be populated below
-		log_file_path: infoForPayload.logFilePath,
-		tail_command: getTailCommand(infoForPayload.logFilePath),
-		info_message: "", // Will be populated below
-		exitCode: infoForPayload.exitCode ?? null,
-		signal: infoForPayload.signal ?? null,
+		logs: formatLogsForResponse(
+			infoForPayload.logs,
+			MAX_LOGS_IN_RESPONSE, // Limit logs in response
+		),
+		monitoring_hint:
+			infoForPayload.logFilePath && serverLogDirectory
+				? `For status updates or more logs, use check_process_status('${infoForPayload.label}'). File logging enabled.`
+				: `For status updates or recent logs, use check_process_status('${infoForPayload.label}'). File logging disabled.`,
+		log_file_path:
+			infoForPayload.logFilePath && serverLogDirectory
+				? infoForPayload.logFilePath
+				: null,
+		tail_command:
+			infoForPayload.logFilePath && serverLogDirectory
+				? getTailCommand(infoForPayload.logFilePath)
+				: null,
+		info_message:
+			verificationPattern && isVerified
+				? `Process started and verification pattern matched. Final status: ${infoForPayload.status}.`
+				: verificationPattern && !isVerified
+					? `Process started but verification failed. Final status: ${infoForPayload.status}.`
+					: `Process started. Final status: ${infoForPayload.status}.`,
+		exitCode: infoForPayload.exitCode,
+		signal: infoForPayload.signal,
 		message: "", // Will be populated below
+		instructions:
+			infoForPayload.host === "cursor" && infoForPayload.logFilePath
+				? `The process \"${infoForPayload.label}\" is running and logging to ${infoForPayload.logFilePath}. You might want to run '${getTailCommand(infoForPayload.logFilePath)}' in a background terminal to monitor its output.`
+				: undefined,
 	};
 
-	// Determine message based on verification outcome and potential early exit
-	let message = `Process "${label}" started. Final status: ${finalStatus}.`;
-	if (infoForPayload.exitCode === 0 && infoForPayload.signal === null) {
-		message = `Process "${label}" started and exited cleanly (code 0) during startup/verification. Final status: stopped.`;
-		// Override status if it exited cleanly before reaching 'running'
-		if (payload.status !== "stopped") {
-			// Check payload.status
-			log.info(
-				label,
-				`Overriding payload status to 'stopped' due to clean exit during startup.`,
-			);
-			payload.status = "stopped";
-		}
-	} else if (verificationPattern) {
-		message += isVerified
-			? " Verification pattern matched."
-			: " Verification failed (timeout or exit).";
-	}
-
-	// Retrieve potentially updated logs after settling/timeout
-	const logsToReturn = formatLogsForResponse(
-		infoForPayload.logs.map((l: LogEntry) => l.content),
-		infoForPayload.logs.length,
-	);
-
-	// Populate the rest of the payload fields
-	payload.message = message;
-	payload.info_message = message; // Assuming info_message is same as main message for now
-	payload.logs = logsToReturn;
-	payload.monitoring_hint = `For status updates or recent inline logs, use check_process_status('${label}'). File logging is ${payload.log_file_path ? "enabled" : "not enabled for this process."}`;
-
-	// *** Ensure payload status matches exit reality ***
-	if (
-		payload.exitCode === 0 &&
-		payload.signal === null &&
-		payload.status !== "stopped"
-	) {
-		payload.status = "stopped";
-	}
+	payload.message = payload.info_message; // Set message based on info_message logic
 
 	log.info(
 		label,
-		`Returning result for start_process. Included ${payload.logs.length} log lines. Status: ${payload.status}.`,
+		`Returning success payload for start_process. Status: ${payload.status}, PID: ${payload.pid}, Logs returned: ${payload.logs.length}`,
 	);
 
 	// If final status is error/crashed, return failure, otherwise success
 	if (["error", "crashed"].includes(finalStatus)) {
 		const errorPayload: z.infer<typeof StartErrorPayloadSchema> = {
-			error: message,
+			error: payload.info_message,
 			status: finalStatus,
 			cwd: effectiveWorkingDirectory,
 			error_type: "process_exit_error",
