@@ -5,6 +5,7 @@ import type { IDisposable, IPty } from "node-pty"; // Import only types if neede
 import treeKill from "tree-kill";
 import type { z } from "zod"; // Import zod
 import {
+	DEFAULT_RETURN_LOG_LINES,
 	LOG_SETTLE_DURATION_MS,
 	OVERALL_LOG_WAIT_TIMEOUT_MS,
 	STOP_WAIT_DURATION,
@@ -603,10 +604,7 @@ export async function _startProcess(
 		command: infoForPayload.command,
 		args: infoForPayload.args,
 		cwd: infoForPayload.cwd,
-		logs: formatLogsForResponse(
-			infoForPayload.logs,
-			MAX_LOGS_IN_RESPONSE, // Limit logs in response
-		),
+		logs: formatLogsForResponse(infoForPayload.logs, DEFAULT_RETURN_LOG_LINES),
 		monitoring_hint:
 			infoForPayload.logFilePath && serverLogDirectory
 				? `For status updates or more logs, use check_process_status('${infoForPayload.label}'). File logging enabled.`
