@@ -187,41 +187,23 @@ const ProcessStatusInfoSchema = z.object({
 });
 
 // Schema for start_process success payload
-export const StartSuccessPayloadSchema = ProcessStatusInfoSchema.extend({
-	message: z.string().describe("Summary message indicating the outcome."),
-	logs: z
-		.array(z.string())
-		.describe("Initial block of logs captured during startup or settling."),
-	monitoring_hint: z
-		.string()
-		.describe(
-			"Instructions for monitoring. If file logging is enabled, provides the 'tail' command phrased as an instruction ('If you requested to tail... run this command...'). Otherwise, directs to check_process_status.",
-		),
-	log_file_path: z
-		.string()
-		.nullable()
-		.optional()
-		.describe("Absolute path to the log file, if logging to file is enabled."),
-	tail_command: z
-		.string()
-		.nullable()
-		.optional()
-		.describe(
-			"The specific command to run in a terminal to tail the log file, if available (e.g., 'tail -f /path/to/log'). Null if file logging is disabled.",
-		),
-	info_message: z
-		.string()
-		.optional()
-		.describe(
-			"Optional secondary message providing technical details about startup (e.g., log settling status, timeouts).",
-		),
-	instructions: z
-		.string()
-		.optional()
-		.describe(
-			"Optional instructions for the host client (e.g., suggesting running the tail_command in a background terminal if host is 'cursor').",
-		),
-}).describe("Response payload for a successful start_process call.");
+export const StartSuccessPayloadSchema = z
+	.object({
+		label: z.string(),
+		command: z.string(),
+		args: z.array(z.string()),
+		pid: z.number(),
+		workingDirectory: z.string(),
+		message: z.string(),
+		host: HostEnumSchema.optional(),
+		// The below are added during _startProcess but not part of initial definition
+		tail_command: z.string().optional(),
+		info_message: z.string().optional(),
+		isVerificationEnabled: z.boolean().optional(),
+		verificationPattern: z.string().optional(),
+		verificationTimeoutMs: z.number().optional(),
+	})
+	.describe("Response payload for a successful start_process call.");
 
 // Schema for start_process error payload (specific errors)
 export const StartErrorPayloadSchema = z
