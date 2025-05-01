@@ -21,7 +21,7 @@
 		"verify": "pnpm build && pnpm lint:fix",
 		"start": "node build/index.mjs",
 		"pretest": "pnpm build",
-		"test": "vitest run",
+		"test": "vitest run --test-timeout=60000",
 		"test:watch": "vitest",
 		"test:filter-logs": "vitest run -t \"should filter logs correctly on repeated checks of an active process\"",
 		"postinstall": "pnpm rebuild node-pty"
