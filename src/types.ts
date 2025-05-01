@@ -198,7 +198,7 @@ export const StartSuccessPayloadSchema = z
 		host: HostEnum.optional(),
 		// The below are added during _startProcess but not part of initial definition
 		tail_command: z.string().optional(),
-		info_message: z.string().optional(),
+		verificationFailureReason: z.string().optional(),
 		isVerificationEnabled: z.boolean().optional(),
 		verificationPattern: z.string().optional(),
 		verificationTimeoutMs: z.number().optional(),
