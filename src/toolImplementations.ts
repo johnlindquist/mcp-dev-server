@@ -41,6 +41,10 @@ import {
 	stripAnsiAndControlChars,
 } from "./utils.js";
 
+// --- FAST MODE --- Set MCP_PM_FAST=1 to use reduced timings
+import { ms } from "./constants.js"; // Import the helper
+// -----------------
+
 interface CheckStatusResponsePayload {
 	label: string;
 	status: ProcessStatus;
@@ -71,7 +75,7 @@ interface ListProcessDetail {
 	tail_command: string | null | undefined;
 }
 
-const WAIT_DURATION_MS = 2000; // Fixed wait time for active processes
+const WAIT_DURATION_MS = ms(2000, 50); // Fixed wait time for active processes
 
 export async function checkProcessStatusImpl(
 	params: z.infer<typeof CheckProcessStatusParams>,
