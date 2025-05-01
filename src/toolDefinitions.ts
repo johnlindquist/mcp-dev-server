@@ -22,6 +22,16 @@ import {
 import type { CallToolResult } from "./types.js";
 import { log } from "./utils.js";
 
+export const HostEnum = z.enum([
+	"cursor",
+	"claude",
+	"chatgpt",
+	"vscode",
+	"indesurf",
+	"unknown", // Default value
+]);
+export type HostEnumType = z.infer<typeof HostEnum>;
+
 export const labelSchema = z
 	.string()
 	.min(1)
@@ -55,6 +65,11 @@ const StartProcessParams = z.object(
 			.min(1)
 			.describe(
 				"The absolute working directory to run the command from. This setting is required. Do not use relative paths like '.' or '../'. Provide the full path (e.g., /Users/me/myproject).",
+			),
+		host: HostEnum.optional()
+			.default("unknown")
+			.describe(
+				"Identifier for the client initiating the process (e.g., 'cursor', 'claude', 'vscode'). Defaults to 'unknown'.",
 			),
 		verification_pattern: z
 			.string()
