@@ -214,6 +214,12 @@ export const StartSuccessPayloadSchema = ProcessStatusInfoSchema.extend({
 		.describe(
 			"Optional secondary message providing technical details about startup (e.g., log settling status, timeouts).",
 		),
+	instructions: z
+		.string()
+		.optional()
+		.describe(
+			"Optional instructions for the host client (e.g., suggesting running the tail_command in a background terminal if host is 'cursor').",
+		),
 }).describe("Response payload for a successful start_process call.");
 
 // Schema for start_process error payload (specific errors)
