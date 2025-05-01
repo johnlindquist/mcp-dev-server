@@ -102,7 +102,7 @@ export interface ProcessInfo extends OriginalProcessInfo {
 	cwd: string;
 	status: ProcessStatus;
 	logs: LogEntry[];
-	pid?: number;
+	pid: number | undefined;
 	process: IPty | null;
 	dataListener?: IDisposable;
 	onExitListener?: IDisposable;
