@@ -192,15 +192,27 @@ export async function checkProcessStatusImpl(
 		hint: logHint,
 	};
 
-	// [MCP-TEST-LOG STEP 2.4] Log the final constructed payload before stringify
-	log.debug(label, "Final payload object before stringify:", payload);
+	// [MCP-TEST-LOG STEP 4.1] Log the constructed payload OBJECT before stringify
+	log.debug(
+		label,
+		"[CheckStatus Payload] Constructed payload OBJECT:",
+		JSON.stringify(payload, null, 2),
+	);
+
+	// [MCP-TEST-LOG STEP 4.2] Log the final stringified payload just before return
+	const finalJsonString = JSON.stringify(payload);
+	log.debug(
+		label,
+		"[CheckStatus Payload] Final JSON string to be returned:",
+		finalJsonString,
+	);
 
 	log.info(
 		label,
 		`check_process_status returning final status: ${payload.status}. New logs returned: ${returnedLogs.length}. New lastLogTimestamp: ${newLastLogTimestamp}`,
 	);
 
-	return ok(textPayload(JSON.stringify(payload)));
+	return ok(textPayload(finalJsonString)); // Use the pre-stringified version
 }
 
 export async function listProcessesImpl(
