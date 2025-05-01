@@ -23,6 +23,7 @@ import {
 } from "./state.js";
 import type {
 	CallToolResult,
+	HostEnumType, // <-- Import HostEnumType
 	ProcessInfo,
 	ProcessStatus, // Import ProcessStatus
 	StartErrorPayloadSchema,
@@ -147,11 +148,11 @@ export async function _startProcess(
 	command: string,
 	args: string[], // Added args
 	workingDirectoryInput: string | undefined,
+	host: HostEnumType, // <-- Use HostEnumType
 	verificationPattern: RegExp | undefined, // Added verification pattern
 	verificationTimeoutMs: number | undefined, // Added verification timeout
 	retryDelayMs: number | undefined, // Added retry delay
 	maxRetries: number | undefined, // Added max retries
-	host: string, // <-- Moved host parameter before isRestart
 	isRestart = false, // Flag to indicate if this is a restart
 ): Promise<CallToolResult> {
 	const effectiveWorkingDirectory = workingDirectoryInput
@@ -160,7 +161,7 @@ export async function _startProcess(
 
 	log.info(
 		label,
-		`Starting process... Command: "${command}", Args: [${args.join(", ")}], CWD: "${effectiveWorkingDirectory}", isRestart: ${isRestart}`,
+		`Starting process... Command: "${command}", Args: [${args.join(", ")}], CWD: "${effectiveWorkingDirectory}", Host: ${host}, isRestart: ${isRestart}`, // Log host
 	);
 
 	// Verify working directory
@@ -187,6 +188,7 @@ export async function _startProcess(
 				maxRetries,
 				logFilePath: null,
 				logFileStream: null,
+				host: host, // <-- ADD host
 			});
 		}
 		updateProcessStatus(label, "error"); // Simplified update
@@ -329,6 +331,7 @@ export async function _startProcess(
 				maxRetries,
 				logFilePath,
 				logFileStream,
+				host: host, // <-- ADD host
 			});
 		}
 		updateProcessStatus(label, "error");
@@ -368,7 +371,7 @@ export async function _startProcess(
 		mainDataListenerDisposable: undefined,
 		mainExitListenerDisposable: undefined,
 		partialLineBuffer: "",
-		host,
+		host, // <-- Assign host of type HostEnumType
 	};
 	managedProcesses.set(label, processInfo);
 	updateProcessStatus(label, "starting"); // Ensure status is set via the function
@@ -604,7 +607,10 @@ export async function _startProcess(
 		command: infoForPayload.command,
 		args: infoForPayload.args,
 		cwd: infoForPayload.cwd,
-		logs: formatLogsForResponse(infoForPayload.logs, DEFAULT_RETURN_LOG_LINES),
+		logs: formatLogsForResponse(
+			infoForPayload.logs.map((log) => log.content),
+			DEFAULT_RETURN_LOG_LINES,
+		), // <-- Map logs and use correct constant
 		monitoring_hint:
 			infoForPayload.logFilePath && serverLogDirectory
 				? `For status updates or more logs, use check_process_status('${infoForPayload.label}'). File logging enabled.`
@@ -632,7 +638,7 @@ export async function _startProcess(
 				: undefined,
 	};
 
-	payload.message = payload.info_message; // Set message based on info_message logic
+	payload.message = payload.info_message ?? ""; // <-- Use default value for message
 
 	log.info(
 		label,
@@ -642,7 +648,8 @@ export async function _startProcess(
 	// If final status is error/crashed, return failure, otherwise success
 	if (["error", "crashed"].includes(finalStatus)) {
 		const errorPayload: z.infer<typeof StartErrorPayloadSchema> = {
-			error: payload.info_message,
+			error:
+				payload.info_message ?? `Process ended with status: ${finalStatus}`, // <-- Use default value for error
 			status: finalStatus,
 			cwd: effectiveWorkingDirectory,
 			error_type: "process_exit_error",

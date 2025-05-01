@@ -4,7 +4,12 @@ import {
 	MAX_RETRIES,
 } from "./constants.js";
 import { _startProcess } from "./processLogic.js"; // May need adjustment later
-import { addLogEntry, managedProcesses, updateProcessStatus } from "./state.js"; // Assuming state functions remain accessible
+import {
+	addLogEntry,
+	getProcessInfo,
+	managedProcesses,
+	updateProcessStatus,
+} from "./state.js"; // Assuming state functions remain accessible
 import { log } from "./utils.js";
 
 // --- handleExit function --- (Copied from state.ts)
@@ -95,7 +100,7 @@ export function handleExit(
 
 // --- handleCrashAndRetry function --- (Copied from state.ts)
 export async function handleCrashAndRetry(label: string): Promise<void> {
-	const processInfo = managedProcesses.get(label);
+	const processInfo = getProcessInfo(label); // Use getProcessInfo to ensure latest state
 	if (!processInfo || processInfo.status !== "crashed") {
 		log.warn(
 			label,
@@ -147,6 +152,7 @@ export async function handleCrashAndRetry(label: string): Promise<void> {
 
 		log.info(label, "Initiating restart...");
 		// Re-use original start parameters, including verification settings
+		// processInfo.host is already HostEnumType
 		await _startProcess(
 			label,
 			processInfo.command,
@@ -156,7 +162,7 @@ export async function handleCrashAndRetry(label: string): Promise<void> {
 			processInfo.verificationTimeoutMs ?? undefined, // Convert null to undefined
 			processInfo.retryDelayMs ?? undefined, // Convert null to undefined
 			processInfo.maxRetries, // Pass retry settings
-			processInfo.host, // <-- PASS host
+			processInfo.host, // <-- PASS host (already HostEnumType)
 			true, // Indicate this is a restart
 		);
 	}

@@ -19,7 +19,6 @@ import {
 	stopAllProcessesImpl,
 	waitForProcessImpl,
 } from "./toolImplementations.js";
-import type { CallToolResult } from "./types.js";
 import { log } from "./utils.js";
 
 export const HostEnum = z.enum([
@@ -230,6 +229,7 @@ export function registerToolDefinitions(server: McpServer): void {
 		) => {
 			const cwdForLabel = params.workingDirectory;
 			const effectiveLabel = params.label || `${cwdForLabel}:${params.command}`;
+			const hostValue = params.host;
 
 			log.info(
 				effectiveLabel,
@@ -240,7 +240,7 @@ export function registerToolDefinitions(server: McpServer): void {
 				effectiveLabel,
 				"start_process",
 				params,
-				async (): Promise<CallToolResult> => {
+				async () => {
 					const verificationPattern = params.verification_pattern
 						? new RegExp(params.verification_pattern)
 						: undefined;
@@ -250,6 +250,7 @@ export function registerToolDefinitions(server: McpServer): void {
 						params.command,
 						params.args,
 						params.workingDirectory,
+						hostValue,
 						verificationPattern,
 						params.verification_timeout_ms,
 						params.retry_delay_ms,
