@@ -382,5 +382,4 @@ export type StartSuccessPayload = z.infer<typeof StartSuccessPayloadSchema> & {
 	status: ProcessStatus;
 	logs?: string[];
 	monitoring_hint?: string;
-	info_message?: string; // ADDED FOR TEMP COMPATIBILITY
 };
