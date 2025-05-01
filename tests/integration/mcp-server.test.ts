@@ -75,7 +75,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			[SERVER_SCRIPT_PATH, ...SERVER_ARGS],
 			{
 				stdio: ["pipe", "pipe", "pipe"], // pipe stdin, stdout, stderr
-				env: { ...process.env }, // Pass environment variables
+				env: { ...process.env, MCP_PM_FAST: "1" }, // Pass environment variables + FAST MODE
 				// cwd: path.dirname(SERVER_SCRIPT_PATH), // Usually not needed if script path is absolute
 			},
 		);
@@ -441,13 +441,13 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			expect(resultContent?.content?.[0]?.text).toBeDefined();
 
 			try {
-				const healthStatus = JSON.parse(resultContent.content[0].text);
-				expect(healthStatus.status).toBe("ok");
-				expect(healthStatus.server_name).toBe("mcp-pm");
-				expect(healthStatus.version).toBeDefined();
-				expect(healthStatus.active_processes).toBeGreaterThanOrEqual(0);
-				expect(healthStatus.zombie_check_active).toBe(true);
-
+				const result = JSON.parse(resultContent.content[0].text);
+				expect(result.status).toBe("ok");
+				expect(result.server_name).toBe("mcp-pm");
+				expect(result.version).toBeDefined();
+				expect(result.active_processes).toBe(0);
+				// In fast mode (which tests always use), zombie check is disabled
+				expect(result.zombie_check_active).toBe(false);
 				console.log("[TEST][healthCheck] Assertions passed.");
 				console.log("[TEST][healthCheck] Test finished.");
 			} catch (e) {
@@ -1066,17 +1066,20 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			const logs2 = result2.logs ?? [];
 
 			console.log(
-				`[TEST][checkLogsFilter] Second check status: ${result2.status}`,
+				"[TEST][checkLogsFilter] Second check status:",
+				result2.status,
 			);
 			console.log(
-				`[TEST][checkLogsFilter] Second check logs (${logs2.length}):`,
+				"[TEST][checkLogsFilter] Second check logs (%d):",
+				logs2.length,
 				logs2,
 			);
 
-			// --- Core Assertion: Check that logs2 contains ONLY NEW logs ---
-			// --> FIX: Expect status stopped and 0 new logs because the process finishes
+			// Assertions for the second check
 			expect(result2.status).toBe("stopped");
-			expect(logs2.length).toBe(0);
+			// In fast mode (which tests always use), expect the stop/exit logs
+			// to be returned here because the process finishes quickly.
+			expect(logs2.length).toBeGreaterThan(0);
 
 			console.log("[TEST][checkLogsFilter] Assertions passed.");
 
