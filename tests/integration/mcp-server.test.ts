@@ -1090,11 +1090,11 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			// --> Define logs2 from result2
 			const logs2 = result2.logs ?? [];
 
-			console.log(
+			logVerbose(
 				"[TEST][checkLogsFilter] Second check status:",
 				result2.status,
 			);
-			console.log(
+			logVerbose(
 				"[TEST][checkLogsFilter] Second check logs (%d):",
 				logs2.length,
 				logs2,
