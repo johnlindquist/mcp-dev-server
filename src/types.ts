@@ -1,4 +1,5 @@
 import type * as fs from "node:fs";
+import type { ProcessInfo as OriginalProcessInfo } from "@cursor/types";
 import type { IPty } from "node-pty";
 import type { IDisposable } from "node-pty";
 import { z } from "zod";
@@ -94,7 +95,7 @@ export interface LogEntry {
 }
 
 /** Detailed information about a managed process. */
-export interface ProcessInfo {
+export interface ProcessInfo extends OriginalProcessInfo {
 	label: string;
 	command: string;
 	args: string[];
@@ -118,6 +119,7 @@ export interface ProcessInfo {
 	verificationTimer?: NodeJS.Timeout;
 	logFilePath: string | null; // Path to the log file
 	logFileStream: fs.WriteStream | null; // Stream for writing to the log file
+	lastLogTimestampReturned?: number;
 }
 
 /** Result structure for tool calls, indicating success or failure. */
