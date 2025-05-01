@@ -635,77 +635,95 @@ export async function _startProcess(
 		instructions: undefined, // Will be populated below
 	};
 
-	payload.message = payload.info_message ?? ""; // <-- Use default value for message
+	// --- Payload Message & Instructions Construction ---
+	// Start with the base technical info message
+	const info_message_parts: string[] = [];
+	if (finalStatus === "running" && isVerified) {
+		info_message_parts.push("Process started and is running.");
+	} else if (finalStatus === "running" && !isVerified && verificationPattern) {
+		info_message_parts.push(
+			"Process started and verification pattern matched. Final status: running.",
+		);
+	} else if (finalStatus === "running" && !verificationPattern) {
+		info_message_parts.push("Process started. Final status: running.");
+	} else if (finalStatus === "stopped") {
+		info_message_parts.push("Process started. Final status: stopped.");
+	} else if (finalStatus === "error" && !isVerified && verificationPattern) {
+		info_message_parts.push(
+			"Process started but verification failed (timed out or exited during verification). Final status: error.",
+		);
+	} else if (finalStatus === "error") {
+		info_message_parts.push("Process started but failed. Final status: error.");
+	} else {
+		info_message_parts.push(
+			`Process started. Final status: ${finalStatus}. Verification: ${isVerified ? "passed" : "failed/NA"}.`,
+		);
+	}
 
-	// --- Build Instructions ---
+	// Add log settling info if applicable
+	if (infoForPayload) {
+		const logSettleResult = await _waitForLogSettleOrTimeout(
+			label,
+			infoForPayload.process,
+		);
+		if (logSettleResult.timedOut) {
+			info_message_parts.push("Log settling timed out.");
+		} else if (logSettleResult.settled) {
+			info_message_parts.push("Log settling completed.");
+		} else {
+			info_message_parts.push("Log settling status unknown.");
+		}
+	}
+
+	const baseMessage = info_message_parts.join(" ");
+
+	// Instructions based on host and features
 	const instructionParts: string[] = [];
-
-	// General instruction for URL rendering
+	// Generic instruction about clickable links
 	instructionParts.push(
 		"If any URLs (like http://localhost:...) appear in the logs above, please render them as clickable links.",
 	);
 
-	// Add Cursor-specific tail instructions (if applicable)
+	// Cursor-specific instruction for tailing logs
 	if (infoForPayload.host === "cursor" && payload.tail_command) {
 		instructionParts.push(
-			`For monitoring, consider running '${payload.tail_command}' in a background terminal.`, // Slightly refined wording
+			`The process is logging output to a file. You can monitor it by running the following command in a separate background terminal: ${payload.tail_command}`,
 		);
-		log.info(label, "Adding specific instructions for host 'cursor'.");
 	}
 
-	// Combine instructions if any exist
-	if (instructionParts.length > 0) {
-		payload.instructions = instructionParts.join("\n");
-	}
-	// --- End Build Instructions ---
+	// Combine base message and instructions
+	const instructionText =
+		instructionParts.length > 0 ? `\n\n${instructionParts.join("\n")}` : "";
+	payload.message = `${baseMessage}${instructionText}`.trim();
+
+	// --- End Payload Message & Instructions Construction ---
 
 	log.info(
 		label,
-		`Returning success payload for start_process. Status: ${payload.status}, PID: ${payload.pid}, Logs returned: ${payload.logs.length}`,
+		`Returning success payload for start_process. Status: ${finalStatus}, PID: ${payload.pid}, Logs returned: ${payload.logs.length}`,
 	);
 
-	// If final status is error/crashed, return failure, otherwise success
-	if (["error", "crashed"].includes(finalStatus)) {
-		const errorPayload: z.infer<typeof StartErrorPayloadSchema> = {
-			error:
-				payload.info_message ?? `Process ended with status: ${finalStatus}`, // <-- Use default value for error
-			status: finalStatus,
-			cwd: effectiveWorkingDirectory,
-			error_type: "process_exit_error",
-		};
-		log.error(
-			label,
-			`start_process returning failure. Status: ${finalStatus}, Exit Code: ${payload.exitCode}, Signal: ${payload.signal}`,
-		);
-		return fail(textPayload(JSON.stringify(errorPayload, null, 2)));
+	// Handle non-running final status
+	if (finalStatus !== "running") {
+		if (finalStatus === "stopped") {
+			log.info(
+				label,
+				"start_process returning success, but final status is stopped due to clean exit.",
+			);
+		} else if (finalStatus === "error") {
+			log.warn(
+				label,
+				"start_process returning success, but final status is error.",
+			);
+		} else {
+			log.warn(
+				label,
+				`start_process returning success, but final status is ${finalStatus}.`,
+			);
+		}
 	}
 
-	// Ensure success payload reflects stopped status if process exited cleanly during startup
-	if (payload.status === "stopped" && payload.exitCode === 0) {
-		log.info(
-			label,
-			"start_process returning success, but final status is stopped due to clean exit.",
-		);
-		return ok(textPayload(JSON.stringify(payload, null, 2)));
-	}
-
-	// If status is running, return standard success
-	if (payload.status === "running") {
-		return ok(textPayload(JSON.stringify(payload, null, 2)));
-	}
-
-	// Fallback: Should not happen if logic above is correct, but return failure if status is unexpected
-	log.error(
-		label,
-		`start_process reached unexpected final state. Status: ${payload.status}`,
-	);
-	const fallbackErrorPayload: z.infer<typeof StartErrorPayloadSchema> = {
-		error: `Process ended in unexpected state: ${payload.status}`,
-		status: payload.status,
-		cwd: effectiveWorkingDirectory,
-		error_type: "unexpected_process_state",
-	};
-	return fail(textPayload(JSON.stringify(fallbackErrorPayload)));
+	return ok(textPayload(JSON.stringify(payload, null, 2))); // Return full status
 }
 
 /**
