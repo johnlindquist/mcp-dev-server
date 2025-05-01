@@ -632,13 +632,32 @@ export async function _startProcess(
 		exitCode: infoForPayload.exitCode,
 		signal: infoForPayload.signal,
 		message: "", // Will be populated below
-		instructions:
-			infoForPayload.host === "cursor" && infoForPayload.logFilePath
-				? `The process \"${infoForPayload.label}\" is running and logging to ${infoForPayload.logFilePath}. You might want to run '${getTailCommand(infoForPayload.logFilePath)}' in a background terminal to monitor its output.`
-				: undefined,
+		instructions: undefined, // Will be populated below
 	};
 
 	payload.message = payload.info_message ?? ""; // <-- Use default value for message
+
+	// --- Build Instructions ---
+	const instructionParts: string[] = [];
+
+	// General instruction for URL rendering
+	instructionParts.push(
+		"If any URLs (like http://localhost:...) appear in the logs above, please render them as clickable links.",
+	);
+
+	// Add Cursor-specific tail instructions (if applicable)
+	if (infoForPayload.host === "cursor" && payload.tail_command) {
+		instructionParts.push(
+			`For monitoring, consider running '${payload.tail_command}' in a background terminal.`, // Slightly refined wording
+		);
+		log.info(label, "Adding specific instructions for host 'cursor'.");
+	}
+
+	// Combine instructions if any exist
+	if (instructionParts.length > 0) {
+		payload.instructions = instructionParts.join("\n");
+	}
+	// --- End Build Instructions ---
 
 	log.info(
 		label,
