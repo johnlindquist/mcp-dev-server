@@ -15,6 +15,20 @@ const SERVER_READY_OUTPUT = "MCP Server connected and listening via stdio.";
 const STARTUP_TIMEOUT = 20000; // 20 seconds (adjust as needed)
 const TEST_TIMEOUT = STARTUP_TIMEOUT + 5000; // Test timeout slightly longer than startup
 
+// --- Verbose Logging ---
+const IS_VERBOSE = process.env.MCP_TEST_VERBOSE === "1";
+function logVerbose(...args: unknown[]) {
+	if (IS_VERBOSE) {
+		console.log("[VERBOSE]", ...args);
+	}
+}
+function logVerboseError(...args: unknown[]) {
+	if (IS_VERBOSE) {
+		console.error("[VERBOSE_ERR]", ...args);
+	}
+}
+// ---------------------
+
 // --- Type definitions for MCP responses (simplified) ---
 type MCPResponse = {
 	jsonrpc: "2.0";
@@ -97,17 +111,17 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 
 		serverProcess.stdout.on("data", (data: Buffer) => {
 			const output = data.toString();
-			// console.log(`[Server STDOUT RAW]: ${output}`); // Log raw stdout data
+			logVerbose(`[Server STDOUT RAW]: ${output}`); // Replaced console.log
 			serverStdoutOutput.push(output); // Store for debugging
 			// NOTE: MCP responses go to stdout, but the *ready* signal for mcp-pm goes to stderr
-			// console.log(`[Server STDOUT]: ${output.trim()}`);
+			logVerbose(`[Server STDOUT]: ${output.trim()}`); // Replaced console.log
 		});
 
 		serverProcess.stderr.on("data", (data: Buffer) => {
 			const output = data.toString();
-			console.error(`[Server STDERR RAW]: ${output}`); // Log raw stderr data
+			logVerboseError(`[Server STDERR RAW]: ${output}`); // Replaced console.error
 			serverErrorOutput.push(output); // Store for debugging/errors
-			console.error(`[Server STDERR]: ${output.trim()}`); // Log stderr for visibility
+			logVerboseError(`[Server STDERR]: ${output.trim()}`); // Replaced console.error
 
 			// Check for the ready signal in stderr
 			if (!serverReady && output.includes(SERVER_READY_OUTPUT)) {
@@ -153,11 +167,11 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 		});
 
 		serverProcess.on("close", () => {
-			console.log("[TEST] Server stdio streams closed.");
+			logVerbose("[TEST] Server stdio streams closed.");
 		});
 
 		try {
-			console.log("[TEST] Waiting for server ready promise...");
+			logVerbose("[TEST] Waiting for server ready promise...");
 			await serverReadyPromise;
 			console.log("[TEST] Server startup successful.");
 		} catch (err) {
@@ -173,7 +187,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 
 		// Add a small delay after server is ready before proceeding
 		await new Promise((resolve) => setTimeout(resolve, 200));
-		console.log("[TEST] Short delay after server ready signal completed.");
+		logVerbose("[TEST] Short delay after server ready signal completed.");
 	}, TEST_TIMEOUT); // Vitest timeout for the hook
 
 	afterAll(async () => {
@@ -222,7 +236,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			throw new Error('Request must have an "id" property');
 		}
 		const requestString = `${JSON.stringify(request)}\n`;
-		console.log(
+		logVerbose(
 			`[sendRequest] Sending request (ID ${requestId}): ${requestString.trim()}`,
 		);
 
@@ -242,18 +256,20 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 
 			const onData = (data: Buffer) => {
 				const rawChunk = data.toString();
-				// console.log(`[sendRequest] Received raw STDOUT chunk for ${requestId}: ${rawChunk}`); // Verbose: Log raw chunks
+				logVerbose(
+					`[sendRequest] Received raw STDOUT chunk for ${requestId}: ${rawChunk}`,
+				); // Added logVerbose for raw chunks
 				responseBuffer += rawChunk;
 				const lines = responseBuffer.split("\n");
 				responseBuffer = lines.pop() || ""; // Keep incomplete line fragment
 
 				for (const line of lines) {
 					if (line.trim() === "") continue;
-					// console.log(`[sendRequest] Processing line for ${requestId}: ${line}`); // Verbose: Log processed lines
+					logVerbose(`[sendRequest] Processing line for ${requestId}: ${line}`); // Added logVerbose for processed lines
 					try {
 						const parsedResponse = JSON.parse(line);
 						if (parsedResponse.id === requestId) {
-							console.log(
+							logVerbose(
 								`[sendRequest] Received matching response for ID ${requestId}: ${line.trim()}`,
 							);
 							responseReceived = true;
@@ -261,10 +277,15 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 							resolve(parsedResponse);
 							return; // Found the response
 						}
-						// console.log(`[sendRequest] Ignoring response with different ID (${parsedResponse.id}) for request ${requestId}`); // Verbose: Log ignored responses
+						logVerbose(
+							`[sendRequest] Ignoring response with different ID (${parsedResponse.id}) for request ${requestId}`,
+						); // Added logVerbose for ignored responses
 					} catch (e) {
 						// Ignore lines that aren't valid JSON or don't match ID
-						// console.warn(`[sendRequest] Failed to parse potential JSON line for ${requestId}: ${line}`, e); // Verbose: Log parse errors
+						logVerboseError(
+							`[sendRequest] Failed to parse potential JSON line for ${requestId}: ${line}`,
+							e,
+						); // Added logVerboseError for parse errors
 					}
 				}
 			};
@@ -288,7 +309,9 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			};
 
 			const cleanup = () => {
-				// console.log(`[sendRequest] Cleaning up listeners for request ID ${requestId}`); // Verbose: Log listener cleanup
+				logVerbose(
+					`[sendRequest] Cleaning up listeners for request ID ${requestId}`,
+				); // Added logVerbose for cleanup
 				clearTimeout(timeoutTimer);
 				if (responseListenersAttached) {
 					process.stdout.removeListener("data", onData);
@@ -301,14 +324,16 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 
 			// Temporary stderr listener during request wait (optional, for debugging)
 			const logStderr = (data: Buffer) => {
-				console.error(
+				logVerboseError(
 					`[sendRequest][Server STDERR during request ${requestId}]: ${data.toString().trim()}`,
 				);
 			};
 
 			// Attach listeners only once per request
 			if (!responseListenersAttached) {
-				// console.log(`[sendRequest] Attaching listeners for request ID ${requestId}`); // Verbose: Log listener attachment
+				logVerbose(
+					`[sendRequest] Attaching listeners for request ID ${requestId}`,
+				); // Added logVerbose for attachment
 				process.stdout.on("data", onData);
 				process.stderr.on("data", logStderr); // Listen to stderr too
 				process.once("error", onError); // Use once for exit/error during wait
@@ -317,7 +342,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			}
 
 			// Write the request to stdin
-			// console.log(`[sendRequest] Writing request (ID ${requestId}) to stdin...`); // Verbose: Log stdin write
+			logVerbose(`[sendRequest] Writing request (ID ${requestId}) to stdin...`); // Added logVerbose for stdin write
 			process.stdin.write(requestString, (err) => {
 				if (err) {
 					if (!responseReceived) {
@@ -328,7 +353,9 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 						reject(new Error(errorMsg));
 					}
 				} else {
-					// console.log(`[sendRequest] Successfully wrote request (ID ${requestId}) to stdin.`); // Verbose: Log successful stdin write
+					logVerbose(
+						`[sendRequest] Successfully wrote request (ID ${requestId}) to stdin.`,
+					); // Added logVerbose for success
 				}
 			});
 		});
@@ -340,7 +367,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 	it(
 		"should list zero processes initially",
 		async () => {
-			console.log("[TEST][listEmpty] Starting test...");
+			logVerbose("[TEST][listEmpty] Starting test...");
 			if (!serverProcess) {
 				throw new Error("Server process not initialized in beforeAll");
 			}
@@ -355,17 +382,17 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				id: "req-list-empty-1",
 			};
 
-			console.log("[TEST][listEmpty] Sending list_processes request...");
+			logVerbose("[TEST][listEmpty] Sending list_processes request...");
 			const response = (await sendRequest(
 				serverProcess,
 				listRequest,
 			)) as MCPResponse;
-			console.log(
+			logVerbose(
 				"[TEST][listEmpty] Received response:",
 				JSON.stringify(response),
 			);
 
-			console.log("[TEST][listEmpty] Asserting response properties...");
+			logVerbose("[TEST][listEmpty] Asserting response properties...");
 			expect(
 				response.error,
 				`Expected error to be undefined, got: ${JSON.stringify(response.error)}`,
@@ -398,11 +425,11 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 	it(
 		"should respond successfully to health_check",
 		async () => {
-			console.log("[TEST][healthCheck] Starting test...");
+			logVerbose("[TEST][healthCheck] Starting test...");
 			if (!serverProcess) {
 				throw new Error("Server process not initialized in beforeAll");
 			}
-			console.log("[TEST][healthCheck] Server process check passed.");
+			logVerbose("[TEST][healthCheck] Server process check passed.");
 
 			const healthRequest = {
 				jsonrpc: "2.0",
@@ -413,18 +440,18 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				},
 				id: "req-health-1",
 			};
-			console.log("[TEST][healthCheck] Sending health_check request...");
+			logVerbose("[TEST][healthCheck] Sending health_check request...");
 
 			const response = (await sendRequest(
 				serverProcess,
 				healthRequest,
 			)) as MCPResponse;
-			console.log(
+			logVerbose(
 				"[TEST][healthCheck] Received response:",
 				JSON.stringify(response),
 			);
 
-			console.log("[TEST][healthCheck] Asserting response properties...");
+			logVerbose("[TEST][healthCheck] Asserting response properties...");
 			expect(response.id).toBe("req-health-1");
 			expect(
 				response.result,
@@ -435,7 +462,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				`Expected error to be undefined, got: ${JSON.stringify(response.error)}`,
 			).toBeUndefined();
 
-			console.log("[TEST][healthCheck] Asserting result properties...");
+			logVerbose("[TEST][healthCheck] Asserting result properties...");
 			// Correctly access and parse the result payload
 			const resultContent = response.result as ResultContent;
 			expect(resultContent?.content?.[0]?.text).toBeDefined();
@@ -449,7 +476,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				// In fast mode (which tests always use), zombie check is disabled
 				expect(result.zombie_check_active).toBe(false);
 				console.log("[TEST][healthCheck] Assertions passed.");
-				console.log("[TEST][healthCheck] Test finished.");
+				logVerbose("[TEST][healthCheck] Test finished.");
 			} catch (e) {
 				throw new Error(`Failed to parse health_check result payload: ${e}`);
 			}
@@ -462,11 +489,11 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 	it(
 		"should start a simple process and receive confirmation",
 		async () => {
-			console.log("[TEST][startProcess] Starting test...");
+			logVerbose("[TEST][startProcess] Starting test...");
 			if (!serverProcess) {
 				throw new Error("Server process not initialized in beforeAll");
 			}
-			console.log("[TEST][startProcess] Server process check passed.");
+			logVerbose("[TEST][startProcess] Server process check passed.");
 			const uniqueLabel = `test-process-${Date.now()}`;
 			const command = "node";
 			const args = [
@@ -474,7 +501,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				"console.log('Node process started'); setTimeout(() => console.log('Node process finished'), 200);",
 			];
 			const workingDirectory = path.resolve(__dirname); // Use test dir as CWD
-			console.log(
+			logVerbose(
 				`[TEST][startProcess] Generated label: ${uniqueLabel}, CWD: ${workingDirectory}`,
 			);
 
@@ -492,18 +519,18 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				},
 				id: "req-start-1",
 			};
-			console.log("[TEST][startProcess] Sending start request...");
+			logVerbose("[TEST][startProcess] Sending start request...");
 
 			const response = (await sendRequest(
 				serverProcess,
 				startRequest,
 			)) as MCPResponse;
-			console.log(
+			logVerbose(
 				"[TEST][startProcess] Received response:",
 				JSON.stringify(response),
 			);
 
-			console.log("[TEST][startProcess] Asserting response properties...");
+			logVerbose("[TEST][startProcess] Asserting response properties...");
 			expect(response.id).toBe("req-start-1");
 			expect(
 				response.result,
@@ -514,7 +541,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				`Expected error to be undefined, got: ${JSON.stringify(response.error)}`,
 			).toBeUndefined();
 
-			console.log("[TEST][startProcess] Asserting result properties...");
+			logVerbose("[TEST][startProcess] Asserting result properties...");
 			// Correctly access and parse the result payload
 			const startResultContent = response.result as {
 				content: Array<{ type: string; text: string }>;
@@ -534,7 +561,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			console.log("[TEST][startProcess] Assertions passed.");
 
 			// Optional: Add a short delay and check status again (tests checkProcessStatus)
-			console.log("[TEST][startProcess] Waiting briefly...");
+			logVerbose("[TEST][startProcess] Waiting briefly...");
 			await new Promise((resolve) => setTimeout(resolve, 500));
 
 			// Cleanup: Stop the process (tests stopProcess)
@@ -547,17 +574,17 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				},
 				id: `req-stop-${uniqueLabel}`,
 			};
-			console.log("[TEST][stop] Sending stop_process request...");
+			logVerbose("[TEST][stop] Sending stop_process request...");
 			const stopResponse = (await sendRequest(
 				serverProcess,
 				stopRequest,
 			)) as MCPResponse;
-			console.log(
+			logVerbose(
 				"[TEST][stop] Received stop response:",
 				JSON.stringify(stopResponse),
 			);
 			// We don't strictly need to await or check the stop response here, main goal is cleanup
-			console.log("[TEST][startProcess] Test finished.");
+			logVerbose("[TEST][startProcess] Test finished.");
 		},
 		TEST_TIMEOUT,
 	);
@@ -566,7 +593,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 	it(
 		"should list one running process after starting it",
 		async () => {
-			console.log("[TEST][listOne] Starting test...");
+			logVerbose("[TEST][listOne] Starting test...");
 			if (!serverProcess) {
 				throw new Error("Server process not initialized in beforeAll");
 			}
@@ -579,7 +606,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				"console.log('Process for listing test'); setInterval(() => {}, 1000);",
 			]; // Keep alive
 			const workingDirectory = path.resolve(__dirname);
-			console.log(`[TEST][listOne] Starting process ${uniqueLabel}...`);
+			logVerbose(`[TEST][listOne] Starting process ${uniqueLabel}...`);
 			const startRequest = {
 				jsonrpc: "2.0",
 				method: "tools/call",
@@ -591,7 +618,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			};
 			// We need to wait for the start request to complete, but we don't need to assert its result here
 			await sendRequest(serverProcess, startRequest);
-			console.log(`[TEST][listOne] Process ${uniqueLabel} started.`);
+			logVerbose(`[TEST][listOne] Process ${uniqueLabel} started.`);
 			// --- End Process Start ---
 
 			// --- Now List Processes ---
@@ -605,17 +632,17 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				id: "req-list-one-1",
 			};
 
-			console.log("[TEST][listOne] Sending list_processes request...");
+			logVerbose("[TEST][listOne] Sending list_processes request...");
 			const response = (await sendRequest(
 				serverProcess,
 				listRequest,
 			)) as MCPResponse;
-			console.log(
+			logVerbose(
 				"[TEST][listOne] Received response:",
 				JSON.stringify(response),
 			);
 
-			console.log("[TEST][listOne] Asserting response properties...");
+			logVerbose("[TEST][listOne] Asserting response properties...");
 			expect(response.error).toBeUndefined();
 			expect(response.result).toBeDefined();
 
@@ -661,11 +688,11 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				},
 				id: "req-stop-cleanup-list-1",
 			};
-			console.log(
+			logVerbose(
 				`[TEST][listOne] Sending stop request for cleanup (${uniqueLabel})...`,
 			);
 			await sendRequest(serverProcess, stopRequest);
-			console.log("[TEST][listOne] Cleanup stop request sent. Test finished.");
+			logVerbose("[TEST][listOne] Cleanup stop request sent. Test finished.");
 			// --- End Cleanup ---
 		},
 		TEST_TIMEOUT,
@@ -675,7 +702,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 	it(
 		"should check the status of a running process",
 		async () => {
-			console.log("[TEST][checkStatus] Starting test...");
+			logVerbose("[TEST][checkStatus] Starting test...");
 			if (!serverProcess) {
 				throw new Error("Server process not initialized in beforeAll");
 			}
@@ -688,7 +715,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				"console.log('Process for checking status'); setInterval(() => {}, 1000);",
 			]; // Keep alive
 			const workingDirectory = path.resolve(__dirname);
-			console.log(`[TEST][checkStatus] Starting process ${uniqueLabel}...`);
+			logVerbose(`[TEST][checkStatus] Starting process ${uniqueLabel}...`);
 			const startRequest = {
 				jsonrpc: "2.0",
 				method: "tools/call",
@@ -700,7 +727,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			};
 			// We need to wait for the start request to complete, but we don't need to assert its result here
 			await sendRequest(serverProcess, startRequest);
-			console.log(`[TEST][checkStatus] Process ${uniqueLabel} started.`);
+			logVerbose(`[TEST][checkStatus] Process ${uniqueLabel} started.`);
 			// --- End Process Start ---
 
 			// --- Now Check Process Status ---
@@ -713,25 +740,23 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				},
 				id: "req-check-1",
 			};
-			console.log(
-				"[TEST][checkStatus] Sending check_process_status request...",
-			);
+			logVerbose("[TEST][checkStatus] Sending check_process_status request...");
 
 			const response = (await sendRequest(
 				serverProcess,
 				checkRequest,
 			)) as MCPResponse;
-			console.log(
+			logVerbose(
 				`[TEST][checkStatus] Received response: ${JSON.stringify(response)}`,
 			);
 
-			console.log("[TEST][checkStatus] Asserting response properties...");
+			logVerbose("[TEST][checkStatus] Asserting response properties...");
 			expect(response).toBeDefined();
 			expect(response.id).toBe("req-check-1"); // Use the correct request ID
 			expect(response.error).toBeUndefined();
 			expect(response.result).toBeDefined();
 
-			console.log("[TEST][checkStatus] Asserting result properties...");
+			logVerbose("[TEST][checkStatus] Asserting result properties...");
 			// Correctly access and parse the result payload
 			const resultContent = (response.result as ResultContent)?.content?.[0]; // Use ResultContent type
 			expect(resultContent?.text).toBeDefined();
@@ -745,8 +770,8 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				expect(processStatus.logs?.length).toBeGreaterThanOrEqual(1); // Should have at least the spawn log
 
 				// --> FIX: Check for the actual log output of this process
-				const logs1 = processStatus.logs ?? []; // Use processStatus directly
-				console.log(
+				const logs1 = processStatus.logs ?? [];
+				logVerbose(
 					`[TEST][checkStatus] First check logs (${logs1.length}):`,
 					logs1,
 				);
@@ -762,7 +787,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				);
 			}
 
-			console.log("[TEST][checkStatus] Sending stop request for cleanup...");
+			logVerbose("[TEST][checkStatus] Sending stop request for cleanup...");
 			const stopRequest = {
 				jsonrpc: "2.0",
 				method: "tools/call",
@@ -774,7 +799,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			};
 			if (!serverProcess) throw new Error("Server process is null"); // Check before use
 			await sendRequest(serverProcess, stopRequest);
-			console.log(
+			logVerbose(
 				"[TEST][checkStatus] Cleanup stop request sent. Test finished.",
 			);
 			// --- End Cleanup ---
@@ -786,7 +811,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 	it(
 		"should restart a running process",
 		async () => {
-			console.log("[TEST][restart] Starting test...");
+			logVerbose("[TEST][restart] Starting test...");
 			if (!serverProcess) {
 				throw new Error("Server process not initialized in beforeAll");
 			}
@@ -800,7 +825,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				"console.log(`Restart test process started PID: ${process.pid}`); setInterval(() => {}, 1000);",
 			];
 			const workingDirectory = path.resolve(__dirname);
-			console.log(`[TEST][restart] Starting initial process ${uniqueLabel}...`);
+			logVerbose(`[TEST][restart] Starting initial process ${uniqueLabel}...`);
 			const startRequest = {
 				jsonrpc: "2.0",
 				method: "tools/call",
@@ -814,7 +839,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				serverProcess,
 				startRequest,
 			)) as MCPResponse;
-			console.log(`[TEST][restart] Initial process ${uniqueLabel} started.`);
+			logVerbose(`[TEST][restart] Initial process ${uniqueLabel} started.`);
 			const startResultContent = startResponse.result as {
 				content: Array<{ type: string; text: string }>;
 			};
@@ -823,7 +848,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			) as ProcessStatusResult;
 			const initialPid = initialProcessInfo.pid;
 			expect(initialPid).toBeGreaterThan(0);
-			console.log(`[TEST][restart] Initial PID: ${initialPid}`);
+			logVerbose(`[TEST][restart] Initial PID: ${initialPid}`);
 			// --- End Process Start ---
 
 			// --- Now Restart the Process ---
@@ -836,17 +861,17 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				},
 				id: `req-restart-${uniqueLabel}`,
 			};
-			console.log("[TEST][restart] Sending restart_process request...");
+			logVerbose("[TEST][restart] Sending restart_process request...");
 			const restartResponse = (await sendRequest(
 				serverProcess,
 				restartRequest,
 			)) as MCPResponse;
-			console.log(
+			logVerbose(
 				"[TEST][restart] Received restart response:",
 				JSON.stringify(restartResponse),
 			);
 
-			console.log("[TEST][restart] Asserting restart response properties...");
+			logVerbose("[TEST][restart] Asserting restart response properties...");
 			// Check for direct error from the tool call itself
 			expect(
 				restartResponse.error,
@@ -879,7 +904,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			const restartedPid = restartResult?.pid;
 			expect(restartedPid).toBeGreaterThan(0);
 			expect(restartedPid).not.toBe(initialPid); // Verify PID has changed
-			console.log(`[TEST][restart] Restarted PID: ${restartedPid}`);
+			logVerbose(`[TEST][restart] Restarted PID: ${restartedPid}`);
 			console.log("[TEST][restart] Restart response assertions passed.");
 			// --- End Restart Process ---
 
@@ -894,7 +919,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				id: `req-check-after-restart-${uniqueLabel}`,
 			};
 
-			console.log(
+			logVerbose(
 				"[TEST][restart] Sending check_process_status request after restart...",
 			);
 			const checkResponse = (await sendRequest(
@@ -927,11 +952,11 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				},
 				id: `req-stop-cleanup-restart-${uniqueLabel}`,
 			};
-			console.log(
+			logVerbose(
 				`[TEST][restart] Sending stop request for cleanup (${uniqueLabel})...`,
 			);
 			await sendRequest(serverProcess, stopRequest);
-			console.log("[TEST][restart] Cleanup stop request sent. Test finished.");
+			logVerbose("[TEST][restart] Cleanup stop request sent. Test finished.");
 			// --- End Cleanup ---
 		},
 		TEST_TIMEOUT * 2,
@@ -941,14 +966,14 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 	it(
 		"should filter logs correctly on repeated checks of an active process",
 		async () => {
-			console.log("[TEST][checkLogsFilter] Starting test...");
+			logVerbose("[TEST][checkLogsFilter] Starting test...");
 			const label = `test-log-filter-${Date.now()}`;
 			const logIntervalMs = 500; // Log every 500ms
 			const initialWaitMs = 4000; // Wait longer than interval for first logs
 			const secondWaitMs = 1500; // Wait again for more logs
 
 			// Start a process that logs periodically
-			console.log(`[TEST][checkLogsFilter] Starting process ${label}...`);
+			logVerbose(`[TEST][checkLogsFilter] Starting process ${label}...`);
 			const startRequest = {
 				jsonrpc: "2.0",
 				method: "tools/call",
@@ -973,20 +998,20 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				serverProcess,
 				startRequest,
 			)) as MCPResponse;
-			console.log(
+			logVerbose(
 				`[TEST][checkLogsFilter] Process ${label} started response received.`,
 			);
 			expect(startResponse).toHaveProperty("result");
 
 			// Wait for verification and status update to likely occur
-			console.log(
+			logVerbose(
 				`[TEST][checkLogsFilter] Waiting ${initialWaitMs}ms for initial logs and status update...`,
 			); // Increased wait time
 			await new Promise((resolve) => setTimeout(resolve, initialWaitMs)); // Inline delay
-			console.log("[TEST][checkLogsFilter] Initial wait complete.");
+			logVerbose("[TEST][checkLogsFilter] Initial wait complete.");
 
 			// --- First Check: Expect 'running' status and initial logs ---
-			console.log(
+			logVerbose(
 				`[TEST][checkLogsFilter] Sending first check_process_status for ${label}...`,
 			);
 			const checkRequest1 = {
@@ -1003,7 +1028,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				serverProcess,
 				checkRequest1,
 			)) as MCPResponse;
-			console.log("[TEST][checkLogsFilter] Received first check response.");
+			logVerbose("[TEST][checkLogsFilter] Received first check response.");
 			expect(check1Response).toHaveProperty("result");
 			// Type assertion for result content
 			const check1ResultContent = (check1Response.result as ResultContent)
@@ -1021,7 +1046,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 
 			// --> FIX: Check for the actual log output of this process
 			const logs1 = result1.logs ?? [];
-			console.log(
+			logVerbose(
 				`[TEST][checkLogsFilter] First check logs (${logs1.length}):`,
 				logs1,
 			);
@@ -1030,12 +1055,12 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			expect(logs1).toContain("Start");
 
 			// Wait again for more logs to be generated
-			console.log("[TEST][checkLogsFilter] Waiting 4000ms for more logs...");
+			logVerbose("[TEST][checkLogsFilter] Waiting 4000ms for more logs...");
 			await new Promise((resolve) => setTimeout(resolve, secondWaitMs)); // Inline delay
-			console.log("[TEST][checkLogsFilter] Second wait complete.");
+			logVerbose("[TEST][checkLogsFilter] Second wait complete.");
 
 			// Second check_process_status call
-			console.log(
+			logVerbose(
 				`[TEST][checkLogsFilter] Sending second check_process_status for ${label}...`,
 			);
 			const check2Request = {
@@ -1052,7 +1077,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				serverProcess,
 				check2Request,
 			)) as MCPResponse;
-			console.log("[TEST][checkLogsFilter] Received second check response.");
+			logVerbose("[TEST][checkLogsFilter] Received second check response.");
 			expect(check2Response).toHaveProperty("result");
 			// Type assertion for result content
 			const check2ResultContent = check2Response.result as {
@@ -1065,11 +1090,11 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			// --> Define logs2 from result2
 			const logs2 = result2.logs ?? [];
 
-			console.log(
+			logVerbose(
 				"[TEST][checkLogsFilter] Second check status:",
 				result2.status,
 			);
-			console.log(
+			logVerbose(
 				"[TEST][checkLogsFilter] Second check logs (%d):",
 				logs2.length,
 				logs2,
@@ -1084,7 +1109,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			console.log("[TEST][checkLogsFilter] Assertions passed.");
 
 			// Cleanup: Stop the process
-			console.log(
+			logVerbose(
 				`[TEST][checkLogsFilter] Sending stop request for cleanup (${label})...`,
 			);
 			const stopRequest = {
@@ -1098,7 +1123,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			};
 			if (!serverProcess) throw new Error("Server process is null"); // Check before use
 			await sendRequest(serverProcess, stopRequest);
-			console.log(
+			logVerbose(
 				`[TEST][checkLogsFilter] Cleanup stop request sent for ${label}. Test finished.`,
 			);
 		},
