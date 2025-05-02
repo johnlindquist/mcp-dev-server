@@ -200,7 +200,7 @@ export async function listProcessesImpl(
 		}
 	}
 
-	return ok(textPayload(JSON.stringify(processList, null, 2)));
+	return ok(textPayload(JSON.stringify(processList)));
 }
 
 export async function stopProcessImpl(
@@ -208,6 +208,9 @@ export async function stopProcessImpl(
 ): Promise<CallToolResult> {
 	const { label, force } = params;
 	const result = await stopProcess(label, force);
+	if (typeof result === "object" && result !== null && !Array.isArray(result)) {
+		return ok(textPayload(JSON.stringify(result)));
+	}
 	return result;
 }
 
@@ -356,6 +359,21 @@ export async function restartProcessImpl(
 	}
 
 	log.info(label, "Process restarted successfully.");
+	if (
+		typeof startResult === "object" &&
+		startResult !== null &&
+		!Array.isArray(startResult) &&
+		"payload" in startResult &&
+		Array.isArray(startResult.payload) &&
+		startResult.payload[0]?.content
+	) {
+		try {
+			const parsed = JSON.parse(startResult.payload[0].content);
+			return ok(textPayload(JSON.stringify(parsed)));
+		} catch {
+			return ok(textPayload(startResult.payload[0].content));
+		}
+	}
 	return startResult;
 }
 
