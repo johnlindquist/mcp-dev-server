@@ -13,7 +13,7 @@ describe("analyseLogs", () => {
 		expect(summary.message).toMatch(/Errors \(1\)/);
 		expect(summary.message).toMatch(/Warnings \(1\)/);
 		expect(summary.message).toMatch(/URLs \(1\)/);
-		expect(summary.message).toMatch(/Prompts \(1\)/);
+		expect(summary.message).toMatch(/⌨️ Prompts \(1\)/);
 		expect(summary.message).toMatch(
 			/Since last check: ❌ Errors \(1\), ⚠️ Warnings \(1\), 🔗 URLs \(1\), ⌨️ Prompts \(1\)\./,
 		);
