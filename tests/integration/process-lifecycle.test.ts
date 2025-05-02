@@ -226,12 +226,12 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 
 			logVerbose("[TEST][startProcess] Asserting result properties...");
 			const result = response.result as CallToolResult;
-			expect(result?.payload?.[0]?.content).toBeDefined();
+			expect(result?.content?.[0]?.text).toBeDefined();
 			let startResult: ProcessStatusResult | null = null;
 			try {
-				startResult = JSON.parse(result.payload[0].content);
+				startResult = JSON.parse(result.content[0].text);
 			} catch (e) {
-				throw new Error(`Failed to parse start_process result payload: ${e}`);
+				throw new Error(`Failed to parse start_process result content: ${e}`);
 			}
 			expect(startResult).not.toBeNull();
 			if (startResult) {
@@ -319,7 +319,7 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 
 			logVerbose("[TEST][checkStatus] Asserting result properties...");
 			const result = response.result as CallToolResult;
-			const resultContentText = result?.payload?.[0]?.content;
+			const resultContentText = result?.content?.[0]?.text;
 			expect(resultContentText).toBeDefined();
 
 			try {
@@ -342,12 +342,12 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 					console.log("[TEST][checkStatus] Assertions passed.");
 				} else {
 					throw new Error(
-						"Received null or undefined payload content for check_process_status",
+						"Received null or undefined content text for check_process_status",
 					);
 				}
 			} catch (e) {
 				throw new Error(
-					`Failed to parse check_process_status result payload: ${e}`,
+					`Failed to parse check_process_status result content: ${e}`,
 				);
 			}
 
@@ -397,7 +397,7 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 			logVerbose(`[TEST][restart] Initial process ${uniqueLabel} started.`);
 			const startResult = startResponse.result as CallToolResult;
 			const initialProcessInfo = JSON.parse(
-				startResult.payload[0].content,
+				startResult.content[0].text,
 			) as ProcessStatusResult;
 			const initialPid = initialProcessInfo.pid;
 			expect(initialPid).toBeGreaterThan(0);
@@ -438,15 +438,15 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 			const restartResultWrapper = restartResponse.result as CallToolResult;
 			expect(
 				restartResultWrapper.isError,
-				`Restart result indicates an error: ${restartResultWrapper.payload?.[0]?.content}`,
+				`Restart result indicates an error: ${restartResultWrapper.content?.[0]?.text}`,
 			).toBeFalsy();
-			expect(restartResultWrapper?.payload?.[0]?.content).toBeDefined();
+			expect(restartResultWrapper?.content?.[0]?.text).toBeDefined();
 
 			let restartResult: ProcessStatusResult | null = null;
 			try {
-				restartResult = JSON.parse(restartResultWrapper.payload[0].content);
+				restartResult = JSON.parse(restartResultWrapper.content[0].text);
 			} catch (e) {
-				throw new Error(`Failed to parse restart_process result payload: ${e}`);
+				throw new Error(`Failed to parse restart_process result content: ${e}`);
 			}
 			expect(restartResult?.label).toBe(uniqueLabel);
 			expect(restartResult?.status).toBe("running");
@@ -477,7 +477,7 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 			let checkResult: ProcessStatusResult | null = null;
 			const checkResultWrapper = checkResponse.result as CallToolResult;
 			try {
-				checkResult = JSON.parse(checkResultWrapper.payload[0].content);
+				checkResult = JSON.parse(checkResultWrapper.content[0].text);
 			} catch (e) {}
 
 			expect(checkResult?.status).toBe("running");

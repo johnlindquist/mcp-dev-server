@@ -1,53 +1,51 @@
-import type { ZodRawShape } from "zod";
 import type {
+	AudioContent,
 	CallToolResult,
+	EmbeddedResource,
+	ImageContent,
 	TextContent,
-	ToolContent,
-} from "./types/index.js"; // Update path
+} from "@modelcontextprotocol/sdk/types.js";
+import type { ZodRawShape } from "zod";
+
+// Union type for tool content
+export type ToolContent =
+	| TextContent
+	| ImageContent
+	| AudioContent
+	| EmbeddedResource;
 
 export const textPayload = (text: string): TextContent =>
 	({ type: "text", text }) as const;
 
-// Helper to create the payload structure
-function createPayload(
-	isError: boolean,
-	...content: readonly ToolContent[]
-): CallToolResult {
-	let payloadContent: string;
-	let contentType: "text/plain";
-	const finalIsError = isError; // Use a local variable
-
-	if (content.length === 0) {
-		payloadContent = "";
-		contentType = "text/plain";
-	} else {
-		const [firstContent] = content;
-		if (typeof firstContent === "string") {
-			payloadContent = firstContent;
-		} else if (
-			typeof firstContent === "object" &&
-			firstContent !== null &&
-			"text" in firstContent &&
-			typeof firstContent.text === "string"
-		) {
-			payloadContent = firstContent.text;
-		} else {
-			payloadContent = String(firstContent);
-		}
-		contentType = "text/plain";
-	}
-
+// NEW ok() function
+export const ok = (
+	...contentItems: readonly (
+		| TextContent
+		| ImageContent
+		| AudioContent
+		| EmbeddedResource
+	)[]
+): CallToolResult => {
 	return {
-		isError: finalIsError, // Return the local variable's value
-		payload: [{ contentType, content: payloadContent }],
+		content: [...contentItems],
+		isError: false,
 	};
-}
+};
 
-export const ok = (...c: readonly ToolContent[]): CallToolResult =>
-	createPayload(false, ...c);
-
-export const fail = (...c: readonly ToolContent[]): CallToolResult =>
-	createPayload(true, ...c);
+// NEW fail() function
+export const fail = (
+	...contentItems: readonly (
+		| TextContent
+		| ImageContent
+		| AudioContent
+		| EmbeddedResource
+	)[]
+): CallToolResult => {
+	return {
+		content: [...contentItems],
+		isError: true,
+	};
+};
 
 export const shape = <T extends ZodRawShape>(x: T) => x;
 
@@ -57,13 +55,16 @@ export const safeSubstring = (v: unknown, len = 100): string =>
 export const isRunning = (status: string) =>
 	status === "running" || status === "verifying";
 
-// Update getResultText to access the correct structure
+// UPDATED getResultText to read from the new structure
 export const getResultText = (result: CallToolResult): string | null => {
-	if (result.payload && result.payload.length > 0) {
-		const firstPayload = result.payload[0];
-		if (firstPayload?.content) {
-			return firstPayload.content;
+	if (result.content && result.content.length > 0) {
+		const firstTextContent = result.content.find(
+			(item): item is TextContent => (item as TextContent).type === "text",
+		);
+		if (firstTextContent) {
+			return firstTextContent.text;
 		}
+		return null;
 	}
 	return null;
 };

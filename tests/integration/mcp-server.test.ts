@@ -226,13 +226,13 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			expect(response.result).toBeDefined();
 
 			const result = response.result as CallToolResult;
-			expect(result?.payload?.[0]?.content).toBeDefined();
+			expect(result?.content?.[0]?.text).toBeDefined();
 
 			let listResult: ProcessStatusResult[] | null = null;
 			try {
-				listResult = JSON.parse(result.payload[0].content);
+				listResult = JSON.parse(result.content[0].text);
 			} catch (e) {
-				throw new Error(`Failed to parse list_processes result payload: ${e}`);
+				throw new Error(`Failed to parse list_processes result content: ${e}`);
 			}
 
 			expect(listResult).toBeInstanceOf(Array);

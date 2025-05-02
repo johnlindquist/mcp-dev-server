@@ -1,3 +1,4 @@
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { z } from "zod";
 import { cfg } from "./constants/index.js";
 import { fail, getResultText, ok, textPayload } from "./mcpUtils.js";
@@ -8,7 +9,6 @@ import {
 } from "./processSupervisor.js";
 import { writeToPty } from "./ptyManager.js";
 import { addLogEntry, managedProcesses } from "./state.js";
-import type { CallToolResult } from "./types/index.js";
 import type { LogEntry } from "./types/process.js";
 import type {
 	CheckProcessStatusParamsType as CheckProcessStatusParams,
@@ -247,7 +247,7 @@ export async function stopAllProcessesImpl(): Promise<CallToolResult> {
 					label,
 					status: resultJson.status ?? "unknown",
 					message: resultJson.message ?? "Stop signal sent.",
-					is_error: stopResult.isError,
+					is_error: !!stopResult.isError,
 				});
 				if (stopResult.isError) {
 					errorCount++;

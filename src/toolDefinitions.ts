@@ -12,9 +12,10 @@ import {
 	stopAllProcessesImpl,
 	waitForProcessImpl,
 } from "./toolImplementations.js";
-import type { ToolContent } from "./types/index.js";
 import * as schemas from "./types/schemas.js";
 import { log } from "./utils.js";
+// If needed, import SDK types for tool content/results:
+// import type { CallToolResult, TextContent, ImageContent, AudioContent, EmbeddedResource } from "@modelcontextprotocol/sdk/types.js";
 
 const shape = <T extends ZodRawShape>(shape: T): T => shape;
 
@@ -36,45 +37,6 @@ export type GetAllLoglinesParamsType = z.infer<
 	typeof schemas.GetAllLoglinesParams
 >;
 export type SendInputParamsType = z.infer<typeof schemas.SendInputParams>;
-
-function toMcpSdkResponse(result: Awaited<ReturnType<typeof handleToolCall>>): {
-	content: ToolContent[];
-	payload: { content: string }[];
-	rawPayload: { content: string }[];
-	isError?: boolean;
-} {
-	// Always serialize payload content to JSON string if not already a string
-	const payloadArr = Array.isArray(result.payload)
-		? result.payload.map((p) => {
-				if (typeof p === "string") return { content: p };
-				if (
-					typeof p === "object" &&
-					p !== null &&
-					"content" in p &&
-					typeof p.content === "string"
-				) {
-					return { content: p.content };
-				}
-				return { content: JSON.stringify(p) };
-			})
-		: result.payload
-			? [
-					{
-						content:
-							typeof result.payload === "string"
-								? result.payload
-								: JSON.stringify(result.payload),
-					},
-				]
-			: [];
-
-	return {
-		content: payloadArr.map((p) => ({ type: "text", text: p.content })),
-		payload: payloadArr,
-		rawPayload: payloadArr,
-		isError: result.isError,
-	};
-}
 
 export function registerToolDefinitions(server: McpServer): void {
 	server.tool(
@@ -113,7 +75,7 @@ export function registerToolDefinitions(server: McpServer): void {
 						false,
 					);
 				},
-			).then(toMcpSdkResponse);
+			);
 		},
 	);
 
@@ -127,7 +89,7 @@ export function registerToolDefinitions(server: McpServer): void {
 				"check_process_status",
 				params,
 				async () => await checkProcessStatusImpl(params),
-			).then(toMcpSdkResponse);
+			);
 		},
 	);
 
@@ -141,7 +103,7 @@ export function registerToolDefinitions(server: McpServer): void {
 				"stop_process",
 				params,
 				async () => await stopProcess(params.label, params.force),
-			).then(toMcpSdkResponse);
+			);
 		},
 	);
 
@@ -155,7 +117,7 @@ export function registerToolDefinitions(server: McpServer): void {
 				"stop_all_processes",
 				{},
 				async () => await stopAllProcessesImpl(),
-			).then(toMcpSdkResponse);
+			);
 		},
 	);
 
@@ -169,7 +131,7 @@ export function registerToolDefinitions(server: McpServer): void {
 				"list_processes",
 				params,
 				async () => await listProcessesImpl(params),
-			).then(toMcpSdkResponse);
+			);
 		},
 	);
 
@@ -183,7 +145,7 @@ export function registerToolDefinitions(server: McpServer): void {
 				"restart_process",
 				params,
 				async () => await restartProcessImpl(params),
-			).then(toMcpSdkResponse);
+			);
 		},
 	);
 
@@ -197,7 +159,7 @@ export function registerToolDefinitions(server: McpServer): void {
 				"wait_for_process",
 				params,
 				async () => await waitForProcessImpl(params),
-			).then(toMcpSdkResponse);
+			);
 		},
 	);
 
@@ -211,7 +173,7 @@ export function registerToolDefinitions(server: McpServer): void {
 				"get_all_loglines",
 				params,
 				async () => await getAllLoglinesImpl(params),
-			).then(toMcpSdkResponse);
+			);
 		},
 	);
 
@@ -230,7 +192,7 @@ export function registerToolDefinitions(server: McpServer): void {
 						params.input,
 						params.append_newline,
 					),
-			).then(toMcpSdkResponse);
+			);
 		},
 	);
 
@@ -244,7 +206,7 @@ export function registerToolDefinitions(server: McpServer): void {
 				"health_check",
 				{},
 				async () => await healthCheckImpl(),
-			).then(toMcpSdkResponse);
+			);
 		},
 	);
 

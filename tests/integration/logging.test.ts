@@ -236,7 +236,7 @@ describe("Tool Features: Logging and Summaries", () => {
 			logVerbose("[TEST][checkLogsFilter] Received first check response.");
 			expect(check1Response).toHaveProperty("result");
 			const check1Result = check1Response.result as CallToolResult;
-			const result1ContentText = check1Result?.payload?.[0]?.content;
+			const result1ContentText = check1Result?.content?.[0]?.text;
 			expect(result1ContentText).toBeDefined();
 			const result1 = JSON.parse(result1ContentText) as ProcessStatusResult;
 			let result1Logs: string[] = [];
@@ -274,7 +274,7 @@ describe("Tool Features: Logging and Summaries", () => {
 			logVerbose("[TEST][checkLogsFilter] Received second check response.");
 			expect(check2Response).toHaveProperty("result");
 			const check2Result = check2Response.result as CallToolResult;
-			const result2ContentText = check2Result?.payload?.[0]?.content;
+			const result2ContentText = check2Result?.content?.[0]?.text;
 			expect(result2ContentText).toBeDefined();
 			const result2 = JSON.parse(result2ContentText) as ProcessStatusResult;
 			let result2Logs: string[] = [];
@@ -378,7 +378,7 @@ describe("Tool Features: Logging and Summaries", () => {
 			logVerbose("[TEST][checkSummary] Received first check response.");
 			expect(check1Response).toHaveProperty("result");
 			const check1Result = check1Response.result as CallToolResult;
-			const result1ContentText = check1Result?.payload?.[0]?.content;
+			const result1ContentText = check1Result?.content?.[0]?.text;
 			expect(result1ContentText).toBeDefined();
 			const result1 = JSON.parse(result1ContentText) as ProcessStatusResult & {
 				message?: string;
@@ -419,7 +419,7 @@ describe("Tool Features: Logging and Summaries", () => {
 			logVerbose("[TEST][checkSummary] Received second check response.");
 			expect(check2Response).toHaveProperty("result");
 			const check2Result = check2Response.result as CallToolResult;
-			const result2ContentText = check2Result?.payload?.[0]?.content;
+			const result2ContentText = check2Result?.content?.[0]?.text;
 			expect(result2ContentText).toBeDefined();
 			const result2 = JSON.parse(result2ContentText) as ProcessStatusResult & {
 				message?: string;

@@ -3,6 +3,7 @@ import * as path from "node:path";
 import type { IPty } from "node-pty";
 import type { z } from "zod";
 
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { cfg } from "../constants/index.js";
 import { fail, ok, textPayload } from "../mcpUtils.js";
 import { checkAndUpdateProcessStatus } from "../processSupervisor.js";
@@ -13,7 +14,6 @@ import {
 	managedProcesses,
 	updateProcessStatus,
 } from "../state.js";
-import type { CallToolResult } from "../types/index.js";
 import type {
 	HostEnumType,
 	ProcessInfo,
