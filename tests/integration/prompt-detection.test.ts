@@ -234,4 +234,303 @@ echo "OSC 133 Configured"
 		};
 		await sendRequest(serverProcess, stopRequest);
 	});
+
+	it("should reset isAwaitingInput after command and set it again after next prompt", async () => {
+		const label = `${LABEL_PREFIX}reset-${Date.now()}`;
+		// Start bash -i
+		const startRequest = {
+			jsonrpc: "2.0",
+			method: "tools/call",
+			params: {
+				name: "start_process",
+				arguments: {
+					label,
+					command: COMMAND,
+					args: ARGS,
+					workingDirectory: process.cwd(),
+				},
+			},
+			id: `req-start-${label}`,
+		};
+		await sendRequest(serverProcess, startRequest);
+		// Inject config
+		const configRequest = {
+			jsonrpc: "2.0",
+			method: "tools/call",
+			params: {
+				name: "send_input",
+				arguments: { label, input: BASH_OSC133_CONFIG },
+			},
+			id: `req-config-${label}`,
+		};
+		await sendRequest(serverProcess, configRequest);
+		// Echo sentinel
+		const echoRequest = {
+			jsonrpc: "2.0",
+			method: "tools/call",
+			params: {
+				name: "send_input",
+				arguments: { label, input: 'echo "@@OSC133B@@"' },
+			},
+			id: `req-echo-${label}`,
+		};
+		await sendRequest(serverProcess, echoRequest);
+		await new Promise((r) => setTimeout(r, 1000));
+		// Check isAwaitingInput is true
+		const check1 = {
+			jsonrpc: "2.0",
+			method: "tools/call",
+			params: { name: "check_process_status", arguments: { label } },
+			id: `req-check1-${label}`,
+		};
+		const resp1 = (await sendRequest(serverProcess, check1)) as {
+			result: { content: { text: string }[] };
+		};
+		const result1 = JSON.parse(resp1.result.content[0].text);
+		expect(result1.isAwaitingInput).toBe(true);
+		// Send a command (should clear prompt)
+		const cmdRequest = {
+			jsonrpc: "2.0",
+			method: "tools/call",
+			params: { name: "send_input", arguments: { label, input: 'echo "hi"' } },
+			id: `req-cmd-${label}`,
+		};
+		await sendRequest(serverProcess, cmdRequest);
+		await new Promise((r) => setTimeout(r, 1000));
+		// Check again (should be true again after prompt returns)
+		const check2 = {
+			jsonrpc: "2.0",
+			method: "tools/call",
+			params: { name: "check_process_status", arguments: { label } },
+			id: `req-check2-${label}`,
+		};
+		const resp2 = (await sendRequest(serverProcess, check2)) as {
+			result: { content: { text: string }[] };
+		};
+		const result2 = JSON.parse(resp2.result.content[0].text);
+		expect(result2.isAwaitingInput).toBe(true);
+		// Cleanup
+		const stopRequest = {
+			jsonrpc: "2.0",
+			method: "tools/call",
+			params: { name: "stop_process", arguments: { label } },
+			id: `req-stop-${label}`,
+		};
+		await sendRequest(serverProcess, stopRequest);
+	});
+
+	it("should not set isAwaitingInput if no sentinel is injected", async () => {
+		const label = `${LABEL_PREFIX}no-sentinel-${Date.now()}`;
+		const startRequest = {
+			jsonrpc: "2.0",
+			method: "tools/call",
+			params: {
+				name: "start_process",
+				arguments: {
+					label,
+					command: COMMAND,
+					args: ARGS,
+					workingDirectory: process.cwd(),
+				},
+			},
+			id: `req-start-${label}`,
+		};
+		await sendRequest(serverProcess, startRequest);
+		await new Promise((r) => setTimeout(r, 1000));
+		const check = {
+			jsonrpc: "2.0",
+			method: "tools/call",
+			params: { name: "check_process_status", arguments: { label } },
+			id: `req-check-${label}`,
+		};
+		const resp = (await sendRequest(serverProcess, check)) as {
+			result: { content: { text: string }[] };
+		};
+		const result = JSON.parse(resp.result.content[0].text);
+		expect(result.isAwaitingInput).toBe(false);
+		const stopRequest = {
+			jsonrpc: "2.0",
+			method: "tools/call",
+			params: { name: "stop_process", arguments: { label } },
+			id: `req-stop-${label}`,
+		};
+		await sendRequest(serverProcess, stopRequest);
+	});
+
+	it("should handle multiple prompts in a row", async () => {
+		const label = `${LABEL_PREFIX}multi-${Date.now()}`;
+		const startRequest = {
+			jsonrpc: "2.0",
+			method: "tools/call",
+			params: {
+				name: "start_process",
+				arguments: {
+					label,
+					command: COMMAND,
+					args: ARGS,
+					workingDirectory: process.cwd(),
+				},
+			},
+			id: `req-start-${label}`,
+		};
+		await sendRequest(serverProcess, startRequest);
+		const configRequest = {
+			jsonrpc: "2.0",
+			method: "tools/call",
+			params: {
+				name: "send_input",
+				arguments: { label, input: BASH_OSC133_CONFIG },
+			},
+			id: `req-config-${label}`,
+		};
+		await sendRequest(serverProcess, configRequest);
+		for (let i = 0; i < 3; i++) {
+			const echoRequest = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "send_input",
+					arguments: { label, input: 'echo "@@OSC133B@@"' },
+				},
+				id: `req-echo-${label}-${i}`,
+			};
+			await sendRequest(serverProcess, echoRequest);
+			await new Promise((r) => setTimeout(r, 500));
+			const check = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: { name: "check_process_status", arguments: { label } },
+				id: `req-check-${label}-${i}`,
+			};
+			const resp = (await sendRequest(serverProcess, check)) as {
+				result: { content: { text: string }[] };
+			};
+			const result = JSON.parse(resp.result.content[0].text);
+			expect(result.isAwaitingInput).toBe(true);
+		}
+		const stopRequest = {
+			jsonrpc: "2.0",
+			method: "tools/call",
+			params: { name: "stop_process", arguments: { label } },
+			id: `req-stop-${label}`,
+		};
+		await sendRequest(serverProcess, stopRequest);
+	});
+
+	it("should reset isAwaitingInput after process exit", async () => {
+		const label = `${LABEL_PREFIX}exit-${Date.now()}`;
+		const startRequest = {
+			jsonrpc: "2.0",
+			method: "tools/call",
+			params: {
+				name: "start_process",
+				arguments: {
+					label,
+					command: COMMAND,
+					args: ARGS,
+					workingDirectory: process.cwd(),
+				},
+			},
+			id: `req-start-${label}`,
+		};
+		await sendRequest(serverProcess, startRequest);
+		const configRequest = {
+			jsonrpc: "2.0",
+			method: "tools/call",
+			params: {
+				name: "send_input",
+				arguments: { label, input: BASH_OSC133_CONFIG },
+			},
+			id: `req-config-${label}`,
+		};
+		await sendRequest(serverProcess, configRequest);
+		const echoRequest = {
+			jsonrpc: "2.0",
+			method: "tools/call",
+			params: {
+				name: "send_input",
+				arguments: { label, input: 'echo "@@OSC133B@@"' },
+			},
+			id: `req-echo-${label}`,
+		};
+		await sendRequest(serverProcess, echoRequest);
+		await new Promise((r) => setTimeout(r, 1000));
+		const stopRequest = {
+			jsonrpc: "2.0",
+			method: "tools/call",
+			params: { name: "stop_process", arguments: { label } },
+			id: `req-stop-${label}`,
+		};
+		await sendRequest(serverProcess, stopRequest);
+		await new Promise((r) => setTimeout(r, 500));
+		const check = {
+			jsonrpc: "2.0",
+			method: "tools/call",
+			params: { name: "check_process_status", arguments: { label } },
+			id: `req-check-${label}`,
+		};
+		const resp = (await sendRequest(serverProcess, check)) as {
+			result: { content: { text: string }[] };
+		};
+		const result = JSON.parse(resp.result.content[0].text);
+		expect([false, undefined]).toContain(result.isAwaitingInput);
+	});
+
+	it("should not set isAwaitingInput for partial sentinel", async () => {
+		const label = `${LABEL_PREFIX}partial-${Date.now()}`;
+		const startRequest = {
+			jsonrpc: "2.0",
+			method: "tools/call",
+			params: {
+				name: "start_process",
+				arguments: {
+					label,
+					command: COMMAND,
+					args: ARGS,
+					workingDirectory: process.cwd(),
+				},
+			},
+			id: `req-start-${label}`,
+		};
+		await sendRequest(serverProcess, startRequest);
+		const configRequest = {
+			jsonrpc: "2.0",
+			method: "tools/call",
+			params: {
+				name: "send_input",
+				arguments: { label, input: BASH_OSC133_CONFIG },
+			},
+			id: `req-config-${label}`,
+		};
+		await sendRequest(serverProcess, configRequest);
+		const echoRequest = {
+			jsonrpc: "2.0",
+			method: "tools/call",
+			params: {
+				name: "send_input",
+				arguments: { label, input: 'echo "@@OSC133"' },
+			},
+			id: `req-echo-${label}`,
+		};
+		await sendRequest(serverProcess, echoRequest);
+		await new Promise((r) => setTimeout(r, 1000));
+		const check = {
+			jsonrpc: "2.0",
+			method: "tools/call",
+			params: { name: "check_process_status", arguments: { label } },
+			id: `req-check-${label}`,
+		};
+		const resp = (await sendRequest(serverProcess, check)) as {
+			result: { content: { text: string }[] };
+		};
+		const result = JSON.parse(resp.result.content[0].text);
+		expect(result.isAwaitingInput).toBe(false);
+		const stopRequest = {
+			jsonrpc: "2.0",
+			method: "tools/call",
+			params: { name: "stop_process", arguments: { label } },
+			id: `req-stop-${label}`,
+		};
+		await sendRequest(serverProcess, stopRequest);
+	});
 });
