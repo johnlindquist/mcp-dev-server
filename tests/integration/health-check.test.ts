@@ -210,10 +210,10 @@ describe("Tool: health_check", () => {
 
 			logVerbose("[TEST][healthCheck] Asserting result properties...");
 			const result = response.result as CallToolResult;
-			expect(result?.payload?.[0]?.content).toBeDefined();
+			expect(result?.content?.[0]?.text).toBeDefined();
 
 			try {
-				const parsedContent = JSON.parse(result.payload[0].content);
+				const parsedContent = JSON.parse(result.content[0].text);
 				expect(parsedContent.status).toBe("ok");
 				expect(parsedContent.server_name).toBe("mcp-pm");
 				expect(parsedContent.server_version).toBeDefined();
@@ -222,7 +222,7 @@ describe("Tool: health_check", () => {
 				console.log("[TEST][healthCheck] Assertions passed.");
 				logVerbose("[TEST][healthCheck] Test finished.");
 			} catch (e) {
-				throw new Error(`Failed to parse health_check result payload: ${e}`);
+				throw new Error(`Failed to parse health_check result content: ${e}`);
 			}
 		},
 		TEST_TIMEOUT,

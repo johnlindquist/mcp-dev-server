@@ -34,7 +34,7 @@ export type CallToolResult = {
 	toolCallId?: string;
 	toolName?: string;
 	isError?: boolean;
-	payload: Array<{ type: "text"; content: string }>;
+	content: Array<{ type: "text"; text: string }>;
 };
 
 export type ProcessStatusResult = {
