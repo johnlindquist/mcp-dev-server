@@ -66,4 +66,5 @@ export interface ProcessInfo {
 	mainExitListenerDisposable?: IDisposable;
 	partialLineBuffer?: string;
 	os: OperatingSystemEnumType;
+	isAwaitingInput?: boolean;
 }

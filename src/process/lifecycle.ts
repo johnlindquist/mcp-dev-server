@@ -62,6 +62,25 @@ export function handleData(
 	// Add the log entry to the managed process state
 	// Use addLogEntry which also handles file logging
 	addLogEntry(label, data);
+
+	// OSC 133 prompt detection
+	const PROMPT_END_SEQUENCE = "\x1b]133;B";
+	const COMMAND_START_SEQUENCE = "\x1b]133;C";
+
+	if (data.includes(PROMPT_END_SEQUENCE)) {
+		log.info(
+			label,
+			"Detected OSC 133 prompt end sequence (B). Setting isAwaitingInput=true.",
+		);
+		processInfo.isAwaitingInput = true;
+	}
+	if (data.includes(COMMAND_START_SEQUENCE)) {
+		log.info(
+			label,
+			"Detected OSC 133 command start sequence (C). Setting isAwaitingInput=false.",
+		);
+		processInfo.isAwaitingInput = false;
+	}
 }
 
 /**
