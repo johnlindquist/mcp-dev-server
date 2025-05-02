@@ -25,7 +25,7 @@ export function setupLogFileStream(processInfo: ProcessInfo): void {
 	}
 
 	try {
-		const safeFilename = `${sanitizeLabelForFilename(label)}.log`;
+		const safeFilename = sanitizeLabelForFilename(label);
 		const logFilePath = path.join(serverLogDirectory, safeFilename);
 		log.info(label, `Setting up log file stream: ${logFilePath}`);
 
