@@ -1,97 +1,43 @@
 import type { z } from "zod";
-import {
-	DEFAULT_LOG_LINES,
-	MAX_STORED_LOG_LINES,
-	SERVER_NAME,
-	SERVER_VERSION,
-} from "./constants.js";
-import { fail, getResultText, ok, textPayload } from "./mcpUtils.js";
-import { _startProcess, _stopProcess } from "./processLogic.js";
+import { cfg } from "./constants/index.js";
+import { fail, getResultText, ok } from "./mcpUtils.js";
+import { startProcess, stopProcess } from "./process/lifecycle.js";
 import {
 	checkAndUpdateProcessStatus,
 	isZombieCheckActive,
 } from "./processSupervisor.js";
 import { writeToPty } from "./ptyManager.js";
 import { addLogEntry, managedProcesses } from "./state.js";
+import type { CallToolResult } from "./types/index.js";
+import type { LogEntry } from "./types/process.js";
 import type {
-	CheckProcessStatusParams,
-	GetAllLoglinesParams,
-	ListProcessesParams,
-	RestartProcessParams,
-	WaitForProcessParams,
-} from "./toolDefinitions.js";
-import type { StopProcessParams } from "./toolDefinitions.js";
-import type {
-	CallToolResult,
-	CheckStatusPayloadSchema,
-	GetAllLoglinesPayloadSchema,
-	HealthCheckPayloadSchema,
-	ListProcessDetailSchema,
-	ListProcessesPayloadSchema,
-	LogEntry,
-	ProcessStatus,
-	RestartErrorPayloadSchema,
-	StopAllProcessesPayloadSchema,
-	StopProcessPayloadSchema,
-	WaitForProcessPayloadSchema,
-} from "./types.js";
+	CheckProcessStatusParamsType as CheckProcessStatusParams,
+	GetAllLoglinesParamsType as GetAllLoglinesParams,
+	ListProcessesParamsType as ListProcessesParams,
+	RestartProcessParamsType as RestartProcessParams,
+	StopProcessParamsType as StopProcessParams,
+	WaitForProcessParamsType as WaitForProcessParams,
+} from "./types/schemas.js";
+import type * as schemas from "./types/schemas.js";
+
 import {
 	formatLogsForResponse,
 	log,
 	stripAnsiAndControlChars,
 } from "./utils.js";
 
-// --- FAST MODE --- Set MCP_PM_FAST=1 to use reduced timings
-// -----------------
-
-// Restore interfaces that were unintentionally removed
-interface CheckStatusResponsePayload {
-	label: string;
-	status: ProcessStatus;
-	pid: number | undefined;
-	command: string;
-	args: string[];
-	cwd: string;
-	exitCode: number | null;
-	signal: string | null;
-	logs: string[];
-	log_file_path: string | null | undefined;
-	tail_command: string | null | undefined;
-	hint?: string;
-}
-
-interface ListProcessDetail {
-	label: string;
-	status: ProcessStatus;
-	pid: number | undefined;
-	command: string;
-	args: string[];
-	cwd: string;
-	exitCode: number | null;
-	signal: string | null;
-	logs: string[];
-	log_hint: string | null;
-	log_file_path: string | null | undefined;
-	tail_command: string | null | undefined;
-}
-
 export async function checkProcessStatusImpl(
-	params: z.infer<typeof CheckProcessStatusParams>,
+	params: CheckProcessStatusParams,
 ): Promise<CallToolResult> {
 	const { label, log_lines } = params;
 	log.debug(label, "Tool invoked: check_process_status", { params });
 
-	// --- Check initial status and potentially wait ---
 	const initialProcessInfo = await checkAndUpdateProcessStatus(label);
 
 	if (!initialProcessInfo) {
 		log.warn(label, `Process with label "${label}" not found.`);
 		return fail(
-			textPayload(
-				JSON.stringify({
-					error: `Process with label "${label}" not found.`,
-				}),
-			),
+			JSON.stringify({ error: `Process with label "${label}" not found.` }),
 		);
 	}
 
@@ -99,10 +45,8 @@ export async function checkProcessStatusImpl(
 	const previousLastLogTimestampReturned =
 		initialProcessInfo.lastLogTimestampReturned ?? 0;
 
-	const finalProcessInfo = initialProcessInfo; // Initialize with initial info
+	const finalProcessInfo = initialProcessInfo;
 
-	// --- Filter Logs (using finalProcessInfo) ---
-	// Use the potentially updated process info (now just initialProcessInfo)
 	const allLogs: LogEntry[] = finalProcessInfo.logs || [];
 	log.debug(
 		label,
@@ -115,27 +59,27 @@ export async function checkProcessStatusImpl(
 
 	let logHint = "";
 	const returnedLogs: string[] = [];
-	let newLastLogTimestamp = previousLastLogTimestampReturned; // Default to old value
+	let newLastLogTimestamp = previousLastLogTimestampReturned;
 
-	// Decide which logs to return based on log_lines parameter
 	if (newLogs.length > 0) {
 		log.debug(label, `Found ${newLogs.length} new log entries.`);
-		// Update the timestamp in the processInfo state
 		newLastLogTimestamp = newLogs[newLogs.length - 1].timestamp;
 		log.debug(
 			label,
 			`Updating lastLogTimestampReturned in process state to ${newLastLogTimestamp}`,
 		);
-		// Ensure we update the actual state object (finalProcessInfo holds the reference)
 		finalProcessInfo.lastLogTimestampReturned = newLastLogTimestamp;
 
-		const numLogsToReturn = Math.max(0, log_lines ?? DEFAULT_LOG_LINES); // Ensure non-negative
+		const numLogsToReturn = Math.max(
+			0,
+			log_lines ?? cfg.defaultCheckStatusLogLines,
+		);
 		const startIndex = Math.max(0, newLogs.length - numLogsToReturn);
 		returnedLogs.push(...newLogs.slice(startIndex).map((l) => l.content));
 
 		log.debug(
 			label,
-			`Requested log lines: ${numLogsToReturn} (Default: ${DEFAULT_LOG_LINES})`,
+			`Requested log lines: ${numLogsToReturn} (Default: ${cfg.defaultCheckStatusLogLines})`,
 		);
 		log.debug(
 			label,
@@ -153,13 +97,12 @@ export async function checkProcessStatusImpl(
 			label,
 			`No new logs found using filter timestamp ${previousLastLogTimestampReturned}`,
 		);
-		logHint = `No new log lines since last check (${previousLastLogTimestampReturned}).`; // Use variable here too
+		logHint = `No new log lines since last check (${previousLastLogTimestampReturned}).`;
 	}
 
-	// Construct payload using data AFTER the wait
-	const payload: z.infer<typeof CheckStatusPayloadSchema> = {
+	const payload: z.infer<typeof schemas.CheckStatusPayloadSchema> = {
 		label: finalProcessInfo.label,
-		status: finalProcessInfo.status, // Status from AFTER the wait
+		status: finalProcessInfo.status,
 		pid: finalProcessInfo.pid,
 		command: finalProcessInfo.command,
 		args: finalProcessInfo.args,
@@ -179,14 +122,14 @@ export async function checkProcessStatusImpl(
 		`check_process_status returning final status: ${payload.status}. New logs returned: ${returnedLogs.length}. New lastLogTimestamp: ${newLastLogTimestamp}`,
 	);
 
-	return ok(textPayload(JSON.stringify(payload))); // Use the pre-stringified version
+	return ok(JSON.stringify(payload));
 }
 
 export async function listProcessesImpl(
-	params: z.infer<typeof ListProcessesParams>,
+	params: ListProcessesParams,
 ): Promise<CallToolResult> {
 	const { log_lines } = params;
-	const processList: z.infer<typeof ListProcessesPayloadSchema> = [];
+	const processList: z.infer<typeof schemas.ListProcessesPayloadSchema> = [];
 
 	for (const label of managedProcesses.keys()) {
 		const processInfo = await checkAndUpdateProcessStatus(label);
@@ -206,7 +149,7 @@ export async function listProcessesImpl(
 				logHint = `${totalStoredLogs} lines stored.`;
 			}
 
-			const processDetail: z.infer<typeof ListProcessDetailSchema> = {
+			const processDetail: z.infer<typeof schemas.ListProcessDetailSchema> = {
 				label: processInfo.label,
 				status: processInfo.status,
 				pid: processInfo.pid,
@@ -226,20 +169,22 @@ export async function listProcessesImpl(
 		}
 	}
 
-	return ok(textPayload(JSON.stringify(processList, null, 2)));
+	return ok(JSON.stringify(processList, null, 2));
 }
 
 export async function stopProcessImpl(
 	params: StopProcessParams,
 ): Promise<CallToolResult> {
 	const { label, force } = params;
-	const result = await _stopProcess(label, force);
+	const result = await stopProcess(label, force);
 	return result;
 }
 
 export async function stopAllProcessesImpl(): Promise<CallToolResult> {
 	log.info(null, "Attempting to stop all active processes...");
-	const details: z.infer<typeof StopAllProcessesPayloadSchema>["details"] = [];
+	const details: z.infer<
+		typeof schemas.StopAllProcessesPayloadSchema
+	>["details"] = [];
 	let stoppedCount = 0;
 	let skippedCount = 0;
 	let errorCount = 0;
@@ -248,291 +193,251 @@ export async function stopAllProcessesImpl(): Promise<CallToolResult> {
 
 	for (const label of labels) {
 		const processInfo = await checkAndUpdateProcessStatus(label);
-		if (
-			processInfo &&
-			["starting", "running", "verifying", "restarting", "stopping"].includes(
-				processInfo.status,
-			)
-		) {
-			log.info(
-				label,
-				`Process ${label} is active (${processInfo.status}), attempting stop.`,
-			);
-			const stopResult = await _stopProcess(label, false);
+		const currentStatus = processInfo?.status ?? "not_found";
+		const pid = processInfo?.pid;
 
-			let detailResult: z.infer<
-				typeof StopAllProcessesPayloadSchema
-			>["details"][number]["result"] = "Failed";
-			let detailStatus: z.infer<
-				typeof StopAllProcessesPayloadSchema
-			>["details"][number]["status"] = processInfo.status;
-			let detailPid: z.infer<
-				typeof StopAllProcessesPayloadSchema
-			>["details"][number]["pid"] = processInfo.pid;
-
-			if (!stopResult.isError) {
+		if (currentStatus === "running" || currentStatus === "verifying") {
+			log.debug(label, "Stopping process as part of stop_all...");
+			try {
+				const stopResult = await stopProcess(label, false);
+				const resultText = getResultText(stopResult);
+				let resultJson: { status?: string; message?: string } = {};
 				try {
-					const parsedPayload: z.infer<typeof StopProcessPayloadSchema> =
-						JSON.parse(stopResult.payload.content);
-					detailResult = "SignalSent";
-					detailStatus = parsedPayload.status;
-					detailPid = parsedPayload.pid;
-					stoppedCount++;
+					if (resultText !== null) {
+						resultJson = JSON.parse(resultText);
+					}
 				} catch (e) {
-					log.error(
-						label,
-						`Failed to parse stop result for ${label}: ${getResultText(stopResult)}`,
-						e,
-					);
-					detailResult = "Failed";
+					/* ignore */
+				}
+				details.push({
+					label,
+					status: resultJson.status ?? "unknown",
+					message: resultJson.message ?? "Stop signal sent.",
+					is_error: stopResult.isError,
+				});
+				if (stopResult.isError) {
 					errorCount++;
+				} else {
+					stoppedCount++;
 				}
-			} else {
-				try {
-					const parsedPayload: z.infer<typeof StopProcessPayloadSchema> =
-						JSON.parse(stopResult.payload.content);
-					detailStatus = parsedPayload.status;
-					detailPid = parsedPayload.pid;
-				} catch (e) {
-					/* Ignore parsing error for error payload */
-				}
+			} catch (error) {
+				log.error(
+					label,
+					"Error stopping process during stop_all",
+					error instanceof Error ? error.message : "Unknown error",
+				);
+				details.push({
+					label,
+					status: currentStatus,
+					message: `Failed to stop: ${error instanceof Error ? error.message : "Unknown error"}`,
+					is_error: true,
+				});
 				errorCount++;
-				detailResult = "Failed";
 			}
-
-			details.push({
-				label,
-				result: detailResult,
-				status: detailStatus,
-				pid: detailPid,
-			});
 		} else {
-			skippedCount++;
+			log.debug(
+				label,
+				`Skipping stop_all for process in state: ${currentStatus}`,
+			);
 			details.push({
 				label,
-				result: "Skipped",
-				status: processInfo?.status ?? "not_found",
-				pid: processInfo?.pid,
+				status: currentStatus,
+				message: `Skipped (status was ${currentStatus}).`,
+				is_error: false,
 			});
+			skippedCount++;
 		}
 	}
 
-	const summary = `Processes processed: ${labels.length}. Signals sent: ${stoppedCount}. Skipped: ${skippedCount}. Failed: ${errorCount}.`;
-	log.info(null, summary);
-	const responsePayload: z.infer<typeof StopAllProcessesPayloadSchema> = {
-		summary,
-		details,
+	const finalMessage = `Stop all request completed. Stopped: ${stoppedCount}, Skipped: ${skippedCount}, Errors: ${errorCount}`;
+	const payload: z.infer<typeof schemas.StopAllProcessesPayloadSchema> = {
+		message: finalMessage,
+		details: details,
 	};
-	return ok(textPayload(JSON.stringify(responsePayload, null, 2)));
+
+	log.info(null, finalMessage);
+	return ok(JSON.stringify(payload));
 }
 
 export async function restartProcessImpl(
-	params: z.infer<typeof RestartProcessParams>,
+	params: RestartProcessParams,
 ): Promise<CallToolResult> {
 	const { label } = params;
-	log.info(label, `Restart requested for process "${label}".`);
-	addLogEntry(label, "Restart requested.");
+	log.info(label, "Tool invoked: restart_process");
 
 	const processInfo = await checkAndUpdateProcessStatus(label);
 
 	if (!processInfo) {
-		const errorPayload: z.infer<typeof RestartErrorPayloadSchema> = {
-			error: `Process with label "${label}" not found for restart.`,
-			status: "error",
-			pid: undefined,
+		log.warn(label, `Process with label "${label}" not found for restart.`);
+		const errorPayload: z.infer<typeof schemas.RestartErrorPayloadSchema> = {
+			error: `Process with label "${label}" not found.`,
+			label,
 		};
-		return fail(textPayload(JSON.stringify(errorPayload)));
+		return fail(JSON.stringify(errorPayload));
 	}
 
-	const {
-		command,
-		args,
-		cwd,
-		verificationPattern,
-		verificationTimeoutMs,
-		retryDelayMs,
-		maxRetries,
-		host,
-	} = processInfo;
-
-	let stopSucceeded = false;
-	if (
-		["starting", "running", "verifying", "restarting", "stopping"].includes(
-			processInfo.status,
-		)
-	) {
-		log.info(
+	log.debug(label, "Stopping process before restart...");
+	const stopResult = await stopProcess(label, false);
+	if (stopResult.isError) {
+		log.error(
 			label,
-			`Stopping process (status: ${processInfo.status}) before restart...`,
+			"Failed to stop process cleanly during restart. Aborting restart.",
+			{ payload: stopResult.payload },
 		);
-		addLogEntry(label, "Stopping process before restart...");
-		const stopResult = await _stopProcess(label, false);
-		log.info(
+		const errorPayload: z.infer<typeof schemas.RestartErrorPayloadSchema> = {
+			error: `Failed to stop existing process: ${getResultText(stopResult)}`,
 			label,
-			`[Restart] Stop process result: ${JSON.stringify(stopResult)}`,
-		);
-		if (stopResult.isError) {
-			const errorMsg = `Failed to stop process "${label}" before restart. Error: ${getResultText(stopResult)}`;
-			log.error(label, errorMsg);
-			addLogEntry(label, `Error stopping before restart: ${errorMsg}`);
-			const errorPayload: z.infer<typeof RestartErrorPayloadSchema> = {
-				error: errorMsg,
-				status: managedProcesses.get(label)?.status ?? "error",
-				pid: processInfo.pid,
-			};
-			return fail(textPayload(JSON.stringify(errorPayload)));
-		}
-		log.info(label, "Process stopped successfully before restart.");
-		addLogEntry(label, "Process stopped before restart.");
-		stopSucceeded = true;
-
-		// Add a small delay after confirming stop before starting again
-		log.info(label, "[Restart] Waiting 500ms after stop before starting...");
-		await new Promise((resolve) => setTimeout(resolve, 500));
-	} else {
-		log.info(
-			label,
-			`Process already in terminal state (${processInfo.status}). Proceeding directly to start.`,
-		);
-		addLogEntry(
-			label,
-			`Process already stopped (${processInfo.status}). Starting...`,
-		);
+		};
+		return fail(JSON.stringify(errorPayload));
 	}
+	log.debug(label, "Process stopped successfully.");
 
-	log.info(label, "Starting process after stop/check...");
-	const startResult = await _startProcess(
+	await new Promise((resolve) => setTimeout(resolve, 250));
+
+	log.debug(label, "Starting process again...");
+	const verificationPattern = processInfo.verificationPattern;
+	const startResult = await startProcess(
 		label,
-		command,
-		args,
-		cwd,
-		host,
+		processInfo.command,
+		processInfo.args,
+		processInfo.cwd,
+		processInfo.host,
 		verificationPattern,
-		verificationTimeoutMs,
-		retryDelayMs,
-		maxRetries,
+		processInfo.verificationTimeoutMs,
+		processInfo.retryDelayMs,
+		processInfo.maxRetries,
 		true,
 	);
 
-	log.info(
-		label,
-		`[Restart] Start attempt completed. Result: ${JSON.stringify(startResult)}`,
-	);
-
 	if (startResult.isError) {
-		try {
-			const parsedError: z.infer<typeof RestartErrorPayloadSchema> = JSON.parse(
-				startResult.payload.content,
-			);
-			return fail(
-				textPayload(
-					JSON.stringify({
-						...parsedError,
-						error: `Restart failed: ${parsedError.error}`,
-					}),
-				),
-			);
-		} catch (e) {
-			return fail(
-				textPayload(
-					JSON.stringify({
-						error: `Restart failed during start phase. Raw error: ${getResultText(startResult)}`,
-					}),
-				),
-			);
-		}
-	} else {
-		return startResult;
+		log.error(label, "Failed to start process during restart.", {
+			payload: startResult.payload,
+		});
+		const errorPayload: z.infer<typeof schemas.RestartErrorPayloadSchema> = {
+			error: `Failed to start process after stopping: ${getResultText(startResult)}`,
+			label,
+		};
+		return fail(JSON.stringify(errorPayload));
 	}
+
+	log.info(label, "Process restarted successfully.");
+	return startResult;
 }
 
 export async function waitForProcessImpl(
-	params: z.infer<typeof WaitForProcessParams>,
+	params: WaitForProcessParams,
 ): Promise<CallToolResult> {
 	const { label, target_status, timeout_seconds, check_interval_seconds } =
 		params;
-	const startTime = Date.now();
 	const timeoutMs = timeout_seconds * 1000;
 	const checkIntervalMs = check_interval_seconds * 1000;
+	const startTime = Date.now();
 
 	log.info(
 		label,
-		`Waiting for process "${label}" to reach status "${target_status}" (Timeout: ${timeout_seconds}s)`,
+		`Waiting for process to reach status '${target_status}' (timeout: ${timeout_seconds}s, interval: ${check_interval_seconds}s)`,
 	);
 
-	return new Promise((resolve) => {
-		const intervalId = setInterval(async () => {
-			const processInfo = await checkAndUpdateProcessStatus(label);
-			const currentStatus = processInfo?.status;
-			const elapsedTime = Date.now() - startTime;
+	while (true) {
+		const processInfo = await checkAndUpdateProcessStatus(label);
 
-			if (!processInfo) {
-				clearInterval(intervalId);
-				const message = `Process "${label}" disappeared while waiting for status "${target_status}".`;
+		if (!processInfo) {
+			const message = `Process with label "${label}" not found during wait.`;
+			log.warn(label, message);
+			const payload: z.infer<typeof schemas.WaitForProcessPayloadSchema> = {
+				label,
+				final_status: "error",
+				message,
+			};
+			return fail(JSON.stringify(payload));
+		}
+
+		const currentStatus = processInfo.status;
+		log.debug(label, `Current status during wait: ${currentStatus}`);
+
+		if (currentStatus === target_status) {
+			const duration = (Date.now() - startTime) / 1000;
+			const message = `Process reached target status '${target_status}' after ${duration.toFixed(1)} seconds.`;
+			log.info(label, message);
+			const payload: z.infer<typeof schemas.WaitForProcessPayloadSchema> = {
+				label,
+				final_status: currentStatus,
+				message,
+				timed_out: false,
+			};
+			return ok(JSON.stringify(payload));
+		}
+
+		if (
+			currentStatus === "stopped" ||
+			currentStatus === "crashed" ||
+			currentStatus === "error"
+		) {
+			if (currentStatus !== target_status) {
+				const duration = (Date.now() - startTime) / 1000;
+				const message = `Process reached terminal status '${currentStatus}' after ${duration.toFixed(1)}s, but target was '${target_status}'.`;
 				log.warn(label, message);
-				const payload: z.infer<typeof WaitForProcessPayloadSchema> = {
-					label,
-					final_status: "error",
-					message,
-					timed_out: false,
-				};
-				resolve(fail(textPayload(JSON.stringify(payload))));
-				return;
-			}
-
-			if (currentStatus === target_status) {
-				clearInterval(intervalId);
-				const message = `Process "${label}" reached target status "${target_status}" after ${elapsedTime / 1000}s.`;
-				log.info(label, message);
-				const payload: z.infer<typeof WaitForProcessPayloadSchema> = {
+				const payload: z.infer<typeof schemas.WaitForProcessPayloadSchema> = {
 					label,
 					final_status: currentStatus,
 					message,
-					timed_out: false,
 				};
-				resolve(ok(textPayload(JSON.stringify(payload))));
-				return;
+				return ok(JSON.stringify(payload));
 			}
+		}
 
-			if (elapsedTime >= timeoutMs) {
-				clearInterval(intervalId);
-				const message = `Timed out after ${timeout_seconds}s waiting for process "${label}" to reach status "${target_status}". Current status: "${currentStatus}".`;
-				log.warn(label, message);
-				const payload: z.infer<typeof WaitForProcessPayloadSchema> = {
-					label,
-					final_status: currentStatus ?? "error",
-					message,
-					timed_out: true,
-				};
-				resolve(fail(textPayload(JSON.stringify(payload))));
-				return;
-			}
-		}, checkIntervalMs);
-	});
+		if (Date.now() - startTime > timeoutMs) {
+			const message = `Timed out after ${timeout_seconds} seconds waiting for process to reach status '${target_status}'. Final status was '${currentStatus}'.`;
+			log.warn(label, message);
+			const payload: z.infer<typeof schemas.WaitForProcessPayloadSchema> = {
+				label,
+				final_status: currentStatus,
+				message,
+				timed_out: true,
+			};
+			return ok(JSON.stringify(payload));
+		}
+
+		await new Promise((resolve) => setTimeout(resolve, checkIntervalMs));
+	}
 }
 
 export async function getAllLoglinesImpl(
-	params: z.infer<typeof GetAllLoglinesParams>,
+	params: GetAllLoglinesParams,
 ): Promise<CallToolResult> {
 	const { label } = params;
 	const processInfo = await checkAndUpdateProcessStatus(label);
 
 	if (!processInfo) {
-		return fail(textPayload(`Process with label "${label}" not found.`));
+		log.warn(
+			label,
+			`Process with label "${label}" not found for getAllLoglines.`,
+		);
+		return fail(JSON.stringify({ error: `Process "${label}" not found.` }));
 	}
 
-	const allLogs = processInfo.logs.map((l) =>
-		stripAnsiAndControlChars(l.content),
-	);
+	const allLogs = processInfo.logs || [];
+	const logContents = allLogs.map((l) => l.content);
+	const lineCount = logContents.length;
+	const isTruncated = lineCount >= cfg.maxStoredLogLines;
 
-	const payload: z.infer<typeof GetAllLoglinesPayloadSchema> = {
+	const message = isTruncated
+		? `Returned all ${lineCount} stored log lines (storage limit reached).`
+		: `Returned all ${lineCount} stored log lines.`;
+
+	const payload: z.infer<typeof schemas.GetAllLoglinesPayloadSchema> = {
 		label,
-		logs: allLogs,
-		count: allLogs.length,
-		storage_limit: MAX_STORED_LOG_LINES,
+		logs: logContents,
+		message,
+		line_count: lineCount,
+		is_truncated: isTruncated,
 	};
 
-	return ok(textPayload(JSON.stringify(payload, null, 2)));
+	log.info(
+		label,
+		`getAllLoglines returning ${lineCount} lines. Truncated: ${isTruncated}`,
+	);
+	return ok(JSON.stringify(payload));
 }
 
 export async function sendInputImpl(
@@ -540,76 +445,50 @@ export async function sendInputImpl(
 	input: string,
 	appendNewline = true,
 ): Promise<CallToolResult> {
-	log.info(label, `Send input requested for process "${label}"`);
-	addLogEntry(label, `Input received: ${input}`);
+	log.info(label, "Tool invoked: send_input");
+	const processInfo = await checkAndUpdateProcessStatus(label);
 
-	const processInfo = managedProcesses.get(label);
-
-	if (!processInfo) {
-		log.warn(label, `Process "${label}" not found.`);
-		return fail(
-			textPayload(JSON.stringify({ error: `Process \"${label}\" not found.` })),
-		);
-	}
-
-	if (!processInfo.process || typeof processInfo.pid !== "number") {
-		log.warn(label, `Process "${label}" has no active PTY handle.`);
-		return fail(
-			textPayload(
-				JSON.stringify({
-					error: `Process \"${label}\" has no active PTY handle.`,
-				}),
-			),
-		);
+	if (!processInfo || !processInfo.process) {
+		const status = processInfo?.status ?? "not_found";
+		const message = `Process "${label}" not running or not found (status: ${status}). Cannot send input.`;
+		log.warn(label, message);
+		return fail(JSON.stringify({ error: message }));
 	}
 
 	if (processInfo.status !== "running" && processInfo.status !== "verifying") {
-		log.warn(
+		const message = `Process "${label}" is not in a running or verifying state (status: ${processInfo.status}). Cannot reliably send input.`;
+		log.warn(label, message);
+		return fail(JSON.stringify({ error: message }));
+	}
+
+	try {
+		const inputToSend = appendNewline ? `${input}\r` : input;
+		log.debug(
 			label,
-			`Cannot send input to process "${label}" in state: ${processInfo.status}`,
+			`Sending input to PTY: "${stripAnsiAndControlChars(inputToSend)}"`,
 		);
-		return fail(
-			textPayload(
-				JSON.stringify({
-					error: `Cannot send input to process \"${label}\" in state: ${processInfo.status}`,
-				}),
-			),
-		);
+		await writeToPty(processInfo.process, inputToSend, label);
+		addLogEntry(label, `[MCP_INPUT] ${input}`);
+
+		const message = `Input sent successfully to process "${label}".`;
+		log.info(label, message);
+		return ok(JSON.stringify({ message }));
+	} catch (error) {
+		const message = `Failed to send input to process "${label}".`;
+		log.error(label, message, (error as Error).message);
+		const errorMsg =
+			error instanceof Error ? error.message : "Unknown PTY write error";
+		return fail(JSON.stringify({ error: `${message}: ${errorMsg}` }));
 	}
-
-	const dataToSend = appendNewline ? `${input}\r` : input;
-	const success = writeToPty(processInfo.process, dataToSend, label);
-
-	if (success) {
-		log.info(label, `Successfully sent input to process ${processInfo.pid}`);
-		return ok(
-			textPayload(
-				JSON.stringify({ message: `Input sent to process "${label}".` }),
-			),
-		);
-	}
-
-	log.error(label, `Failed to send input to process ${processInfo.pid}`);
-	return fail(
-		textPayload(
-			JSON.stringify({
-				error: `Failed to send input to process "${label}".`,
-			}),
-		),
-	);
 }
 
 export async function healthCheckImpl(): Promise<CallToolResult> {
-	const activeProcesses = managedProcesses.size;
-	const zombieCheckTimerActive = isZombieCheckActive();
-
-	const payload: z.infer<typeof HealthCheckPayloadSchema> = {
+	const payload: z.infer<typeof schemas.HealthCheckPayloadSchema> = {
 		status: "ok",
-		server_name: SERVER_NAME,
-		version: SERVER_VERSION,
-		active_processes: activeProcesses,
-		zombie_check_active: zombieCheckTimerActive,
+		server_name: cfg.serverName,
+		server_version: cfg.serverVersion,
+		active_processes: managedProcesses.size,
+		is_zombie_check_active: isZombieCheckActive(),
 	};
-
-	return ok(textPayload(JSON.stringify(payload)));
+	return ok(JSON.stringify(payload));
 }

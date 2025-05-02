@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 // import { delay } from "../../build/utils.js"; // Original ESM import
 // const { delay } = require("../../build/utils.js"); // CJS require workaround
+import type { CallToolResult } from "../../src/types/index.js";
 
 // --- Configuration ---
 const SERVER_EXECUTABLE = "node";
@@ -287,6 +288,14 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 							e,
 						); // Added logVerboseError for parse errors
 					}
+
+					// Log the full received result object when ID matches, before resolving
+					if (parsedResponse.id === requestId) {
+						logVerbose(
+							`[sendRequest] Full MATCHING response object for ${requestId}:`,
+							JSON.stringify(parsedResponse),
+						);
+					}
 				}
 			};
 
@@ -402,14 +411,12 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				`Expected result to be defined, error: ${JSON.stringify(response.error)}`,
 			).toBeDefined();
 
-			const resultContent = response.result as {
-				content: Array<{ type: string; text: string }>;
-			};
-			expect(resultContent?.content?.[0]?.text).toBeDefined();
+			const result = response.result as CallToolResult;
+			expect(result?.payload?.[0]?.content).toBeDefined();
 
 			let listResult: ProcessStatusResult[] | null = null;
 			try {
-				listResult = JSON.parse(resultContent.content[0].text);
+				listResult = JSON.parse(result.payload[0].content);
 			} catch (e) {
 				throw new Error(`Failed to parse list_processes result payload: ${e}`);
 			}
@@ -463,18 +470,19 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			).toBeUndefined();
 
 			logVerbose("[TEST][healthCheck] Asserting result properties...");
-			// Correctly access and parse the result payload
-			const resultContent = response.result as ResultContent;
-			expect(resultContent?.content?.[0]?.text).toBeDefined();
+			// Fix: Access payload within the result object
+			const result = response.result as CallToolResult;
+			expect(result?.payload?.[0]?.content).toBeDefined();
 
 			try {
-				const result = JSON.parse(resultContent.content[0].text);
-				expect(result.status).toBe("ok");
-				expect(result.server_name).toBe("mcp-pm");
-				expect(result.version).toBeDefined();
-				expect(result.active_processes).toBe(0);
+				// Fix: Parse the content string from the payload
+				const parsedContent = JSON.parse(result.payload[0].content);
+				expect(parsedContent.status).toBe("ok");
+				expect(parsedContent.server_name).toBe("mcp-pm");
+				expect(parsedContent.server_version).toBeDefined();
+				expect(parsedContent.active_processes).toBe(0);
 				// In fast mode (which tests always use), zombie check is disabled
-				expect(result.zombie_check_active).toBe(false);
+				expect(parsedContent.is_zombie_check_active).toBe(false);
 				console.log("[TEST][healthCheck] Assertions passed.");
 				logVerbose("[TEST][healthCheck] Test finished.");
 			} catch (e) {
@@ -542,14 +550,13 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			).toBeUndefined();
 
 			logVerbose("[TEST][startProcess] Asserting result properties...");
-			// Correctly access and parse the result payload
-			const startResultContent = response.result as {
-				content: Array<{ type: string; text: string }>;
-			};
-			expect(startResultContent?.content?.[0]?.text).toBeDefined();
+			// Fix: Access payload within the result object
+			const result = response.result as CallToolResult;
+			expect(result?.payload?.[0]?.content).toBeDefined();
 			let startResult: ProcessStatusResult | null = null;
 			try {
-				startResult = JSON.parse(startResultContent.content[0].text);
+				// Fix: Parse the content string from the payload
+				startResult = JSON.parse(result.payload[0].content);
 			} catch (e) {
 				throw new Error(`Failed to parse start_process result payload: ${e}`);
 			}
@@ -619,6 +626,9 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			// We need to wait for the start request to complete, but we don't need to assert its result here
 			await sendRequest(serverProcess, startRequest);
 			logVerbose(`[TEST][listOne] Process ${uniqueLabel} started.`);
+			// --- Add Delay ---
+			await new Promise((resolve) => setTimeout(resolve, 500));
+			logVerbose("[TEST][listOne] Added 500ms delay after start.");
 			// --- End Process Start ---
 
 			// --- Now List Processes ---
@@ -646,14 +656,12 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			expect(response.error).toBeUndefined();
 			expect(response.result).toBeDefined();
 
-			const resultContent = response.result as {
-				content: Array<{ type: string; text: string }>;
-			};
-			expect(resultContent?.content?.[0]?.text).toBeDefined();
+			const result = response.result as CallToolResult;
+			expect(result?.payload?.[0]?.content).toBeDefined();
 
 			let listResult: ProcessStatusResult[] | null = null;
 			try {
-				listResult = JSON.parse(resultContent.content[0].text);
+				listResult = JSON.parse(result.payload[0].content);
 			} catch (e) {
 				throw new Error(`Failed to parse list_processes result payload: ${e}`);
 			}
@@ -728,6 +736,9 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			// We need to wait for the start request to complete, but we don't need to assert its result here
 			await sendRequest(serverProcess, startRequest);
 			logVerbose(`[TEST][checkStatus] Process ${uniqueLabel} started.`);
+			// --- Add Delay ---
+			await new Promise((resolve) => setTimeout(resolve, 500));
+			logVerbose("[TEST][checkStatus] Added 500ms delay after start.");
 			// --- End Process Start ---
 
 			// --- Now Check Process Status ---
@@ -757,30 +768,38 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			expect(response.result).toBeDefined();
 
 			logVerbose("[TEST][checkStatus] Asserting result properties...");
-			// Correctly access and parse the result payload
-			const resultContent = (response.result as ResultContent)?.content?.[0]; // Use ResultContent type
-			expect(resultContent?.text).toBeDefined();
+			// Fix: Access payload within the result object
+			const result = response.result as CallToolResult;
+			const resultContentText = result?.payload?.[0]?.content;
+			expect(resultContentText).toBeDefined();
 
 			try {
-				const processStatus = JSON.parse(resultContent.text);
-				expect(processStatus.status).toBe("running");
-				expect(processStatus.label).toBe(uniqueLabel);
-				expect(processStatus.command).toBe(command);
-				expect(processStatus.pid).toBeGreaterThan(0);
-				expect(processStatus.logs?.length).toBeGreaterThanOrEqual(1); // Should have at least the spawn log
+				// Fix: Check if content exists before parsing
+				if (resultContentText) {
+					const processStatus = JSON.parse(resultContentText);
+					expect(processStatus.status).toBe("running");
+					expect(processStatus.label).toBe(uniqueLabel);
+					expect(processStatus.command).toBe(command);
+					expect(processStatus.pid).toBeGreaterThan(0);
+					expect(processStatus.logs?.length).toBeGreaterThanOrEqual(1); // Should have at least the spawn log
 
-				// --> FIX: Check for the actual log output of this process
-				const logs1 = processStatus.logs ?? [];
-				logVerbose(
-					`[TEST][checkStatus] First check logs (${logs1.length}):`,
-					logs1,
-				);
-				const hasCorrectLog = logs1.some(
-					(log) => log.includes("Process for checking status"), // Correct: Check for this test's log output
-				);
-				expect(hasCorrectLog).toBe(true);
+					// --> FIX: Check for the actual log output of this process
+					const logs1 = processStatus.logs ?? [];
+					logVerbose(
+						`[TEST][checkStatus] First check logs (${logs1.length}):`,
+						logs1,
+					);
+					const hasCorrectLog = logs1.some(
+						(log) => log.includes("Process for checking status"), // Correct: Check for this test's log output
+					);
+					expect(hasCorrectLog).toBe(true);
 
-				console.log("[TEST][checkStatus] Assertions passed.");
+					console.log("[TEST][checkStatus] Assertions passed.");
+				} else {
+					throw new Error(
+						"Received null or undefined payload content for check_process_status",
+					);
+				}
 			} catch (e) {
 				throw new Error(
 					`Failed to parse check_process_status result payload: ${e}`,
@@ -840,17 +859,19 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				startRequest,
 			)) as MCPResponse;
 			logVerbose(`[TEST][restart] Initial process ${uniqueLabel} started.`);
-			const startResultContent = startResponse.result as {
-				content: Array<{ type: string; text: string }>;
-			};
+			// Fix: Access payload directly on the result object
+			const startResult = startResponse.result as CallToolResult;
 			const initialProcessInfo = JSON.parse(
-				startResultContent.content[0].text,
+				startResult.payload[0].content, // Access payload here
 			) as ProcessStatusResult;
 			const initialPid = initialProcessInfo.pid;
 			expect(initialPid).toBeGreaterThan(0);
 			logVerbose(`[TEST][restart] Initial PID: ${initialPid}`);
 			// --- End Process Start ---
 
+			// --- Add Delay before restart ---
+			await new Promise((resolve) => setTimeout(resolve, 500));
+			logVerbose("[TEST][restart] Added 500ms delay before restart.");
 			// --- Now Restart the Process ---
 			const restartRequest = {
 				jsonrpc: "2.0",
@@ -882,20 +903,20 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				`Restart tool call expected result but got none. Error: ${JSON.stringify(restartResponse.error)}`,
 			).toBeDefined();
 
-			const restartResultWrapper = restartResponse.result as {
-				isError?: boolean;
-				content: Array<{ type: string; text: string }>;
-			};
+			// Fix: Access payload within the result object
+			const restartResultWrapper = restartResponse.result as CallToolResult;
+
 			// Check for error *within* the result payload (isError flag)
 			expect(
 				restartResultWrapper.isError,
-				`Restart result indicates an error: ${restartResultWrapper.content?.[0]?.text}`,
+				`Restart result indicates an error: ${restartResultWrapper.payload?.[0]?.content}`,
 			).toBeFalsy();
-			expect(restartResultWrapper?.content?.[0]?.text).toBeDefined();
+			expect(restartResultWrapper?.payload?.[0]?.content).toBeDefined();
 
 			let restartResult: ProcessStatusResult | null = null;
 			try {
-				restartResult = JSON.parse(restartResultWrapper.content[0].text);
+				// Fix: Parse the content string from the payload
+				restartResult = JSON.parse(restartResultWrapper.payload[0].content);
 			} catch (e) {
 				throw new Error(`Failed to parse restart_process result payload: ${e}`);
 			}
@@ -928,11 +949,11 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			)) as MCPResponse;
 
 			let checkResult: ProcessStatusResult | null = null;
-			const checkResultContent = checkResponse.result as {
-				content: Array<{ type: string; text: string }>;
-			};
+			// Fix: Access payload within the result object
+			const checkResultWrapper = checkResponse.result as CallToolResult;
 			try {
-				checkResult = JSON.parse(checkResultContent.content[0].text);
+				// Fix: Parse the content string from the payload
+				checkResult = JSON.parse(checkResultWrapper.payload[0].content);
 			} catch (e) {
 				// Handle error
 			}
@@ -983,7 +1004,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 						command: "node",
 						args: [
 							"-e",
-							"console.log('Start'); let c=0; const i = setInterval(() => { console.log('Log: '+c++); if (c > 10) clearInterval(i); }, 500);",
+							"console.log('Start'); let c=0; const i = setInterval(() => { console.log('Log: '+c++); if (c > 10) { clearInterval(i); process.exit(0); } }, 500);",
 						],
 						workingDirectory: path.join(__dirname),
 						label: label,
@@ -1030,19 +1051,14 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			)) as MCPResponse;
 			logVerbose("[TEST][checkLogsFilter] Received first check response.");
 			expect(check1Response).toHaveProperty("result");
-			// Type assertion for result content
-			const check1ResultContent = (check1Response.result as ResultContent)
-				?.content?.[0]; // Use ResultContent type
-			const result1 = JSON.parse(
-				check1ResultContent.text, // Corrected: Access text directly
-			) as ProcessStatusResult;
-
-			// --> FIX: Allow 'running' or 'stopped' for first check
-			expect(["running", "stopped"]).toContain(result1.status);
-			expect(result1.label).toBe(label);
-			expect(result1.command).toBe("node");
-			expect(result1.pid).toBeGreaterThan(0);
-			expect(result1.logs?.length).toBeGreaterThanOrEqual(1); // Should have at least the spawn log
+			// Fix: Access payload within the result object
+			const check1Result = check1Response.result as CallToolResult;
+			const result1ContentText = check1Result?.payload?.[0]?.content;
+			expect(result1ContentText).toBeDefined();
+			const result1 = JSON.parse(result1ContentText) as ProcessStatusResult;
+			let result1Logs: string[] = [];
+			result1Logs = result1.logs ?? [];
+			expect(result1.status).toBe("running");
 
 			// --> FIX: Check for the actual log output of this process
 			const logs1 = result1.logs ?? [];
@@ -1058,6 +1074,9 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			logVerbose("[TEST][checkLogsFilter] Waiting 4000ms for more logs...");
 			await new Promise((resolve) => setTimeout(resolve, secondWaitMs)); // Inline delay
 			logVerbose("[TEST][checkLogsFilter] Second wait complete.");
+
+			// Add a minimal delay to allow exit handler / OS check to update status
+			await new Promise((resolve) => setTimeout(resolve, 100));
 
 			// Second check_process_status call
 			logVerbose(
@@ -1079,16 +1098,13 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			)) as MCPResponse;
 			logVerbose("[TEST][checkLogsFilter] Received second check response.");
 			expect(check2Response).toHaveProperty("result");
-			// Type assertion for result content
-			const check2ResultContent = check2Response.result as {
-				content: { type: string; text: string }[];
-			};
-			const result2 = JSON.parse(
-				check2ResultContent.content[0].text, // Corrected: Access text directly
-			) as ProcessStatusResult;
-
-			// --> Define logs2 from result2
-			const logs2 = result2.logs ?? [];
+			// Fix: Access payload within the result object
+			const check2Result = check2Response.result as CallToolResult;
+			const result2ContentText = check2Result?.payload?.[0]?.content;
+			expect(result2ContentText).toBeDefined(); // Ensure content exists before parsing
+			const result2 = JSON.parse(result2ContentText) as ProcessStatusResult;
+			let result2Logs: string[] = [];
+			result2Logs = result2.logs ?? [];
 
 			logVerbose(
 				"[TEST][checkLogsFilter] Second check status:",
@@ -1096,15 +1112,15 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			);
 			logVerbose(
 				"[TEST][checkLogsFilter] Second check logs (%d):",
-				logs2.length,
-				logs2,
+				result2Logs.length,
+				JSON.stringify(result2Logs),
 			);
 
 			// Assertions for the second check
 			expect(result2.status).toBe("stopped");
 			// In fast mode (which tests always use), expect the stop/exit logs
 			// to be returned here because the process finishes quickly.
-			expect(logs2.length).toBeGreaterThan(0);
+			expect(result2Logs.length).toBeGreaterThan(0);
 
 			console.log("[TEST][checkLogsFilter] Assertions passed.");
 

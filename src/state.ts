@@ -1,5 +1,5 @@
-import { MAX_STORED_LOG_LINES } from "./constants.js";
-import type { LogEntry, ProcessInfo, ProcessStatus } from "./types.ts"; // Import LogEntry from types.ts
+import { cfg } from "./constants/index.js";
+import type { LogEntry, ProcessInfo, ProcessStatus } from "./types/process.js"; // Update path
 import { log } from "./utils.js";
 
 // Renamed Map
@@ -28,7 +28,7 @@ export function addLogEntry(label: string, content: string): void {
 	);
 
 	// Enforce the maximum in-memory log line limit
-	if (processInfo.logs.length > MAX_STORED_LOG_LINES) {
+	if (processInfo.logs.length > cfg.maxStoredLogLines) {
 		processInfo.logs.shift();
 	}
 
