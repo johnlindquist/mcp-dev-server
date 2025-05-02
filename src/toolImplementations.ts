@@ -5,8 +5,8 @@ import {
 	SERVER_NAME,
 	SERVER_VERSION,
 } from "./constants.js";
-import { fail, getResultText, ok, textPayload } from "./mcpUtils.js";
-import { _startProcess, _stopProcess } from "./processLogic.js";
+import { fail, getResultText, ok } from "./mcpUtils.js";
+import { startProcess, stopProcess } from "./process/lifecycle.js";
 import {
 	checkAndUpdateProcessStatus,
 	isZombieCheckActive,
@@ -42,11 +42,7 @@ export async function checkProcessStatusImpl(
 	if (!initialProcessInfo) {
 		log.warn(label, `Process with label "${label}" not found.`);
 		return fail(
-			textPayload(
-				JSON.stringify({
-					error: `Process with label "${label}" not found.`,
-				}),
-			),
+			JSON.stringify({ error: `Process with label "${label}" not found.` }),
 		);
 	}
 
@@ -128,7 +124,7 @@ export async function checkProcessStatusImpl(
 		`check_process_status returning final status: ${payload.status}. New logs returned: ${returnedLogs.length}. New lastLogTimestamp: ${newLastLogTimestamp}`,
 	);
 
-	return ok(textPayload(JSON.stringify(payload)));
+	return ok(JSON.stringify(payload));
 }
 
 export async function listProcessesImpl(
@@ -175,14 +171,14 @@ export async function listProcessesImpl(
 		}
 	}
 
-	return ok(textPayload(JSON.stringify(processList, null, 2)));
+	return ok(JSON.stringify(processList, null, 2));
 }
 
 export async function stopProcessImpl(
 	params: StopProcessParams,
 ): Promise<CallToolResult> {
 	const { label, force } = params;
-	const result = await _stopProcess(label, force);
+	const result = await stopProcess(label, force);
 	return result;
 }
 
@@ -205,11 +201,13 @@ export async function stopAllProcessesImpl(): Promise<CallToolResult> {
 		if (currentStatus === "running" || currentStatus === "verifying") {
 			log.debug(label, "Stopping process as part of stop_all...");
 			try {
-				const stopResult = await _stopProcess(label, false);
+				const stopResult = await stopProcess(label, false);
 				const resultText = getResultText(stopResult);
 				let resultJson: { status?: string; message?: string } = {};
 				try {
-					resultJson = JSON.parse(resultText);
+					if (resultText !== null) {
+						resultJson = JSON.parse(resultText);
+					}
 				} catch (e) {
 					/* ignore */
 				}
@@ -225,7 +223,11 @@ export async function stopAllProcessesImpl(): Promise<CallToolResult> {
 					stoppedCount++;
 				}
 			} catch (error) {
-				log.error(label, "Error stopping process during stop_all", error);
+				log.error(
+					label,
+					"Error stopping process during stop_all",
+					error instanceof Error ? error.message : "Unknown error",
+				);
 				details.push({
 					label,
 					status: currentStatus,
@@ -258,7 +260,7 @@ export async function stopAllProcessesImpl(): Promise<CallToolResult> {
 		details,
 	};
 
-	return ok(textPayload(JSON.stringify(payload, null, 2)));
+	return ok(JSON.stringify(payload, null, 2));
 }
 
 export async function restartProcessImpl(
@@ -275,11 +277,11 @@ export async function restartProcessImpl(
 			error: `Process with label "${label}" not found.`,
 			label,
 		};
-		return fail(textPayload(JSON.stringify(errorPayload)));
+		return fail(JSON.stringify(errorPayload));
 	}
 
 	log.debug(label, "Stopping process before restart...");
-	const stopResult = await _stopProcess(label, false);
+	const stopResult = await stopProcess(label, false);
 	if (stopResult.isError) {
 		log.error(
 			label,
@@ -290,7 +292,7 @@ export async function restartProcessImpl(
 			error: `Failed to stop existing process: ${getResultText(stopResult)}`,
 			label,
 		};
-		return fail(textPayload(JSON.stringify(errorPayload)));
+		return fail(JSON.stringify(errorPayload));
 	}
 	log.debug(label, "Process stopped successfully.");
 
@@ -298,7 +300,7 @@ export async function restartProcessImpl(
 
 	log.debug(label, "Starting process again...");
 	const verificationPattern = processInfo.verificationPattern;
-	const startResult = await _startProcess(
+	const startResult = await startProcess(
 		label,
 		processInfo.command,
 		processInfo.args,
@@ -319,7 +321,7 @@ export async function restartProcessImpl(
 			error: `Failed to start process after stopping: ${getResultText(startResult)}`,
 			label,
 		};
-		return fail(textPayload(JSON.stringify(errorPayload)));
+		return fail(JSON.stringify(errorPayload));
 	}
 
 	log.info(label, "Process restarted successfully.");
@@ -351,7 +353,7 @@ export async function waitForProcessImpl(
 				final_status: "error",
 				message,
 			};
-			return fail(textPayload(JSON.stringify(payload)));
+			return fail(JSON.stringify(payload));
 		}
 
 		const currentStatus = processInfo.status;
@@ -367,7 +369,7 @@ export async function waitForProcessImpl(
 				message,
 				timed_out: false,
 			};
-			return ok(textPayload(JSON.stringify(payload)));
+			return ok(JSON.stringify(payload));
 		}
 
 		if (
@@ -384,7 +386,7 @@ export async function waitForProcessImpl(
 					final_status: currentStatus,
 					message,
 				};
-				return ok(textPayload(JSON.stringify(payload)));
+				return ok(JSON.stringify(payload));
 			}
 		}
 
@@ -397,7 +399,7 @@ export async function waitForProcessImpl(
 				message,
 				timed_out: true,
 			};
-			return ok(textPayload(JSON.stringify(payload)));
+			return ok(JSON.stringify(payload));
 		}
 
 		await new Promise((resolve) => setTimeout(resolve, checkIntervalMs));
@@ -415,9 +417,7 @@ export async function getAllLoglinesImpl(
 			label,
 			`Process with label "${label}" not found for getAllLoglines.`,
 		);
-		return fail(
-			textPayload(JSON.stringify({ error: `Process "${label}" not found.` })),
-		);
+		return fail(JSON.stringify({ error: `Process "${label}" not found.` }));
 	}
 
 	const allLogs = processInfo.logs || [];
@@ -441,7 +441,7 @@ export async function getAllLoglinesImpl(
 		label,
 		`getAllLoglines returning ${lineCount} lines. Truncated: ${isTruncated}`,
 	);
-	return ok(textPayload(JSON.stringify(payload)));
+	return ok(JSON.stringify(payload));
 }
 
 export async function sendInputImpl(
@@ -452,17 +452,17 @@ export async function sendInputImpl(
 	log.info(label, "Tool invoked: send_input");
 	const processInfo = await checkAndUpdateProcessStatus(label);
 
-	if (!processInfo || !processInfo.process || processInfo.process.killed) {
+	if (!processInfo || !processInfo.process) {
 		const status = processInfo?.status ?? "not_found";
 		const message = `Process "${label}" not running or not found (status: ${status}). Cannot send input.`;
 		log.warn(label, message);
-		return fail(textPayload(JSON.stringify({ error: message })));
+		return fail(JSON.stringify({ error: message }));
 	}
 
 	if (processInfo.status !== "running" && processInfo.status !== "verifying") {
 		const message = `Process "${label}" is not in a running or verifying state (status: ${processInfo.status}). Cannot reliably send input.`;
 		log.warn(label, message);
-		return fail(textPayload(JSON.stringify({ error: message })));
+		return fail(JSON.stringify({ error: message }));
 	}
 
 	try {
@@ -471,20 +471,18 @@ export async function sendInputImpl(
 			label,
 			`Sending input to PTY: "${stripAnsiAndControlChars(inputToSend)}"`,
 		);
-		await writeToPty(processInfo.process, inputToSend);
-		addLogEntry(processInfo, `[MCP_INPUT] ${input}`);
+		await writeToPty(processInfo.process, inputToSend, label);
+		addLogEntry(label, `[MCP_INPUT] ${input}`);
 
 		const message = `Input sent successfully to process "${label}".`;
 		log.info(label, message);
-		return ok(textPayload(JSON.stringify({ message })));
+		return ok(JSON.stringify({ message }));
 	} catch (error) {
 		const message = `Failed to send input to process "${label}".`;
-		log.error(label, message, error);
+		log.error(label, message, (error as Error).message);
 		const errorMsg =
 			error instanceof Error ? error.message : "Unknown PTY write error";
-		return fail(
-			textPayload(JSON.stringify({ error: `${message}: ${errorMsg}` })),
-		);
+		return fail(JSON.stringify({ error: `${message}: ${errorMsg}` }));
 	}
 }
 
@@ -502,5 +500,5 @@ export async function healthCheckImpl(): Promise<CallToolResult> {
 		message: `MCP Process Manager is running. Managing ${activeCount} processes. Zombie check active: ${zombieCheck}.`,
 	};
 
-	return ok(textPayload(JSON.stringify(payload)));
+	return ok(JSON.stringify(payload));
 }

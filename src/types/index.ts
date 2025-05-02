@@ -1,4 +1,4 @@
-import type { BlobResource, TextResource } from "./resource"; // Assuming resource types might be separated later
+import type { BlobResource, TextResource } from "./resource.js"; // Add .js extension
 
 export interface TextContent {
 	readonly type: "text";
@@ -40,5 +40,5 @@ export interface CallToolResult {
 	payload: {
 		contentType: "text/plain" | "application/json";
 		content: string;
-	};
+	}[];
 }

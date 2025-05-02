@@ -63,18 +63,30 @@ export async function checkAndUpdateProcessStatus(
 			// If kill(0) throws, process likely doesn't exist
 			if (error && typeof error === "object" && "code" in error) {
 				if (error.code === "ESRCH") {
-					log.warn(
-						label,
-						`Process check (kill 0): PID ${initialProcessInfo.pid} not found (ESRCH). Updating status to crashed.`,
-					);
-					updateProcessStatus(label, "crashed");
+					// If the state map says 'running' but the OS says the process is gone,
+					// trust the OS and update the state map to 'stopped' immediately.
+					if (initialProcessInfo.status === "running") {
+						log.info(
+							label,
+							`Process check (kill 0): PID ${initialProcessInfo.pid} not found (ESRCH) but status was 'running'. Updating status to stopped.`,
+						);
+						// Update status to stopped, assuming clean exit (code 0)
+						updateProcessStatus(label, "stopped", { code: 0, signal: null });
+					} else {
+						// If status wasn't 'running' when ESRCH detected, it likely crashed unexpectedly.
+						log.warn(
+							label,
+							`Process check (kill 0): PID ${initialProcessInfo.pid} not found (ESRCH). Current status ${initialProcessInfo.status}. Updating status to crashed.`,
+						);
+						updateProcessStatus(label, "crashed"); // Okay to set crashed if it wasn't 'running'
+					}
 				} else {
+					// Check if it's an Error instance before accessing message
+					const errorMsg =
+						error instanceof Error ? error.message : String(error);
 					log.error(
 						label,
-						`Process check (kill 0): Unexpected error for PID ${
-							initialProcessInfo.pid
-						}: ${error.message}. Status remains ${initialProcessInfo.status}.`,
-						error,
+						`Process check (kill 0): Unexpected error for PID ${initialProcessInfo.pid}: ${errorMsg}. Status remains ${initialProcessInfo.status}.`,
 					);
 				}
 			}
@@ -88,14 +100,6 @@ export async function checkAndUpdateProcessStatus(
 
 	// Re-fetch the potentially updated info from state
 	const finalProcessInfo = managedProcesses.get(label);
-	// ---> ADDED LOG: Log status just before returning
-	log.debug(
-		label,
-		`[checkAndUpdateProcessStatus END] Returning ProcessInfo. Status: ${
-			finalProcessInfo?.status
-		}`,
-	);
-	// ---> END ADDED LOG
 	return finalProcessInfo;
 }
 

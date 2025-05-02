@@ -1,6 +1,6 @@
 import type { McpServer, RequestHandlerExtra } from "@modelcontextprotocol/sdk";
-import type { z } from "zod";
-import { _startProcess, _stopProcess } from "./processLogic.js";
+import type { ZodRawShape, z } from "zod";
+import { startProcess, stopProcess } from "./process/lifecycle.js";
 import { handleToolCall } from "./toolHandler.js";
 import {
 	checkProcessStatusImpl,
@@ -15,7 +15,7 @@ import {
 import * as schemas from "./types/schemas.js";
 import { log } from "./utils.js";
 
-const shape = <T extends z.ZodRawShape>(shape: T): T => shape;
+const shape = <T extends ZodRawShape>(shape: T): T => shape;
 
 export type StartProcessParamsType = z.infer<typeof schemas.StartProcessParams>;
 export type CheckProcessStatusParamsType = z.infer<
@@ -60,7 +60,7 @@ export function registerToolDefinitions(server: McpServer): void {
 						? new RegExp(params.verification_pattern)
 						: undefined;
 
-					return await _startProcess(
+					return await startProcess(
 						effectiveLabel,
 						params.command,
 						params.args,
@@ -100,7 +100,7 @@ export function registerToolDefinitions(server: McpServer): void {
 				params.label,
 				"stop_process",
 				params,
-				async () => await _stopProcess(params.label, params.force),
+				async () => await stopProcess(params.label, params.force),
 			);
 		},
 	);

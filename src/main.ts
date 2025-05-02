@@ -8,7 +8,7 @@ import {
 	SERVER_VERSION,
 	ZOMBIE_CHECK_INTERVAL_MS,
 } from "./constants.js";
-import { stopAllProcessesOnExit } from "./processLifecycle.js";
+import { stopAllProcessesOnExit } from "./process/retry.js";
 import {
 	clearZombieCheckInterval,
 	setZombieCheckInterval,
@@ -48,7 +48,7 @@ async function main() {
 			// Optional: Clean up old files here if desired on restart, but be careful
 		}
 	} catch (error) {
-		log.error(null, "Failed to create log directory", error);
+		log.error(null, "Failed to create log directory", (error as Error).message);
 		// Decide if this is fatal? For now, we'll log and continue, file logging will fail later.
 		serverLogDirectory = null;
 	}
@@ -92,6 +92,6 @@ async function main() {
 }
 
 main().catch((error) => {
-	log.error(null, "Unhandled error in main function", error);
+	log.error(null, "Unhandled error in main function", (error as Error).message);
 	process.exit(1);
 });
