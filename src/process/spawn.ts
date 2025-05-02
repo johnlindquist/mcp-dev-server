@@ -29,8 +29,8 @@ export function spawnPtyProcess(
 			rows: 30,
 			cwd,
 			env,
-			shell, // Pass the determined shell
-			// useConpty: false, // Uncomment for Windows debugging if needed
+			// shell, // Removed: Not a valid option in node-pty typings
+			// useConpty: false, // Windows debug flag if you need it
 		});
 		log.debug(
 			label,
