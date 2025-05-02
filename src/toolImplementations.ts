@@ -2,7 +2,11 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { z } from "zod";
 import { cfg } from "./constants/index.js";
 import { fail, getResultText, ok, textPayload } from "./mcpUtils.js";
-import { startProcess, stopProcess } from "./process/lifecycle.js";
+import {
+	startProcess,
+	startProcessWithVerification,
+	stopProcess,
+} from "./process/lifecycle.js";
 import {
 	checkAndUpdateProcessStatus,
 	isZombieCheckActive,
@@ -334,18 +338,35 @@ export async function restartProcessImpl(
 
 	log.debug(label, "Starting process again...");
 	const verificationPattern = processInfo.verificationPattern;
-	const startResult = await startProcess(
-		label,
-		processInfo.command,
-		processInfo.args,
-		processInfo.cwd,
-		processInfo.host,
-		verificationPattern,
-		processInfo.verificationTimeoutMs,
-		processInfo.retryDelayMs,
-		processInfo.maxRetries,
-		true,
-	);
+	let startResult: CallToolResult;
+	if (
+		verificationPattern ||
+		processInfo.verificationTimeoutMs ||
+		processInfo.retryDelayMs ||
+		processInfo.maxRetries
+	) {
+		startResult = await startProcessWithVerification(
+			label,
+			processInfo.command,
+			processInfo.args,
+			processInfo.cwd,
+			processInfo.host,
+			verificationPattern,
+			processInfo.verificationTimeoutMs,
+			processInfo.retryDelayMs,
+			processInfo.maxRetries,
+			true,
+		);
+	} else {
+		startResult = await startProcess(
+			label,
+			processInfo.command,
+			processInfo.args,
+			processInfo.cwd,
+			processInfo.host,
+			true,
+		);
+	}
 
 	if (startResult.isError) {
 		log.error(label, "Failed to start process during restart.", {

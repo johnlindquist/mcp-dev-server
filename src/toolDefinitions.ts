@@ -1,6 +1,10 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ZodRawShape, z } from "zod";
-import { startProcess, stopProcess } from "./process/lifecycle.js";
+import {
+	startProcess,
+	startProcessWithVerification,
+	stopProcess,
+} from "./process/lifecycle.js";
 import { handleToolCall } from "./toolHandler.js";
 import {
 	checkProcessStatusImpl,
@@ -58,11 +62,42 @@ export function registerToolDefinitions(server: McpServer): void {
 				"start_process",
 				params,
 				async () => {
+					return await startProcess(
+						effectiveLabel,
+						params.command,
+						params.args,
+						params.workingDirectory,
+						hostValue,
+						false,
+					);
+				},
+			);
+		},
+	);
+
+	server.tool(
+		"start_process_with_verification",
+		"Starts a background process with verification (pattern, timeout, retries).",
+		shape(schemas.StartProcessWithVerificationParams.shape),
+		(params: schemas.StartProcessWithVerificationParamsType) => {
+			const cwdForLabel = params.workingDirectory;
+			const effectiveLabel = params.label || `${cwdForLabel}:${params.command}`;
+			const hostValue = params.host;
+
+			log.info(
+				effectiveLabel,
+				`Determined label for start_process_with_verification: ${effectiveLabel}`,
+			);
+
+			return handleToolCall(
+				effectiveLabel,
+				"start_process_with_verification",
+				params,
+				async () => {
 					const verificationPattern = params.verification_pattern
 						? new RegExp(params.verification_pattern)
 						: undefined;
-
-					return await startProcess(
+					return await startProcessWithVerification(
 						effectiveLabel,
 						params.command,
 						params.args,

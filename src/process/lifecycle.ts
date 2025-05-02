@@ -218,10 +218,6 @@ export async function startProcess(
 	args: string[],
 	workingDirectoryInput: string | undefined,
 	host: HostEnumType,
-	verificationPattern: RegExp | undefined,
-	verificationTimeoutMs: number | undefined,
-	retryDelayMs: number | undefined,
-	maxRetries: number | undefined,
 	isRestart = false,
 ): Promise<CallToolResult> {
 	const effectiveWorkingDirectory = workingDirectoryInput
@@ -352,11 +348,9 @@ export async function startProcess(
 		signal: null,
 		lastExitTimestamp: existingProcess?.lastExitTimestamp,
 		restartAttempts: isRestart ? (existingProcess?.restartAttempts ?? 0) : 0, // Reset on fresh start
-		verificationPattern,
-		verificationTimeoutMs: verificationTimeoutMs ?? undefined,
-		verificationTimer: undefined,
-		retryDelayMs: retryDelayMs ?? undefined,
-		maxRetries: maxRetries ?? undefined,
+		// Removed verificationPattern, verificationTimeoutMs, etc.
+		retryDelayMs: undefined,
+		maxRetries: undefined,
 		logFilePath: null,
 		logFileStream: null,
 		mainDataListenerDisposable: undefined,
@@ -376,11 +370,7 @@ export async function startProcess(
 		`Process spawned successfully (PID: ${ptyProcess.pid}) in ${effectiveWorkingDirectory}. Status: starting.`,
 	);
 
-	// 6. Perform Verification (call helper)
-	const { verificationFailed, failureReason } =
-		await verifyProcessStartup(processInfo);
-
-	// 7. Attach Persistent Listeners (if not failed/exited)
+	// 6. Attach Persistent Listeners (if not failed/exited)
 	const currentProcessState = getProcessInfo(label);
 	if (
 		currentProcessState?.process &&
@@ -434,6 +424,9 @@ export async function startProcess(
 		};
 		processInfo.mainExitListenerDisposable = ptyProcess.onExit(exitListener);
 		log.debug(label, "Persistent listeners attached.");
+		// Immediately set status to 'running' for non-verification processes
+		updateProcessStatus(label, "running");
+		addLogEntry(label, "Status: running (no verification specified).");
 	} else {
 		log.warn(
 			label,
@@ -441,7 +434,7 @@ export async function startProcess(
 		);
 	}
 
-	// 8. Construct Final Payload
+	// 7. Construct Final Payload
 	const finalProcessInfo = getProcessInfo(label);
 	if (!finalProcessInfo) {
 		// ... (error handling from _startProcess) ...
@@ -455,13 +448,12 @@ export async function startProcess(
 
 	if (finalProcessInfo.status === "error") {
 		// ... (error payload construction from _startProcess) ...
-		const errorMsg = `Process failed to start or verify. Final status: error. ${failureReason || "Unknown reason"}`;
+		const errorMsg = "Process failed to start. Final status: error.";
 		log.error(label, errorMsg);
 		const payload: z.infer<typeof schemas.StartErrorPayloadSchema> = {
 			error: errorMsg,
 			status: "error",
-			error_type: "start_or_verification_failed",
-			// verificationFailureReason: failureReason, // Add if needed
+			error_type: "start_failed",
 		};
 		return fail(textPayload(JSON.stringify(payload)));
 	}
@@ -471,7 +463,92 @@ export async function startProcess(
 		status: ProcessStatus;
 		logs?: string[];
 		monitoring_hint?: string;
-		// verificationFailureReason?: string;
+	} = {
+		label: finalProcessInfo.label,
+		command: finalProcessInfo.command,
+		args: finalProcessInfo.args,
+		pid: finalProcessInfo.pid as number,
+		workingDirectory: finalProcessInfo.cwd,
+		status: finalProcessInfo.status,
+		host: finalProcessInfo.host,
+		message: `Process '${label}' started successfully. Current status: ${finalProcessInfo.status}.`,
+		logs: formatLogsForResponse(
+			finalProcessInfo.logs.map((l) => l.content),
+			cfg.defaultReturnLogLines,
+		),
+		monitoring_hint:
+			"Use check_process_status periodically to get status updates and new logs.",
+		tail_command: getTailCommand(finalProcessInfo.logFilePath) || undefined,
+	};
+	log.info(label, successPayload.message);
+	return ok(textPayload(JSON.stringify(successPayload)));
+}
+
+export async function startProcessWithVerification(
+	label: string,
+	command: string,
+	args: string[],
+	workingDirectoryInput: string | undefined,
+	host: HostEnumType,
+	verificationPattern: RegExp | undefined,
+	verificationTimeoutMs: number | undefined,
+	retryDelayMs: number | undefined,
+	maxRetries: number | undefined,
+	isRestart = false,
+): Promise<CallToolResult> {
+	// Start the process without verification logic
+	const startResult = await startProcess(
+		label,
+		command,
+		args,
+		workingDirectoryInput,
+		host,
+		isRestart,
+	);
+
+	// If process failed to start, return immediately
+	if (startResult.isError) {
+		return startResult;
+	}
+
+	// Attach verification parameters to processInfo
+	const processInfo = getProcessInfo(label);
+	if (!processInfo) {
+		return startResult;
+	}
+	processInfo.verificationPattern = verificationPattern;
+	processInfo.verificationTimeoutMs = verificationTimeoutMs;
+	processInfo.retryDelayMs = retryDelayMs;
+	processInfo.maxRetries = maxRetries;
+
+	// Perform verification
+	const { verificationFailed, failureReason } =
+		await verifyProcessStartup(processInfo);
+
+	const finalProcessInfo = getProcessInfo(label);
+	if (!finalProcessInfo) {
+		return startResult;
+	}
+
+	if (finalProcessInfo.status === "error") {
+		const errorMsg = `Process failed to start or verify. Final status: error. ${failureReason || "Unknown reason"}`;
+		log.error(label, errorMsg);
+		const payload: z.infer<typeof schemas.StartErrorPayloadSchema> = {
+			error: errorMsg,
+			status: "error",
+			error_type: "start_or_verification_failed",
+		};
+		return fail(textPayload(JSON.stringify(payload)));
+	}
+
+	// Success case (reuse the same payload as startProcess)
+	const successPayload: z.infer<typeof schemas.StartSuccessPayloadSchema> & {
+		status: ProcessStatus;
+		logs?: string[];
+		monitoring_hint?: string;
+		isVerificationEnabled?: boolean;
+		verificationPattern?: string;
+		verificationTimeoutMs?: number;
 	} = {
 		label: finalProcessInfo.label,
 		command: finalProcessInfo.command,
@@ -492,7 +569,6 @@ export async function startProcess(
 		verificationPattern:
 			finalProcessInfo.verificationPattern?.source ?? undefined,
 		verificationTimeoutMs: finalProcessInfo.verificationTimeoutMs,
-		// verificationFailureReason: verificationFailed ? failureReason : undefined,
 	};
 	log.info(label, successPayload.message);
 	return ok(textPayload(JSON.stringify(successPayload)));

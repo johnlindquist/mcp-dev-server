@@ -1,0 +1,18 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+# MCP Result Format and Best Practices
+
+This codebase follows the official Model Context Protocol (MCP) standard for tool responses and type usage. Key rules and practices:
+
+- **All tool result/content types must be imported directly from [`@modelcontextprotocol/sdk/types.js`](mdc:package.json)** (with `.js` for ESM compatibility).
+- **No custom type definitions for tool results or content are allowed.**
+- **All tool implementations and helpers must return the `{ content: [...], isError?: boolean }` structure as required by the MCP spec.**
+- **Do not use or reference the old `payload` structure anywhere.**
+- **Tests and helpers must expect the new format** (e.g., `result.content[0].text` instead of `result.payload[0].content`).
+- **Test helpers and type assertions must match the new format.**
+- **See [`src/mcpUtils.ts`](mdc:src/mcpUtils.ts), [`src/toolImplementations.ts`](mdc:src/toolImplementations.ts), and [`tests/integration/test-helpers.ts`](mdc:tests/integration/test-helpers.ts) for examples.**
+
+This ensures maximum compatibility with Cursor, the MCP SDK, and the broader MCP ecosystem. All code and tests must adhere to these standards.
