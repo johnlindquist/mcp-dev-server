@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 // import { delay } from "../../build/utils.js"; // Original ESM import
 // const { delay } = require("../../build/utils.js"); // CJS require workaround
+import type { CallToolResult } from "../../src/types/index.js";
 
 // --- Configuration ---
 const SERVER_EXECUTABLE = "node";
@@ -858,11 +859,10 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				startRequest,
 			)) as MCPResponse;
 			logVerbose(`[TEST][restart] Initial process ${uniqueLabel} started.`);
-			const startResultContent = startResponse.result as {
-				content: Array<{ type: string; text: string }>;
-			};
+			// Fix: Access payload directly on the result object
+			const startResult = startResponse.result as CallToolResult;
 			const initialProcessInfo = JSON.parse(
-				startResultContent.payload[0].content,
+				startResult.payload[0].content, // Access payload here
 			) as ProcessStatusResult;
 			const initialPid = initialProcessInfo.pid;
 			expect(initialPid).toBeGreaterThan(0);
@@ -1075,6 +1075,9 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			await new Promise((resolve) => setTimeout(resolve, secondWaitMs)); // Inline delay
 			logVerbose("[TEST][checkLogsFilter] Second wait complete.");
 
+			// Add a minimal delay to allow exit handler / OS check to update status
+			await new Promise((resolve) => setTimeout(resolve, 100));
+
 			// Second check_process_status call
 			logVerbose(
 				`[TEST][checkLogsFilter] Sending second check_process_status for ${label}...`,
@@ -1109,15 +1112,15 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			);
 			logVerbose(
 				"[TEST][checkLogsFilter] Second check logs (%d):",
-				logs2.length,
-				logs2,
+				result2Logs.length,
+				JSON.stringify(result2Logs),
 			);
 
 			// Assertions for the second check
 			expect(result2.status).toBe("stopped");
 			// In fast mode (which tests always use), expect the stop/exit logs
 			// to be returned here because the process finishes quickly.
-			expect(logs2.length).toBeGreaterThan(0);
+			expect(result2Logs.length).toBeGreaterThan(0);
 
 			console.log("[TEST][checkLogsFilter] Assertions passed.");
 
