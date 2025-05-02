@@ -3,7 +3,7 @@ import { killProcessTree } from "../processLifecycle.js";
 import { addLogEntry, getProcessInfo, updateProcessStatus } from "../state.js"; // Adjust path
 import { managedProcesses } from "../state.js"; // Need state access
 import { log } from "../utils.js"; // Adjust path
-import { startProcess } from "./lifecycle.js"; // Import the new startProcess
+import { startProcessWithVerification } from "./lifecycle.js"; // Import the new startProcess
 
 /**
  * Handles the logic for retrying a crashed process.
@@ -62,8 +62,8 @@ export async function handleCrashAndRetry(label: string): Promise<void> {
 		await new Promise((resolve) => setTimeout(resolve, retryDelay));
 
 		log.info(label, "Initiating restart...");
-		// Call the new startProcess from lifecycle.ts
-		await startProcess(
+		// Call the new startProcessWithVerification from lifecycle.ts
+		await startProcessWithVerification(
 			label,
 			processInfo.command,
 			processInfo.args,

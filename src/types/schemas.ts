@@ -45,6 +45,40 @@ export const StartProcessParams = z.object(
 			.describe(
 				"Identifier for the client initiating the process (e.g., 'cursor', 'claude', 'vscode'). Defaults to 'unknown'.",
 			),
+	}),
+);
+export type StartProcessParamsType = z.infer<typeof StartProcessParams>;
+
+// New: StartProcessWithVerificationParams
+export const StartProcessWithVerificationParams = z.object(
+	shape({
+		label: labelSchema
+			.optional()
+			.describe(
+				"Optional human-readable identifier (e.g. 'dev-server'). Leave blank to let the server generate one based on CWD and command.",
+			),
+		command: z
+			.string()
+			.min(1)
+			.describe("The command to execute. e.g., 'npm' or some other runner"),
+		args: z
+			.array(z.string())
+			.optional()
+			.default([])
+			.describe(
+				"Optional arguments for the command, e.g. 'npm run dev' would be ['run', 'dev']",
+			),
+		workingDirectory: z
+			.string()
+			.min(1)
+			.describe(
+				"The absolute working directory to run the command from. This setting is required. Do not use relative paths like '.' or '../'. Provide the full path (e.g., /Users/me/myproject).",
+			),
+		host: HostEnum.optional()
+			.default("unknown")
+			.describe(
+				"Identifier for the client initiating the process (e.g., 'cursor', 'claude', 'vscode'). Defaults to 'unknown'.",
+			),
 		verification_pattern: z
 			.string()
 			.optional()
@@ -78,7 +112,9 @@ export const StartProcessParams = z.object(
 			),
 	}),
 );
-export type StartProcessParamsType = z.infer<typeof StartProcessParams>;
+export type StartProcessWithVerificationParamsType = z.infer<
+	typeof StartProcessWithVerificationParams
+>;
 
 export const CheckProcessStatusParams = z.object(
 	shape({

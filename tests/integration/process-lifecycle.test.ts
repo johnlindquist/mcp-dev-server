@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, lint/suspicious/noExplicitAny */
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -16,6 +17,15 @@ import {
 } from "./test-helpers";
 
 let serverProcess: ChildProcessWithoutNullStreams;
+
+// Add a type for the verification payload
+interface VerificationPayload {
+	label: string;
+	status: string;
+	isVerificationEnabled?: boolean;
+	verificationPattern?: string;
+	[key: string]: unknown;
+}
 
 describe("Tool: Process Lifecycle (start, check, restart)", () => {
 	beforeAll(async () => {
@@ -500,5 +510,111 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 			logVerbose("[TEST][restart] Cleanup stop request sent. Test finished.");
 		},
 		TEST_TIMEOUT * 2,
+	);
+
+	it(
+		"should start a process with verification and receive confirmation",
+		async () => {
+			logVerbose("[TEST][startProcessWithVerification] Starting test...");
+			const uniqueLabel = `test-process-verification-${Date.now()}`;
+			const command = "node";
+			const args = [
+				"-e",
+				"console.log('Verification pattern: READY'); setTimeout(() => console.log('Node process finished'), 200);",
+			];
+			const workingDirectory = path.resolve(__dirname);
+			logVerbose(
+				`[TEST][startProcessWithVerification] Generated label: ${uniqueLabel}, CWD: ${workingDirectory}`,
+			);
+
+			const startRequest = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "start_process_with_verification",
+					arguments: {
+						command,
+						args,
+						workingDirectory,
+						label: uniqueLabel,
+						verification_pattern: "READY",
+						verification_timeout_ms: 2000,
+					},
+				},
+				id: "req-start-verification-1",
+			};
+			logVerbose(
+				"[TEST][startProcessWithVerification] Sending start request...",
+			);
+
+			const response = (await sendRequest(
+				serverProcess,
+				startRequest,
+			)) as MCPResponse;
+			logVerbose(
+				"[TEST][startProcessWithVerification] Received response:",
+				JSON.stringify(response),
+			);
+
+			logVerbose(
+				"[TEST][startProcessWithVerification] Asserting response properties...",
+			);
+			expect(response.id).toBe("req-start-verification-1");
+			expect(
+				response.result,
+				`Expected result to be defined, error: ${JSON.stringify(response.error)}`,
+			).toBeDefined();
+			expect(
+				response.error,
+				`Expected error to be undefined, got: ${JSON.stringify(response.error)}`,
+			).toBeUndefined();
+
+			logVerbose(
+				"[TEST][startProcessWithVerification] Asserting result properties...",
+			);
+			const result = response.result as CallToolResult;
+			expect(result?.content?.[0]?.text).toBeDefined();
+			let startResult: ProcessStatusResult | null = null;
+			try {
+				startResult = JSON.parse(result.content[0].text);
+			} catch (e) {
+				throw new Error(
+					`Failed to parse start_process_with_verification result content: ${e}`,
+				);
+			}
+			expect(startResult).not.toBeNull();
+			if (startResult) {
+				expect(startResult.label).toBe(uniqueLabel);
+				expect(["running", "stopped"]).toContain(startResult.status);
+				const verificationResult = startResult as VerificationPayload;
+				expect(verificationResult.isVerificationEnabled).toBe(true);
+				expect(verificationResult.verificationPattern).toBe("READY");
+			}
+			console.log("[TEST][startProcessWithVerification] Assertions passed.");
+
+			logVerbose("[TEST][startProcessWithVerification] Waiting briefly...");
+			await new Promise((resolve) => setTimeout(resolve, 500));
+
+			const stopRequest = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "stop_process",
+					arguments: { label: uniqueLabel },
+				},
+				id: `req-stop-verification-${uniqueLabel}`,
+			};
+			logVerbose("[TEST][stop] Sending stop_process request...");
+			const stopResponse = (await sendRequest(
+				serverProcess,
+				stopRequest,
+			)) as MCPResponse;
+			logVerbose(
+				"[TEST][stop] Received stop response:",
+				JSON.stringify(stopResponse),
+			);
+			logVerbose("[TEST][startProcessWithVerification] Test finished.");
+		},
+		TEST_TIMEOUT,
 	);
 });
