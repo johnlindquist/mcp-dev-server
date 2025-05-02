@@ -1,8 +1,4 @@
-import {
-	CRASH_LOOP_DETECTION_WINDOW_MS,
-	DEFAULT_RETRY_DELAY_MS,
-	MAX_RETRIES,
-} from "../constants.js"; // Adjust path
+import { cfg } from "../constants/index.js"; // Update path
 import { killProcessTree } from "../processLifecycle.js";
 import { addLogEntry, getProcessInfo, updateProcessStatus } from "../state.js"; // Adjust path
 import { managedProcesses } from "../state.js"; // Need state access
@@ -25,13 +21,13 @@ export async function handleCrashAndRetry(label: string): Promise<void> {
 	}
 
 	const now = Date.now();
-	const maxRetries = processInfo.maxRetries ?? MAX_RETRIES;
-	const retryDelay = processInfo.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
+	const maxRetries = processInfo.maxRetries ?? cfg.maxRetries;
+	const retryDelay = processInfo.retryDelayMs ?? cfg.defaultRetryDelayMs;
 
 	// Reset restart attempts if outside the crash loop window
 	if (
 		processInfo.lastCrashTime &&
-		now - processInfo.lastCrashTime > CRASH_LOOP_DETECTION_WINDOW_MS
+		now - processInfo.lastCrashTime > cfg.crashLoopDetectionWindowMs
 	) {
 		log.info(label, "Resetting restart attempts, outside crash loop window.");
 		processInfo.restartAttempts = 0;

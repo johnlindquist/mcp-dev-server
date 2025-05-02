@@ -3,11 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import {
-	SERVER_NAME,
-	SERVER_VERSION,
-	ZOMBIE_CHECK_INTERVAL_MS,
-} from "./constants.js";
+import { cfg } from "./constants/index.js";
 import { stopAllProcessesOnExit } from "./process/retry.js";
 import {
 	clearZombieCheckInterval,
@@ -27,7 +23,7 @@ export let serverLogDirectory: string | null = null; // Export for potential use
 
 async function main() {
 	log.info(null, "MCP Process Manager Tool running...");
-	log.info(null, `Version: ${SERVER_VERSION}`);
+	log.info(null, `Version: ${cfg.serverVersion}`);
 
 	// --- Create Log Directory ---
 	try {
@@ -55,8 +51,8 @@ async function main() {
 	// --- End Log Directory Creation ---
 
 	const server = new McpServer({
-		name: SERVER_NAME,
-		version: SERVER_VERSION,
+		name: cfg.serverName,
+		version: cfg.serverVersion,
 		noAutoExit: true,
 	});
 
@@ -64,8 +60,8 @@ async function main() {
 	registerToolDefinitions(server);
 
 	// Start periodic zombie check
-	if (ZOMBIE_CHECK_INTERVAL_MS > 0) {
-		setZombieCheckInterval(ZOMBIE_CHECK_INTERVAL_MS);
+	if (cfg.zombieCheckIntervalMs > 0) {
+		setZombieCheckInterval(cfg.zombieCheckIntervalMs);
 	} else {
 		log.warn(null, "Zombie process check is disabled (interval set to 0).");
 	}

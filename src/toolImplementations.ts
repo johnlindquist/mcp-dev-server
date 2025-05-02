@@ -1,10 +1,5 @@
 import type { z } from "zod";
-import {
-	DEFAULT_LOG_LINES,
-	MAX_STORED_LOG_LINES,
-	SERVER_NAME,
-	SERVER_VERSION,
-} from "./constants.js";
+import { cfg } from "./constants/index.js";
 import { fail, getResultText, ok } from "./mcpUtils.js";
 import { startProcess, stopProcess } from "./process/lifecycle.js";
 import {
@@ -75,13 +70,16 @@ export async function checkProcessStatusImpl(
 		);
 		finalProcessInfo.lastLogTimestampReturned = newLastLogTimestamp;
 
-		const numLogsToReturn = Math.max(0, log_lines ?? DEFAULT_LOG_LINES);
+		const numLogsToReturn = Math.max(
+			0,
+			log_lines ?? cfg.defaultCheckStatusLogLines,
+		);
 		const startIndex = Math.max(0, newLogs.length - numLogsToReturn);
 		returnedLogs.push(...newLogs.slice(startIndex).map((l) => l.content));
 
 		log.debug(
 			label,
-			`Requested log lines: ${numLogsToReturn} (Default: ${DEFAULT_LOG_LINES})`,
+			`Requested log lines: ${numLogsToReturn} (Default: ${cfg.defaultCheckStatusLogLines})`,
 		);
 		log.debug(
 			label,
@@ -251,16 +249,14 @@ export async function stopAllProcessesImpl(): Promise<CallToolResult> {
 		}
 	}
 
-	const summary = `Stop all attempt completed. Stopped: ${stoppedCount}, Skipped: ${skippedCount}, Errors: ${errorCount}`;
-	log.info(null, summary);
+	const finalMessage = `Stop all request completed. Stopped: ${stoppedCount}, Skipped: ${skippedCount}, Errors: ${errorCount}`;
 	const payload: z.infer<typeof schemas.StopAllProcessesPayloadSchema> = {
-		stopped_count: stoppedCount,
-		skipped_count: skippedCount,
-		error_count: errorCount,
-		details,
+		message: finalMessage,
+		details: details,
 	};
 
-	return ok(JSON.stringify(payload, null, 2));
+	log.info(null, finalMessage);
+	return ok(JSON.stringify(payload));
 }
 
 export async function restartProcessImpl(
@@ -423,7 +419,7 @@ export async function getAllLoglinesImpl(
 	const allLogs = processInfo.logs || [];
 	const logContents = allLogs.map((l) => l.content);
 	const lineCount = logContents.length;
-	const isTruncated = lineCount >= MAX_STORED_LOG_LINES;
+	const isTruncated = lineCount >= cfg.maxStoredLogLines;
 
 	const message = isTruncated
 		? `Returned all ${lineCount} stored log lines (storage limit reached).`
@@ -487,18 +483,12 @@ export async function sendInputImpl(
 }
 
 export async function healthCheckImpl(): Promise<CallToolResult> {
-	const activeLabels = Array.from(managedProcesses.keys());
-	const activeCount = activeLabels.length;
-	const zombieCheck = isZombieCheckActive();
-
 	const payload: z.infer<typeof schemas.HealthCheckPayloadSchema> = {
 		status: "ok",
-		server_name: SERVER_NAME,
-		server_version: SERVER_VERSION,
-		active_processes: activeCount,
-		is_zombie_check_active: zombieCheck,
-		message: `MCP Process Manager is running. Managing ${activeCount} processes. Zombie check active: ${zombieCheck}.`,
+		server_name: cfg.serverName,
+		server_version: cfg.serverVersion,
+		active_processes: managedProcesses.size,
+		is_zombie_check_active: isZombieCheckActive(),
 	};
-
 	return ok(JSON.stringify(payload));
 }

@@ -1,10 +1,7 @@
 // Intentionally empty for now. Will contain process verification logic (startup pattern, log settle).
 
 import type { IDisposable, IPty } from "node-pty";
-import {
-	LOG_SETTLE_DURATION_MS,
-	OVERALL_LOG_WAIT_TIMEOUT_MS,
-} from "../constants.js"; // Adjust path
+import { cfg } from "../constants/index.js"; // Update path
 import { getProcessInfo, updateProcessStatus } from "../state.js"; // Adjust path
 import { log } from "../utils.js"; // Adjust path
 import { handleData } from "./lifecycle.js"; // Assuming handleData moves to lifecycle
@@ -54,7 +51,10 @@ export async function waitForLogSettleOrTimeout(
 
 		const onSettle = () => {
 			if (timedOut) return; // Don't resolve if already timed out
-			log.debug(label, `Logs settled after ${LOG_SETTLE_DURATION_MS}ms pause.`);
+			log.debug(
+				label,
+				`Logs settled after ${cfg.logSettleDurationMs}ms pause.`,
+			);
 			settled = true;
 			cleanup();
 			resolve({ settled, timedOut });
@@ -64,7 +64,7 @@ export async function waitForLogSettleOrTimeout(
 			if (settled) return; // Don't resolve if already settled
 			log.warn(
 				label,
-				`Overall log wait timeout (${OVERALL_LOG_WAIT_TIMEOUT_MS}ms) reached. Proceeding with captured logs.`,
+				`Overall log wait timeout (${cfg.overallLogWaitTimeoutMs}ms) reached. Proceeding with captured logs.`,
 			);
 			timedOut = true;
 			cleanup();
@@ -89,7 +89,7 @@ export async function waitForLogSettleOrTimeout(
 		const resetSettleTimer = () => {
 			if (settled || timedOut) return; // Don't reset if already resolved
 			if (settleTimerId) clearTimeout(settleTimerId);
-			settleTimerId = setTimeout(onSettle, LOG_SETTLE_DURATION_MS);
+			settleTimerId = setTimeout(onSettle, cfg.logSettleDurationMs);
 		};
 
 		// Attach temporary listeners
@@ -103,12 +103,12 @@ export async function waitForLogSettleOrTimeout(
 		resetSettleTimer(); // Initial settle timer
 		overallTimeoutId = setTimeout(
 			onOverallTimeout,
-			OVERALL_LOG_WAIT_TIMEOUT_MS,
+			cfg.overallLogWaitTimeoutMs,
 		);
 
 		log.debug(
 			label,
-			`Waiting for logs to settle (Pause: ${LOG_SETTLE_DURATION_MS}ms, Timeout: ${OVERALL_LOG_WAIT_TIMEOUT_MS}ms)...`,
+			`Waiting for logs to settle (Pause: ${cfg.logSettleDurationMs}ms, Timeout: ${cfg.overallLogWaitTimeoutMs}ms)...`,
 		);
 	});
 }

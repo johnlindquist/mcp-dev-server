@@ -1,11 +1,5 @@
 import { z } from "zod";
-import {
-	DEFAULT_LOG_LINES,
-	DEFAULT_RETRY_DELAY_MS,
-	DEFAULT_VERIFICATION_TIMEOUT_MS,
-	MAX_RETRIES,
-	MAX_STORED_LOG_LINES,
-} from "../constants.js"; // Adjust path as needed
+import { cfg } from "../constants/index.js"; // Update path
 import { HostEnum } from "./process.js"; // Import HostEnum from process types
 
 // Helper to keep shape definition clean
@@ -62,7 +56,7 @@ export const StartProcessParams = z.object(
 			.int()
 			.min(-1)
 			.optional()
-			.default(DEFAULT_VERIFICATION_TIMEOUT_MS)
+			.default(cfg.defaultVerificationTimeoutMs)
 			.describe(
 				"Milliseconds to wait for the verification pattern. -1 disables the timer (default).",
 			),
@@ -72,7 +66,7 @@ export const StartProcessParams = z.object(
 			.positive()
 			.optional()
 			.describe(
-				`Optional delay before restarting a crashed process in milliseconds (default: ${DEFAULT_RETRY_DELAY_MS}ms).`,
+				`Optional delay before restarting a crashed process in milliseconds (default: ${cfg.defaultRetryDelayMs}ms).`,
 			),
 		max_retries: z
 			.number()
@@ -80,7 +74,7 @@ export const StartProcessParams = z.object(
 			.min(0)
 			.optional()
 			.describe(
-				`Optional maximum number of restart attempts for a crashed process (default: ${MAX_RETRIES}). 0 disables restarts.`,
+				`Optional maximum number of restart attempts for a crashed process (default: ${cfg.maxRetries}). 0 disables restarts.`,
 			),
 	}),
 );
@@ -94,9 +88,9 @@ export const CheckProcessStatusParams = z.object(
 			.int()
 			.min(0)
 			.optional()
-			.default(DEFAULT_LOG_LINES)
+			.default(cfg.defaultCheckStatusLogLines)
 			.describe(
-				`Number of recent log lines to request. Default: ${DEFAULT_LOG_LINES}. Max stored: ${MAX_STORED_LOG_LINES}. Use 'getAllLoglines' for the full stored history (up to ${MAX_STORED_LOG_LINES} lines).`,
+				`Number of recent log lines to request. Default: ${cfg.defaultCheckStatusLogLines}. Max stored: ${cfg.maxStoredLogLines}. Use 'getAllLoglines' for the full stored history (up to ${cfg.maxStoredLogLines} lines).`,
 			),
 	}),
 );

@@ -1,7 +1,7 @@
 // src/utils.ts
 
 import stripAnsi from "strip-ansi";
-import { SERVER_NAME } from "./constants.js";
+import { cfg } from "./constants/index.js"; // Update path
 // Import MAX_STORED_LOG_LINES if needed for formatLogsForResponse logic refinement
 // import { MAX_STORED_LOG_LINES } from "./constants.js";
 // import * as path from 'node:path'; // Remove unused import
@@ -10,22 +10,22 @@ import { SERVER_NAME } from "./constants.js";
 export const log = {
 	info: (label: string | null, message: string, data?: unknown) =>
 		console.error(
-			`[${SERVER_NAME}${label ? ` ${label}` : ""}] INFO: ${message}`,
+			`[${cfg.serverName}${label ? ` ${label}` : ""}] INFO: ${message}`,
 			data ?? "",
 		),
 	warn: (label: string | null, message: string, data?: unknown) =>
 		console.error(
-			`[${SERVER_NAME}${label ? ` ${label}` : ""}] WARN: ${message}`,
+			`[${cfg.serverName}${label ? ` ${label}` : ""}] WARN: ${message}`,
 			data ?? "",
 		),
 	error: (label: string | null, message: string, error?: unknown) =>
 		console.error(
-			`[${SERVER_NAME}${label ? ` ${label}` : ""}] ERROR: ${message}`,
+			`[${cfg.serverName}${label ? ` ${label}` : ""}] ERROR: ${message}`,
 			error ?? "",
 		),
 	debug: (label: string | null, message: string, data?: unknown) => {
 		console.error(
-			`[${SERVER_NAME}${label ? ` ${label}` : ""}] DEBUG: ${message}`,
+			`[${cfg.serverName}${label ? ` ${label}` : ""}] DEBUG: ${message}`,
 			data ?? "",
 		);
 	},

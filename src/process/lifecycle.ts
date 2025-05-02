@@ -3,7 +3,7 @@ import * as path from "node:path";
 import type { IPty } from "node-pty";
 import type { z } from "zod";
 
-import { DEFAULT_RETURN_LOG_LINES, STOP_WAIT_DURATION } from "../constants.js";
+import { cfg } from "../constants/index.js";
 import { fail, ok, textPayload } from "../mcpUtils.js";
 import { checkAndUpdateProcessStatus } from "../processSupervisor.js";
 import { killPtyProcess } from "../ptyManager.js";
@@ -145,9 +145,11 @@ export async function stopProcess(
 
 			log.debug(
 				label,
-				`Waiting ${STOP_WAIT_DURATION}ms for graceful shutdown...`,
+				`Waiting ${cfg.stopWaitDurationMs}ms for graceful shutdown...`,
 			);
-			await new Promise((resolve) => setTimeout(resolve, STOP_WAIT_DURATION));
+			await new Promise((resolve) =>
+				setTimeout(resolve, cfg.stopWaitDurationMs),
+			);
 
 			// Check status *after* the wait
 			const infoAfterWait = await checkAndUpdateProcessStatus(label);
@@ -162,7 +164,7 @@ export async function stopProcess(
 			) {
 				log.warn(
 					label,
-					`Process ${pidToKill} did not terminate after SIGTERM and ${STOP_WAIT_DURATION}ms wait. Sending SIGKILL.`,
+					`Process ${pidToKill} did not terminate after SIGTERM and ${cfg.stopWaitDurationMs}ms wait. Sending SIGKILL.`,
 				);
 				addLogEntry(label, "Graceful shutdown timed out. Sending SIGKILL...");
 				await killPtyProcess(processToKill, label, "SIGKILL");
@@ -481,7 +483,7 @@ export async function startProcess(
 		message: `Process '${label}' started successfully. Current status: ${finalProcessInfo.status}.`,
 		logs: formatLogsForResponse(
 			finalProcessInfo.logs.map((l) => l.content),
-			DEFAULT_RETURN_LOG_LINES,
+			cfg.defaultReturnLogLines,
 		),
 		monitoring_hint:
 			"Use check_process_status periodically to get status updates and new logs.",
