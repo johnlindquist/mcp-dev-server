@@ -1,4 +1,3 @@
-import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import path from "node:path";
 
 // --- Configuration ---
@@ -57,10 +56,15 @@ export type ProcessStatusResult = {
 
 // --- sendRequest Function ---
 export async function sendRequest(
-	process: ChildProcessWithoutNullStreams,
 	request: Record<string, unknown>,
 	timeoutMs = 15000,
 ): Promise<MCPResponse> {
+	const process = globalThis.__MCP_TEST_SERVER_PROCESS__;
+	if (!process || process.killed) {
+		throw new Error(
+			`[sendRequest] Server process is not running or available (Request ID: ${request.id}). Ensure global setup succeeded.`,
+		);
+	}
 	const requestId = request.id as string;
 	if (!requestId) {
 		throw new Error('Request must have an "id" property');
@@ -69,12 +73,10 @@ export async function sendRequest(
 	logVerbose(
 		`[sendRequest] Sending request (ID ${requestId}): ${requestString.trim()}`,
 	);
-
 	return new Promise<MCPResponse>((resolve, reject) => {
 		let responseBuffer = "";
 		let responseReceived = false;
 		let responseListenersAttached = false;
-
 		const timeoutTimer = setTimeout(() => {
 			if (!responseReceived) {
 				cleanup();
@@ -83,7 +85,6 @@ export async function sendRequest(
 				reject(new Error(errorMsg));
 			}
 		}, timeoutMs);
-
 		const onData = (data: Buffer) => {
 			const rawChunk = data.toString();
 			logVerbose(
@@ -96,12 +97,10 @@ export async function sendRequest(
 				if (newlineIndex === -1) break;
 				const line = responseBuffer.substring(0, newlineIndex).trim();
 				responseBuffer = responseBuffer.substring(newlineIndex + 1);
-
 				if (line === "") continue;
 				logVerbose(
 					`[sendRequest] Processing line for ${requestId}: ${line.substring(0, 200)}${line.length > 200 ? "..." : ""}`,
 				);
-
 				try {
 					const parsedResponse = JSON.parse(line);
 					if (parsedResponse.id === requestId) {
@@ -128,7 +127,6 @@ export async function sendRequest(
 				}
 			}
 		};
-
 		const onError = (err: Error) => {
 			if (!responseReceived) {
 				cleanup();
@@ -137,7 +135,6 @@ export async function sendRequest(
 				reject(new Error(errorMsg));
 			}
 		};
-
 		const onExit = (code: number | null, signal: string | null) => {
 			if (!responseReceived) {
 				cleanup();
@@ -146,7 +143,6 @@ export async function sendRequest(
 				reject(new Error(errorMsg));
 			}
 		};
-
 		const cleanup = () => {
 			logVerbose(
 				`[sendRequest] Cleaning up listeners for request ID ${requestId}`,
@@ -174,13 +170,11 @@ export async function sendRequest(
 			}
 			responseListenersAttached = false;
 		};
-
 		const logStderr = (data: Buffer) => {
 			logVerboseError(
 				`[sendRequest][Server STDERR during request ${requestId}]: ${data.toString().trim()}`,
 			);
 		};
-
 		if (process?.stdout && process?.stderr) {
 			logVerbose(
 				`[sendRequest] Attaching listeners for request ID ${requestId}`,
@@ -198,7 +192,6 @@ export async function sendRequest(
 			);
 			return;
 		}
-
 		logVerbose(`[sendRequest] Writing request (ID ${requestId}) to stdin...`);
 		if (process?.stdin?.writable) {
 			process.stdin.write(requestString, (err) => {

@@ -1,18 +1,11 @@
-import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import { spawn } from "node:child_process";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 // import { delay } from "../../build/utils.js"; // Original ESM import
 // const { delay } = require("../../build/utils.js"); // CJS require workaround
 import {
 	type CallToolResult,
 	type MCPResponse,
 	type ProcessStatusResult,
-	SERVER_ARGS,
-	SERVER_EXECUTABLE,
-	SERVER_READY_OUTPUT,
-	SERVER_SCRIPT_PATH,
-	STARTUP_TIMEOUT,
 	TEST_TIMEOUT,
 	logVerbose,
 	logVerboseError,
@@ -63,177 +56,13 @@ import {
 // };
 
 describe("MCP Process Manager Server (Stdio Integration)", () => {
-	let serverProcess: ChildProcessWithoutNullStreams | null = null;
-	let serverReadyPromise: Promise<void>;
-	let resolveServerReady: () => void;
-	let rejectServerReady: (reason?: Error | string | undefined) => void;
-	let serverErrorOutput: string[] = []; // Store stderr output
-	let serverStdoutOutput: string[] = []; // Store stdout output (mostly for debugging)
-	let serverExitCode: number | null = null;
-	let serverWasKilled = false; // Flag to check if we killed it intentionally
-
-	beforeAll(async () => {
-		console.log("[TEST] BeforeAll: Setting up server...");
-		// Reset state for potentially retried tests
-		serverProcess = null;
-		serverErrorOutput = [];
-		serverStdoutOutput = [];
-		serverExitCode = null;
-		serverWasKilled = false;
-
-		// Setup the promise *before* spawning
-		serverReadyPromise = new Promise((resolve, reject) => {
-			resolveServerReady = resolve;
-			rejectServerReady = reject;
-		});
-
-		console.log(
-			`[TEST] Spawning MCP server: ${SERVER_EXECUTABLE} ${SERVER_SCRIPT_PATH} ${SERVER_ARGS.join(" ")}`,
-		);
-		serverProcess = spawn(
-			SERVER_EXECUTABLE,
-			[SERVER_SCRIPT_PATH, ...SERVER_ARGS],
-			{
-				stdio: ["pipe", "pipe", "pipe"], // pipe stdin, stdout, stderr
-				env: { ...process.env, MCP_PM_FAST: "1" }, // Pass environment variables + FAST MODE
-				// cwd: path.dirname(SERVER_SCRIPT_PATH), // Usually not needed if script path is absolute
-			},
-		);
-		console.log(`[TEST] Server process spawned with PID: ${serverProcess.pid}`);
-
-		let serverReady = false; // Flag to prevent double resolution
-
-		const startupTimeoutTimer = setTimeout(() => {
-			if (!serverReady) {
-				const err = new Error(
-					`[TEST] Server startup timed out after ${STARTUP_TIMEOUT}ms. Stderr: ${serverErrorOutput.join("")}`,
-				);
-				console.error(err.message);
-				serverWasKilled = true;
-				serverProcess?.kill("SIGKILL"); // Force kill on timeout
-				rejectServerReady(err);
-			}
-		}, STARTUP_TIMEOUT);
-
-		serverProcess.stdout.on("data", (data: Buffer) => {
-			const output = data.toString();
-			logVerbose(`[Server STDOUT RAW]: ${output}`); // Replaced console.log
-			serverStdoutOutput.push(output); // Store for debugging
-			// NOTE: MCP responses go to stdout, but the *ready* signal for mcp-pm goes to stderr
-			logVerbose(`[Server STDOUT]: ${output.trim()}`); // Replaced console.log
-		});
-
-		serverProcess.stderr.on("data", (data: Buffer) => {
-			const output = data.toString();
-			logVerboseError(`[Server STDERR RAW]: ${output}`); // Replaced console.error
-			serverErrorOutput.push(output); // Store for debugging/errors
-			logVerboseError(`[Server STDERR]: ${output.trim()}`); // Replaced console.error
-
-			// Check for the ready signal in stderr
-			if (!serverReady && output.includes(SERVER_READY_OUTPUT)) {
-				console.log("[TEST] MCP server ready signal detected in stderr.");
-				serverReady = true;
-				clearTimeout(startupTimeoutTimer);
-				resolveServerReady();
-			}
-			// Optional: Check for specific fatal startup errors here if known
-			// if (output.includes("FATAL ERROR")) {
-			//   clearTimeout(startupTimeoutTimer);
-			//   rejectServerReady(new Error(`Server emitted fatal error: ${output}`));
-			// }
-		});
-
-		serverProcess.on("error", (err) => {
-			console.error("[TEST] Failed to start server process:", err);
-			if (!serverReady) {
-				clearTimeout(startupTimeoutTimer);
-				rejectServerReady(err);
-			}
-		});
-
-		serverProcess.on("exit", (code, signal) => {
-			serverExitCode = code;
-			console.log(
-				`[TEST] Server process exited. Code: ${code}, Signal: ${signal}`,
-			);
-			if (!serverReady) {
-				clearTimeout(startupTimeoutTimer);
-				const errMsg = `Server process exited prematurely (code ${code}, signal ${signal}) before ready signal. Stderr: ${serverErrorOutput.join("")}`;
-				console.error(`[TEST] ${errMsg}`);
-				rejectServerReady(new Error(errMsg));
-			}
-			// If it exits *after* being ready but *before* we killed it, it might be an issue
-			else if (!serverWasKilled) {
-				console.warn(
-					`[TEST] Server process exited unexpectedly after being ready (code ${code}, signal ${signal}).`,
-				);
-				// We might want to fail ongoing tests if this happens, but that's complex.
-				// For now, just log it. The tests relying on the process will fail anyway.
-			}
-		});
-
-		serverProcess.on("close", () => {
-			logVerbose("[TEST] Server stdio streams closed.");
-		});
-
-		try {
-			logVerbose("[TEST] Waiting for server ready promise...");
-			await serverReadyPromise;
-			console.log("[TEST] Server startup successful.");
-		} catch (err) {
-			console.error("[TEST] Server startup failed:", err);
-			// Ensure process is killed if startup failed partway
-			if (serverProcess && !serverProcess.killed) {
-				console.log("[TEST] Killing server process after startup failure...");
-				serverWasKilled = true;
-				serverProcess.kill("SIGKILL");
-			}
-			throw err; // Re-throw to fail the test setup
-		}
-
-		// Add a small delay after server is ready before proceeding
-		await new Promise((resolve) => setTimeout(resolve, 200));
-		logVerbose("[TEST] Short delay after server ready signal completed.");
-	}, TEST_TIMEOUT); // Vitest timeout for the hook
-
-	afterAll(async () => {
-		console.log("[TEST] AfterAll: Tearing down server...");
-		if (serverProcess && !serverProcess.killed) {
-			console.log("[TEST] Terminating server process...");
-			serverWasKilled = true; // Signal that we initiated the kill
-			serverProcess.stdin.end(); // Close stdin first
-			const killed = serverProcess.kill("SIGTERM"); // Attempt graceful shutdown
-			if (killed) {
-				console.log("[TEST] Sent SIGTERM to server process.");
-				// Wait briefly for graceful exit
-				await new Promise((resolve) => setTimeout(resolve, 500));
-				if (!serverProcess.killed) {
-					console.warn(
-						"[TEST] Server did not exit after SIGTERM, sending SIGKILL.",
-					);
-					serverProcess.kill("SIGKILL");
-				} else {
-					console.log(
-						"[TEST] Server process terminated gracefully after SIGTERM.",
-					);
-				}
-			} else {
-				console.warn(
-					"[TEST] Failed to send SIGTERM, attempting SIGKILL directly.",
-				);
-				serverProcess.kill("SIGKILL");
-			}
-		} else {
-			console.log("[TEST] Server process already terminated or not started.");
-		}
-		// Optional: Cleanup temporary directories/files if created by tests
-		console.log("[TEST] AfterAll: Teardown complete.");
-	});
+	// Remove serverProcess and related state variables
+	// Remove beforeAll and afterAll hooks
+	// Update all sendRequest calls to only pass the request object
 
 	// Can be placed inside the describe block or outside (if exported from a helper module)
 	// Using the guide's version directly, ensure it's adapted for TypeScript/Vitest context
 	async function sendRequest(
-		process: ChildProcessWithoutNullStreams,
 		request: Record<string, unknown>,
 		timeoutMs = 10000, // 10 second timeout
 	): Promise<unknown> {
@@ -382,10 +211,6 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 		"should list zero processes initially",
 		async () => {
 			logVerbose("[TEST][listEmpty] Starting test...");
-			if (!serverProcess) {
-				throw new Error("Server process not initialized in beforeAll");
-			}
-
 			const listRequest = {
 				jsonrpc: "2.0",
 				method: "tools/call",
@@ -397,10 +222,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			};
 
 			logVerbose("[TEST][listEmpty] Sending list_processes request...");
-			const response = (await sendRequest(
-				serverProcess,
-				listRequest,
-			)) as MCPResponse;
+			const response = (await sendRequest(listRequest)) as MCPResponse;
 			logVerbose(
 				"[TEST][listEmpty] Received response:",
 				JSON.stringify(response),
@@ -438,9 +260,6 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 		"should respond successfully to health_check",
 		async () => {
 			logVerbose("[TEST][healthCheck] Starting test...");
-			if (!serverProcess) {
-				throw new Error("Server process not initialized in beforeAll");
-			}
 			logVerbose("[TEST][healthCheck] Server process check passed.");
 
 			const healthRequest = {
@@ -454,10 +273,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			};
 			logVerbose("[TEST][healthCheck] Sending health_check request...");
 
-			const response = (await sendRequest(
-				serverProcess,
-				healthRequest,
-			)) as MCPResponse;
+			const response = (await sendRequest(healthRequest)) as MCPResponse;
 			logVerbose(
 				"[TEST][healthCheck] Received response:",
 				JSON.stringify(response),
@@ -503,9 +319,6 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 		"should start a simple process and receive confirmation",
 		async () => {
 			logVerbose("[TEST][startProcess] Starting test...");
-			if (!serverProcess) {
-				throw new Error("Server process not initialized in beforeAll");
-			}
 			logVerbose("[TEST][startProcess] Server process check passed.");
 			const uniqueLabel = `test-process-${Date.now()}`;
 			const command = "node";
@@ -534,10 +347,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			};
 			logVerbose("[TEST][startProcess] Sending start request...");
 
-			const response = (await sendRequest(
-				serverProcess,
-				startRequest,
-			)) as MCPResponse;
+			const response = (await sendRequest(startRequest)) as MCPResponse;
 			logVerbose(
 				"[TEST][startProcess] Received response:",
 				JSON.stringify(response),
@@ -587,10 +397,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				id: `req-stop-${uniqueLabel}`,
 			};
 			logVerbose("[TEST][stop] Sending stop_process request...");
-			const stopResponse = (await sendRequest(
-				serverProcess,
-				stopRequest,
-			)) as MCPResponse;
+			const stopResponse = (await sendRequest(stopRequest)) as MCPResponse;
 			logVerbose(
 				"[TEST][stop] Received stop response:",
 				JSON.stringify(stopResponse),
@@ -606,11 +413,6 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 		"should list one running process after starting it",
 		async () => {
 			logVerbose("[TEST][listOne] Starting test...");
-			if (!serverProcess) {
-				throw new Error("Server process not initialized in beforeAll");
-			}
-
-			// --- Start a process first ---
 			const uniqueLabel = `test-list-${Date.now()}`;
 			const command = "node";
 			const args = [
@@ -629,7 +431,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				id: "req-start-for-list-1",
 			};
 			// We need to wait for the start request to complete, but we don't need to assert its result here
-			await sendRequest(serverProcess, startRequest);
+			await sendRequest(startRequest);
 			logVerbose(`[TEST][listOne] Process ${uniqueLabel} started.`);
 			// --- Add Delay ---
 			await new Promise((resolve) => setTimeout(resolve, 500));
@@ -648,10 +450,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			};
 
 			logVerbose("[TEST][listOne] Sending list_processes request...");
-			const response = (await sendRequest(
-				serverProcess,
-				listRequest,
-			)) as MCPResponse;
+			const response = (await sendRequest(listRequest)) as MCPResponse;
 			logVerbose(
 				"[TEST][listOne] Received response:",
 				JSON.stringify(response),
@@ -704,7 +503,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			logVerbose(
 				`[TEST][listOne] Sending stop request for cleanup (${uniqueLabel})...`,
 			);
-			await sendRequest(serverProcess, stopRequest);
+			await sendRequest(stopRequest);
 			logVerbose("[TEST][listOne] Cleanup stop request sent. Test finished.");
 			// --- End Cleanup ---
 		},
@@ -716,11 +515,6 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 		"should check the status of a running process",
 		async () => {
 			logVerbose("[TEST][checkStatus] Starting test...");
-			if (!serverProcess) {
-				throw new Error("Server process not initialized in beforeAll");
-			}
-
-			// --- Start a process first ---
 			const uniqueLabel = `test-check-${Date.now()}`;
 			const command = "node";
 			const args = [
@@ -739,7 +533,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				id: "req-start-for-check-1",
 			};
 			// We need to wait for the start request to complete, but we don't need to assert its result here
-			await sendRequest(serverProcess, startRequest);
+			await sendRequest(startRequest);
 			logVerbose(`[TEST][checkStatus] Process ${uniqueLabel} started.`);
 			// --- Add Delay ---
 			await new Promise((resolve) => setTimeout(resolve, 500));
@@ -758,10 +552,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			};
 			logVerbose("[TEST][checkStatus] Sending check_process_status request...");
 
-			const response = (await sendRequest(
-				serverProcess,
-				checkRequest,
-			)) as MCPResponse;
+			const response = (await sendRequest(checkRequest)) as MCPResponse;
 			logVerbose(
 				`[TEST][checkStatus] Received response: ${JSON.stringify(response)}`,
 			);
@@ -821,8 +612,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				},
 				id: "req-stop-cleanup-check-1",
 			};
-			if (!serverProcess) throw new Error("Server process is null"); // Check before use
-			await sendRequest(serverProcess, stopRequest);
+			await sendRequest(stopRequest);
 			logVerbose(
 				"[TEST][checkStatus] Cleanup stop request sent. Test finished.",
 			);
@@ -836,11 +626,6 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 		"should restart a running process",
 		async () => {
 			logVerbose("[TEST][restart] Starting test...");
-			if (!serverProcess) {
-				throw new Error("Server process not initialized in beforeAll");
-			}
-
-			// --- Start a process first ---
 			const uniqueLabel = `test-restart-${Date.now()}`;
 			const command = "node";
 			// Log PID to verify it changes after restart
@@ -859,10 +644,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				},
 				id: `req-start-for-restart-${uniqueLabel}`,
 			};
-			const startResponse = (await sendRequest(
-				serverProcess,
-				startRequest,
-			)) as MCPResponse;
+			const startResponse = (await sendRequest(startRequest)) as MCPResponse;
 			logVerbose(`[TEST][restart] Initial process ${uniqueLabel} started.`);
 			// Fix: Access payload directly on the result object
 			const startResult = startResponse.result as CallToolResult;
@@ -889,7 +671,6 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			};
 			logVerbose("[TEST][restart] Sending restart_process request...");
 			const restartResponse = (await sendRequest(
-				serverProcess,
 				restartRequest,
 			)) as MCPResponse;
 			logVerbose(
@@ -948,10 +729,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			logVerbose(
 				"[TEST][restart] Sending check_process_status request after restart...",
 			);
-			const checkResponse = (await sendRequest(
-				serverProcess,
-				checkRequest,
-			)) as MCPResponse;
+			const checkResponse = (await sendRequest(checkRequest)) as MCPResponse;
 
 			let checkResult: ProcessStatusResult | null = null;
 			// Fix: Access payload within the result object
@@ -981,7 +759,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			logVerbose(
 				`[TEST][restart] Sending stop request for cleanup (${uniqueLabel})...`,
 			);
-			await sendRequest(serverProcess, stopRequest);
+			await sendRequest(stopRequest);
 			logVerbose("[TEST][restart] Cleanup stop request sent. Test finished.");
 			// --- End Cleanup ---
 		},
@@ -1019,11 +797,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				},
 				id: `req-start-for-log-filter-${label}`,
 			};
-			if (!serverProcess) throw new Error("Server process is null"); // Check before use
-			const startResponse = (await sendRequest(
-				serverProcess,
-				startRequest,
-			)) as MCPResponse;
+			const startResponse = (await sendRequest(startRequest)) as MCPResponse;
 			logVerbose(
 				`[TEST][checkLogsFilter] Process ${label} started response received.`,
 			);
@@ -1049,11 +823,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				},
 				id: `req-check1-log-filter-${label}`,
 			};
-			if (!serverProcess) throw new Error("Server process is null"); // Check before use
-			const check1Response = (await sendRequest(
-				serverProcess,
-				checkRequest1,
-			)) as MCPResponse;
+			const check1Response = (await sendRequest(checkRequest1)) as MCPResponse;
 			logVerbose("[TEST][checkLogsFilter] Received first check response.");
 			expect(check1Response).toHaveProperty("result");
 			// Fix: Access payload within the result object
@@ -1096,11 +866,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				},
 				id: `req-check2-log-filter-${label}`,
 			};
-			if (!serverProcess) throw new Error("Server process is null"); // Check before use
-			const check2Response = (await sendRequest(
-				serverProcess,
-				check2Request,
-			)) as MCPResponse;
+			const check2Response = (await sendRequest(check2Request)) as MCPResponse;
 			logVerbose("[TEST][checkLogsFilter] Received second check response.");
 			expect(check2Response).toHaveProperty("result");
 			// Fix: Access payload within the result object
@@ -1142,8 +908,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				},
 				id: `req-stop-cleanup-log-filter-${label}`,
 			};
-			if (!serverProcess) throw new Error("Server process is null"); // Check before use
-			await sendRequest(serverProcess, stopRequest);
+			await sendRequest(stopRequest);
 			logVerbose(
 				`[TEST][checkLogsFilter] Cleanup stop request sent for ${label}. Test finished.`,
 			);
@@ -1181,11 +946,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				},
 				id: `req-start-for-summary-${label}`,
 			};
-			if (!serverProcess) throw new Error("Server process is null");
-			const startResponse = (await sendRequest(
-				serverProcess,
-				startRequest,
-			)) as MCPResponse;
+			const startResponse = (await sendRequest(startRequest)) as MCPResponse;
 			logVerbose(
 				`[TEST][checkSummary] Process ${label} started response received.`,
 			);
@@ -1214,11 +975,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				},
 				id: `req-check1-summary-${label}`,
 			};
-			if (!serverProcess) throw new Error("Server process is null");
-			const check1Response = (await sendRequest(
-				serverProcess,
-				checkRequest1,
-			)) as MCPResponse;
+			const check1Response = (await sendRequest(checkRequest1)) as MCPResponse;
 			logVerbose("[TEST][checkSummary] Received first check response.");
 			expect(check1Response).toHaveProperty("result");
 			const check1Result = check1Response.result as CallToolResult;
@@ -1259,11 +1016,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				},
 				id: `req-check2-summary-${label}`,
 			};
-			if (!serverProcess) throw new Error("Server process is null");
-			const check2Response = (await sendRequest(
-				serverProcess,
-				checkRequest2,
-			)) as MCPResponse;
+			const check2Response = (await sendRequest(checkRequest2)) as MCPResponse;
 			logVerbose("[TEST][checkSummary] Received second check response.");
 			expect(check2Response).toHaveProperty("result");
 			const check2Result = check2Response.result as CallToolResult;
@@ -1297,8 +1050,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				},
 				id: `req-stop-cleanup-summary-${label}`,
 			};
-			if (!serverProcess) throw new Error("Server process is null");
-			await sendRequest(serverProcess, stopRequest);
+			await sendRequest(stopRequest);
 			logVerbose(
 				`[TEST][checkSummary] Cleanup stop request sent for ${label}. Test finished.`,
 			);
