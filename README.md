@@ -29,6 +29,23 @@ It allows MCP-compatible clients to start, monitor, retrieve logs from, and stop
 *   **Stronger Cursor-tail instructions:** Enhanced instructions for Cursor IDE users when starting background processes.
 *   **Automatic Purging:** Stopped processes are automatically purged from the process list; querying a purged process returns a stopped status and empty logs.
 
+---
+
+<blockquote style="border-left: 6px solid #222; background: #fff3cd; color: #222; padding: 28px 32px; margin: 32px 0; border-radius: 10px; text-align: center;">
+  <div style="font-size: 1.5em; font-weight: bold; margin-bottom: 8px; color: #222;">
+    🚀 Want to Become a <span style="color:#0d6efd;">Cursor Pro</span>? 🏆
+  </div>
+  <div style="font-size: 1.1em; margin-bottom: 10px; color: #222;">
+    Unlock advanced workflows, tips, and real-world AI dev strategies in Cursor.<br>
+    <strong>I teach semi-weekly workshops live on Thursdays.</strong>
+  </div>
+  <a href="https://egghead.io/workshop/cursor" style="display: inline-block; background: #0d6efd; color: #fff; font-weight: bold; font-size: 1.15em; padding: 14px 28px; border-radius: 6px; text-decoration: none; margin-top: 8px; box-shadow: 0 2px 8px rgba(13,110,253,0.10);">
+    👉 Click here to learn more!
+  </a>
+</blockquote>
+
+---
+
 ## Available Tools
 
 This server exposes the following tools for MCP clients:
@@ -292,108 +309,4 @@ Restarts a specific managed process (stops it if running, then starts it again w
 
 **Returns:** (JSON)
 
-Response payload for a successful restart_process call (structure mirrors start_process success). On failure, returns an error object with `error`, `status`, `pid`.
-
-**Example Usage:**
-
-```json
-{
-  "label": "webapp-dev-server"
-}
-```
-
-### `wait_for_process`
-
-Waits for a specific managed process to reach a target status.
-
-**Parameters:**
-
-*   `label` (string, required): The label of the process to wait for.
-*   `target_status` (string, optional, enum: `"running"`, `"stopped"`, `"crashed"`, `"error"`, default: `"running"`): The target status to wait for (e.g., 'running', 'stopped'). Defaults to 'running'.
-*   `timeout_seconds` (integer, optional, default: 60): Maximum time to wait in seconds. Defaults to 60.
-*   `check_interval_seconds` (integer, optional, default: 2): Interval between status checks in seconds. Defaults to 2.
-
-**Returns:** (JSON)
-
-Response payload for wait_for_process. Contains `label`, `final_status`, `message`, `timed_out` (boolean).
-
-**Example Usage:**
-
-```json
-{
-  "label": "data-import-job",
-  "target_status": "stopped",
-  "timeout_seconds": 300
-}
-```
-
-### `get_all_loglines`
-
-Retrieves the complete stored log history for a specific managed process.
-
-**Parameters:**
-
-*   `label` (string, required): The label of the process whose logs are requested.
-
-**Returns:** (JSON)
-
-Response payload for get_all_loglines. Contains `label`, `logs` (array of strings), `count` (integer), `storage_limit` (integer).
-
-**Example Usage:**
-
-```json
-{
-  "label": "webapp-dev-server"
-}
-```
-
-### `send_input`
-
-Sends text input to the standard input (stdin) of a running process.
-
-**Parameters:**
-
-*   `label` (string, required): The label of the target process.
-*   `input` (string, required): The text input to send to the process stdin.
-*   `append_newline` (boolean, optional, default: `true`): Whether to automatically append a carriage return character ('\r') after the input, simulating pressing Enter. Defaults to true.
-
-**Returns:** (JSON)
-
-Response payload for send_input. Contains `label` and `message`.
-
-**Example Usage:**
-
-```json
-{
-  "label": "interactive-script",
-  "input": "yes",
-  "append_newline": true
-}
-```
-
-### `health_check`
-
-Provides basic health information about the mcp-pm server itself.
-
-**Parameters:** None
-
-**Returns:** (JSON)
-
-Response payload for health_check. Contains `status`, `server_name`, `version`, `active_processes`, `zombie_check_active`.
-
-**Example Usage:**
-
-```json
-{}
-```
-
-## Recent Changes
-
-- Added `start_process_with_verification` tool for advanced process startup with verification, timeout, and retry options.
-- All tool result/content types are now imported directly from `@modelcontextprotocol/sdk/types.js` (with `.js` for ESM compatibility); no custom types allowed.
-- All tool implementations and helpers return the `{ content: [...], isError?: boolean }` structure as required by the MCP spec.
-- Tests and helpers expect the new MCP format (e.g., `result.content[0].text`).
-- Stopped processes are now purged from the process list; querying a purged process returns a stopped status and empty logs.
-- Stronger Cursor-tail instructions for background process management in Cursor IDE.
-- Codebase modularized, types/constants centralized, and integration/unit tests split for clarity and speed.
-- Type safety and MCP compliance strictly enforced throughout the codebase.
+Response payload for a successful restart_process call (structure mirrors start_process success). On failure, returns an error object with `
