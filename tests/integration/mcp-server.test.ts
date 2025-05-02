@@ -1145,4 +1145,170 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 		},
 		TEST_TIMEOUT + 5000, // Slightly longer timeout for multiple waits
 	);
+
+	// Test #9: Check Process Status Summary Message
+	it(
+		"should generate a summary message for notable log events",
+		async () => {
+			logVerbose("[TEST][checkSummary] Starting test...");
+			const label = `test-summary-msg-${Date.now()}`;
+			const logIntervalMs = 300;
+			const initialWaitMs = 2500; // Further increased initial wait
+
+			// Start a process that logs various notable things
+			logVerbose(`[TEST][checkSummary] Starting process ${label}...`);
+			const startRequest = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "start_process",
+					arguments: {
+						command: "node",
+						args: [
+							"-e",
+							`
+							console.log('Process Started');
+							setTimeout(() => console.log('Regular log 1'), ${logIntervalMs});
+							setTimeout(() => console.error('Major Error Occurred! Code: 500'), ${logIntervalMs * 2});
+							setTimeout(() => console.warn('Minor Warning: config outdated'), ${logIntervalMs * 3});
+							setTimeout(() => console.log('Found resource at http://localhost:8080/data'), ${logIntervalMs * 4});
+							setTimeout(() => process.stdout.write('Enter password:\n'), ${logIntervalMs * 5}); // Added newline
+							setTimeout(() => console.log('Process finished'), ${logIntervalMs * 6});
+							setTimeout(() => process.exit(0), ${logIntervalMs * 7}); // Ensure exit after logs
+							`, // Process exits after last log
+						],
+						workingDirectory: path.join(__dirname),
+						label: label,
+						verification_pattern: "Process Started",
+						verification_timeout_ms: 5000,
+					},
+				},
+				id: `req-start-for-summary-${label}`,
+			};
+			if (!serverProcess) throw new Error("Server process is null");
+			const startResponse = (await sendRequest(
+				serverProcess,
+				startRequest,
+			)) as MCPResponse;
+			logVerbose(
+				`[TEST][checkSummary] Process ${label} started response received.`,
+			);
+			expect(startResponse).toHaveProperty("result");
+
+			// Wait for all logs to be emitted
+			logVerbose(
+				`[TEST][checkSummary] Waiting ${initialWaitMs}ms for initial logs...`,
+			);
+			await new Promise((resolve) => setTimeout(resolve, initialWaitMs));
+			logVerbose("[TEST][checkSummary] Initial wait complete.");
+
+			// Add small delay for server state stabilization after potential process exit
+			await new Promise((resolve) => setTimeout(resolve, 200));
+
+			// --- First Check: Get all logs and the initial summary ---
+			logVerbose(
+				`[TEST][checkSummary] Sending first check_process_status for ${label}...`,
+			);
+			const checkRequest1 = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "check_process_status",
+					arguments: { label: label, log_lines: 100 },
+				},
+				id: `req-check1-summary-${label}`,
+			};
+			if (!serverProcess) throw new Error("Server process is null");
+			const check1Response = (await sendRequest(
+				serverProcess,
+				checkRequest1,
+			)) as MCPResponse;
+			logVerbose("[TEST][checkSummary] Received first check response.");
+			expect(check1Response).toHaveProperty("result");
+			const check1Result = check1Response.result as CallToolResult;
+			const result1ContentText = check1Result?.payload?.[0]?.content;
+			expect(result1ContentText).toBeDefined();
+			const result1 = JSON.parse(result1ContentText) as ProcessStatusResult & {
+				message?: string;
+			}; // Add message type
+			logVerbose(
+				`[TEST][checkSummary] First check status: ${result1.status}, Message: ${result1.message}`,
+			);
+
+			// Assert initial summary (should contain all notable events)
+			expect(result1.status).toBe("running"); // Should still be running briefly
+			expect(result1.message).toBeDefined();
+			expect(result1.message).toMatch(
+				/Since last check: ❌ Errors \(1\), ⚠️ Warnings \(1\), 🔗 URLs \(1\), ⌨️ Prompts \(1\)\./,
+			);
+			expect(result1.message).toMatch(/\u2022 Major Error Occurred! Code: 500/);
+			expect(result1.message).toMatch(/\u2022 Minor Warning: config outdated/);
+			expect(result1.message).toMatch(
+				/\u2022 Found resource at http:\/\/localhost:8080\/data/,
+			);
+			expect(result1.message).toMatch(/\u2022 Enter password:/); // Add assertion for prompt bullet point
+
+			// Wait a bit longer for process to likely exit
+			await new Promise((resolve) => setTimeout(resolve, 2000)); // Increased wait for exit
+
+			// --- Second Check: Expect no new notable events summary ---
+			logVerbose(
+				`[TEST][checkSummary] Sending second check_process_status for ${label}...`,
+			);
+			const checkRequest2 = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "check_process_status",
+					arguments: { label: label, log_lines: 10 },
+				},
+				id: `req-check2-summary-${label}`,
+			};
+			if (!serverProcess) throw new Error("Server process is null");
+			const check2Response = (await sendRequest(
+				serverProcess,
+				checkRequest2,
+			)) as MCPResponse;
+			logVerbose("[TEST][checkSummary] Received second check response.");
+			expect(check2Response).toHaveProperty("result");
+			const check2Result = check2Response.result as CallToolResult;
+			const result2ContentText = check2Result?.payload?.[0]?.content;
+			expect(result2ContentText).toBeDefined();
+			const result2 = JSON.parse(result2ContentText) as ProcessStatusResult & {
+				message?: string;
+			};
+			logVerbose(
+				`[TEST][checkSummary] Second check status: ${result2.status}, Message: ${result2.message}`,
+			);
+
+			// Assert summary for the second check (no new notable events)
+			expect(result2.status).toBe("stopped"); // Should have stopped by now
+			expect(result2.message).toBeDefined();
+			expect(result2.message).toBe("No notable events since last check.");
+			expect(result2.logs?.length).toBeGreaterThan(0); // Should have the 'Process finished' log
+			expect(result2.logs).toContain("Process finished");
+
+			console.log("[TEST][checkSummary] Assertions passed.");
+
+			// Cleanup (process should already be stopped, but stop is idempotent)
+			logVerbose(
+				`[TEST][checkSummary] Sending stop request for cleanup (${label})...`,
+			);
+			const stopRequest = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "stop_process",
+					arguments: { label: label },
+				},
+				id: `req-stop-cleanup-summary-${label}`,
+			};
+			if (!serverProcess) throw new Error("Server process is null");
+			await sendRequest(serverProcess, stopRequest);
+			logVerbose(
+				`[TEST][checkSummary] Cleanup stop request sent for ${label}. Test finished.`,
+			);
+		},
+		TEST_TIMEOUT + 5000,
+	);
 });
