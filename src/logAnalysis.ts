@@ -1,3 +1,5 @@
+import { NO_NOTABLE_EVENTS_MSG } from "./constants/messages.js";
+
 export interface ChangeSummary {
 	message: string;
 	errors: string[];
@@ -29,7 +31,7 @@ export function analyseLogs(logs: string[]): ChangeSummary {
 
 	const headline = bulletLines.length
 		? `Since last check: ${bulletLines.join(", ")}.`
-		: "No notable events since last check.";
+		: NO_NOTABLE_EVENTS_MSG;
 
 	return {
 		message: [headline, ...slice(notable)].join("\n"),

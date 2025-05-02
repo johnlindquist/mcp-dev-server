@@ -42,4 +42,6 @@ export const TERMINATED_GRACEFULLY_AFTER_SIGTERM = (pid: number) =>
 export const DID_NOT_TERMINATE_GRACEFULLY_SIGKILL = (pid: number) =>
 	`Process ${pid} did not terminate gracefully. SIGKILL sent.`;
 
+export const NO_NOTABLE_EVENTS_MSG = "No notable events since last check.";
+
 // Add more messages here as needed
