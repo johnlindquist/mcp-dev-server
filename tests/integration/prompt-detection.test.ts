@@ -1,5 +1,5 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
-import { afterAll, beforeAll, describe, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
 	SERVER_ARGS,
 	SERVER_EXECUTABLE,
@@ -15,12 +15,17 @@ describe("OSC 133 Prompt Detection", () => {
 	const COMMAND = "bash";
 	const ARGS = ["-i"]; // interactive shell
 	const BASH_OSC133_CONFIG = `${`
-function _osc133_prompt_start { printf '\e]133;A\a'; }
-function _osc133_prompt_end   { printf '\e]133;B\a'; }
-function _osc133_command_start { printf '\e]133;C\a'; }
-function _osc133_command_done  { printf '\e]133;D;%s\a' "$?"; }
-PROMPT_COMMAND='_osc133_prompt_start; _osc133_command_done'
-PS1='\\[$(_osc133_prompt_end)\\]\\u@\\h:\\w\\$ '
+function _osc133_prompt_start { printf "\x1b]133;A\a"; }
+function _osc133_prompt_end { printf "\x1b]133;B\a"; }
+function _osc133_command_start { printf "\x1b]133;C\a"; }
+function _osc133_command_done { printf "\x1b]133;D;%s\a" "$?"; }
+
+# Execute prompt start before each prompt display
+PROMPT_COMMAND='_osc133_prompt_start'
+
+# PS1 executes prompt end via command substitution so it runs when prompt is rendered
+PS1="\\[\$(_osc133_prompt_end)\\]\\u@\\h:\\w\\$ "
+
 echo "OSC 133 Configured"
 `
 		.trim()
@@ -182,9 +187,41 @@ echo "OSC 133 Configured"
 			id: `req-config-${label}`,
 		};
 		await sendRequest(serverProcess, configRequest);
-		// Wait for shell to process config
-		await new Promise((resolve) => setTimeout(resolve, 500));
-		// No assertion yet, just ensure no crash
+		// Send echo of the sentinel
+		const echoRequest = {
+			jsonrpc: "2.0",
+			method: "tools/call",
+			params: {
+				name: "send_input",
+				arguments: {
+					label,
+					input: 'echo "@@OSC133B@@"',
+				},
+			},
+			id: `req-echo-${label}`,
+		};
+		await sendRequest(serverProcess, echoRequest);
+		// Wait for shell to process config and echo
+		await new Promise((resolve) => setTimeout(resolve, 2000));
+		// Check process status and assert isAwaitingInput is true
+		const checkRequest = {
+			jsonrpc: "2.0",
+			method: "tools/call",
+			params: {
+				name: "check_process_status",
+				arguments: { label, log_lines: 100 },
+			},
+			id: `req-check-${label}`,
+		};
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const checkResponse = (await sendRequest(serverProcess, checkRequest)) as {
+			result: { content: { text: string }[] };
+		};
+		const checkResult = JSON.parse(checkResponse.result.content[0].text);
+		// Print logs for debugging
+		// eslint-disable-next-line no-console
+		console.log("Process logs:", checkResult.logs);
+		expect(checkResult.isAwaitingInput).toBe(true);
 		// Cleanup
 		const stopRequest = {
 			jsonrpc: "2.0",

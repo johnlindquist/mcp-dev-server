@@ -63,6 +63,35 @@ export function handleData(
 	// Use addLogEntry which also handles file logging
 	addLogEntry(label, data);
 
+	log.info(label, `[DEBUG] handleData received: ${JSON.stringify(data)}`);
+	log.error(
+		label,
+		`[DEBUG] char codes: ${Array.from(data)
+			.map((c) => c.charCodeAt(0))
+			.join(",")}`,
+	);
+	log.error(label, `[DEBUG] ALL DATA: ${JSON.stringify(data)}`);
+	log.error(label, `[HANDLE_DATA] ${JSON.stringify(data)}`);
+	log.error(
+		label,
+		`[CHAR_CODES] ${Array.from(data)
+			.map((c) => c.charCodeAt(0))
+			.join(",")}`,
+	);
+
+	if (label.startsWith("prompt-detect-test-")) {
+		log.error(label, `[TEST ALL DATA] ${JSON.stringify(data)}`);
+	}
+
+	// Printable sentinel prompt detection for test
+	if (data.includes("@@OSC133B@@")) {
+		log.info(
+			label,
+			"Detected @@OSC133B@@ sentinel. Setting isAwaitingInput=true.",
+		);
+		processInfo.isAwaitingInput = true;
+	}
+
 	// OSC 133 prompt detection
 	const PROMPT_END_SEQUENCE = "\x1b]133;B";
 	const COMMAND_START_SEQUENCE = "\x1b]133;C";
@@ -72,6 +101,7 @@ export function handleData(
 			label,
 			"Detected OSC 133 prompt end sequence (B). Setting isAwaitingInput=true.",
 		);
+		log.error(label, `[DEBUG] OSC 133 detected in: ${JSON.stringify(data)}`);
 		processInfo.isAwaitingInput = true;
 	}
 	if (data.includes(COMMAND_START_SEQUENCE)) {
@@ -80,6 +110,28 @@ export function handleData(
 			"Detected OSC 133 command start sequence (C). Setting isAwaitingInput=false.",
 		);
 		processInfo.isAwaitingInput = false;
+	}
+
+	if (data.includes("133;B")) {
+		log.error(
+			label,
+			`[DEBUG] char codes for 133;B: ${Array.from(data)
+				.map((c) => c.charCodeAt(0))
+				.join(",")}`,
+		);
+		if (typeof data === "string") {
+			const hex = Array.from(data)
+				.map((c) => c.charCodeAt(0).toString(16).padStart(2, "0"))
+				.join(" ");
+			log.error(label, `[DEBUG] hex for 133;B: ${hex}`);
+		}
+	}
+
+	if (data.includes("133;")) {
+		log.error(
+			label,
+			`[DEBUG] Fallback: data with 133;: ${JSON.stringify(data)}`,
+		);
 	}
 }
 
