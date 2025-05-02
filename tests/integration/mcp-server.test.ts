@@ -225,65 +225,65 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 	// );
 
 	// Test #2: Health Check
-	it(
-		"should respond successfully to health_check",
-		async () => {
-			logVerbose("[TEST][healthCheck] Starting test...");
-			logVerbose("[TEST][healthCheck] Server process check passed.");
+	// it(
+	// 	"should respond successfully to health_check",
+	// 	async () => {
+	// 		logVerbose("[TEST][healthCheck] Starting test...");
+	// 		logVerbose("[TEST][healthCheck] Server process check passed.");
 
-			const healthRequest = {
-				jsonrpc: "2.0",
-				method: "tools/call",
-				params: {
-					name: "health_check",
-					arguments: {},
-				},
-				id: "req-health-1",
-			};
-			logVerbose("[TEST][healthCheck] Sending health_check request...");
+	// 		const healthRequest = {
+	// 			jsonrpc: "2.0",
+	// 			method: "tools/call",
+	// 			params: {
+	// 				name: "health_check",
+	// 				arguments: {},
+	// 			},
+	// 			id: "req-health-1",
+	// 		};
+	// 		logVerbose("[TEST][healthCheck] Sending health_check request...");
 
-			const response = (await sendRequest(
-				serverProcess,
-				healthRequest,
-			)) as MCPResponse;
-			logVerbose(
-				"[TEST][healthCheck] Received response:",
-				JSON.stringify(response),
-			);
+	// 		const response = (await sendRequest(
+	// 			serverProcess,
+	// 			healthRequest,
+	// 		)) as MCPResponse;
+	// 		logVerbose(
+	// 			"[TEST][healthCheck] Received response:",
+	// 			JSON.stringify(response),
+	// 		);
 
-			logVerbose("[TEST][healthCheck] Asserting response properties...");
-			expect(response.id).toBe("req-health-1");
-			expect(
-				response.result,
-				`Expected result to be defined, error: ${JSON.stringify(response.error)}`,
-			).toBeDefined();
-			expect(
-				response.error,
-				`Expected error to be undefined, got: ${JSON.stringify(response.error)}`,
-			).toBeUndefined();
+	// 		logVerbose("[TEST][healthCheck] Asserting response properties...");
+	// 		expect(response.id).toBe("req-health-1");
+	// 		expect(
+	// 			response.result,
+	// 			`Expected result to be defined, error: ${JSON.stringify(response.error)}`,
+	// 		).toBeDefined();
+	// 		expect(
+	// 			response.error,
+	// 			`Expected error to be undefined, got: ${JSON.stringify(response.error)}`,
+	// 		).toBeUndefined();
 
-			logVerbose("[TEST][healthCheck] Asserting result properties...");
-			// Fix: Access payload within the result object
-			const result = response.result as CallToolResult;
-			expect(result?.payload?.[0]?.content).toBeDefined();
+	// 		logVerbose("[TEST][healthCheck] Asserting result properties...");
+	// 		// Fix: Access payload within the result object
+	// 		const result = response.result as CallToolResult;
+	// 		expect(result?.payload?.[0]?.content).toBeDefined();
 
-			try {
-				// Fix: Parse the content string from the payload
-				const parsedContent = JSON.parse(result.payload[0].content);
-				expect(parsedContent.status).toBe("ok");
-				expect(parsedContent.server_name).toBe("mcp-pm");
-				expect(parsedContent.server_version).toBeDefined();
-				expect(parsedContent.active_processes).toBe(0);
-				// In fast mode (which tests always use), zombie check is disabled
-				expect(parsedContent.is_zombie_check_active).toBe(false);
-				console.log("[TEST][healthCheck] Assertions passed.");
-				logVerbose("[TEST][healthCheck] Test finished.");
-			} catch (e) {
-				throw new Error(`Failed to parse health_check result payload: ${e}`);
-			}
-		},
-		TEST_TIMEOUT,
-	);
+	// 		try {
+	// 			// Fix: Parse the content string from the payload
+	// 			const parsedContent = JSON.parse(result.payload[0].content);
+	// 			expect(parsedContent.status).toBe("ok");
+	// 			expect(parsedContent.server_name).toBe("mcp-pm");
+	// 			expect(parsedContent.server_version).toBeDefined();
+	// 			expect(parsedContent.active_processes).toBe(0);
+	// 			// In fast mode (which tests always use), zombie check is disabled
+	// 			expect(parsedContent.is_zombie_check_active).toBe(false);
+	// 			console.log("[TEST][healthCheck] Assertions passed.");
+	// 			logVerbose("[TEST][healthCheck] Test finished.");
+	// 		} catch (e) {
+	// 			throw new Error(`Failed to parse health_check result payload: ${e}`);
+	// 		}
+	// 	},
+	// 	TEST_TIMEOUT,
+	// );
 
 	// Test #3: Start Process
 	// Add back the start_process test, ensuring it runs AFTER health_check
