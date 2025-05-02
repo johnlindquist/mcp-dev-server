@@ -1,5 +1,6 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { NO_NOTABLE_EVENTS_MSG } from "../../src/constants/messages.js";
 import {
 	type CallToolResult,
 	type MCPResponse,
@@ -171,7 +172,7 @@ describe("Process: Purged Process Status", () => {
 			expect(resultContentText).toBeDefined();
 			const statusResult = JSON.parse(resultContentText);
 			expect(statusResult.status).toBe("stopped");
-			expect(statusResult.message).toBe("No notable events since last check.");
+			expect(statusResult.message).toBe(NO_NOTABLE_EVENTS_MSG);
 			expect(Array.isArray(statusResult.logs)).toBe(true);
 			expect(statusResult.logs.length).toBe(0);
 		},

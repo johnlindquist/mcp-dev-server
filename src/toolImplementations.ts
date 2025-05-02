@@ -24,6 +24,7 @@ import type {
 } from "./types/schemas.js";
 import type * as schemas from "./types/schemas.js";
 
+import { NO_NOTABLE_EVENTS_MSG } from "./constants/messages.js";
 import { analyseLogs } from "./logAnalysis.js";
 import {
 	formatLogsForResponse,
@@ -57,7 +58,7 @@ export async function checkProcessStatusImpl(
 			log_file_path: undefined,
 			tail_command: undefined,
 			hint: undefined,
-			message: "No notable events since last check.",
+			message: NO_NOTABLE_EVENTS_MSG,
 		};
 		return ok(textPayload(JSON.stringify(payload)));
 	}

@@ -1,6 +1,7 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { NO_NOTABLE_EVENTS_MSG } from "../../src/constants/messages.js";
 import {
 	type CallToolResult,
 	type MCPResponse,
@@ -291,7 +292,7 @@ describe("Tool Features: Logging and Summaries", () => {
 			);
 
 			expect(result2.status).toBe("stopped");
-			if (result2.message === "No notable events since last check.") {
+			if (result2.message === NO_NOTABLE_EVENTS_MSG) {
 				expect(result2Logs.length).toBe(0);
 			} else {
 				expect(result2Logs.length).toBeGreaterThan(0);
@@ -434,8 +435,8 @@ describe("Tool Features: Logging and Summaries", () => {
 
 			expect(result2.status).toBe("stopped");
 			expect(result2.message).toBeDefined();
-			expect(result2.message).toBe("No notable events since last check.");
-			if (result2.message === "No notable events since last check.") {
+			expect(result2.message).toBe(NO_NOTABLE_EVENTS_MSG);
+			if (result2.message === NO_NOTABLE_EVENTS_MSG) {
 				expect(result2.logs?.length).toBe(0);
 			} else {
 				expect(result2.logs?.length).toBeGreaterThan(0);
