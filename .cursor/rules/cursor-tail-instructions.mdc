@@ -1,0 +1,10 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# Cursor Tail Instructions: Key Rules
+
+1. If `host` is `"cursor"`, always include a strong tail command message in the MCP result (see [lifecycle.ts](mdc:src/process/lifecycle.ts)).
+2. All tool results and tests must use MCP-compliant result/content types from [`@modelcontextprotocol/sdk/types.js`](mdc:package.json).
+3. Keep tests fun-sized: extract feature-specific tests (like cursor-tail) into their own files (see [process-cursor-tail-instructions.test.ts](mdc:tests/integration/process-cursor-tail-instructions.test.ts)).

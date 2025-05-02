@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { cfg } from "../constants/index.js"; // Update path
-import { HostEnum } from "./process.js"; // Import HostEnum from process types
+import { HostEnum } from "./process.js"; // Import HostEnum and OperatingSystemEnum from process types
 
 // Helper to keep shape definition clean
 const shape = <T extends z.ZodRawShape>(shape: T): T => shape;
