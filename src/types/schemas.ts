@@ -322,6 +322,14 @@ export const CheckStatusPayloadSchema = ProcessStatusInfoSchema.extend({
 		.describe(
 			"Natural-language summary of everything notable since the last check.",
 		),
+	is_waiting_for_input: z
+		.boolean()
+		.optional()
+		.describe("True if a prompt or input request was detected in the logs."),
+	waiting_for_input_log: z
+		.string()
+		.optional()
+		.describe("The log line that matched the prompt detection, if any."),
 }).describe("Response payload for a check_process_status call.");
 export type CheckStatusPayloadType = z.infer<typeof CheckStatusPayloadSchema>;
 

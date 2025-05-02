@@ -26,6 +26,7 @@ import type * as schemas from "./types/schemas.js";
 
 import { NO_NOTABLE_EVENTS_MSG } from "./constants/messages.js";
 import { analyseLogs } from "./logAnalysis.js";
+import { detectPromptInLogs } from "./process/detectPrompt.js";
 import {
 	formatLogsForResponse,
 	log,
@@ -149,6 +150,13 @@ export async function checkProcessStatusImpl(
 		finalProcessInfo.lastLogTimestampReturned = newLastLogTimestamp;
 	}
 
+	// --- Prompt Detection ---
+	const promptDetection = detectPromptInLogs(returnedLogs);
+	let waitingMessage: string | undefined = undefined;
+	if (promptDetection.isWaiting) {
+		waitingMessage = `It looks like your process is waiting for user input.${promptDetection.matchedLine ? ` (Detected: \"${promptDetection.matchedLine.trim()}\")` : ""}`;
+	}
+
 	const payload: z.infer<typeof schemas.CheckStatusPayloadSchema> = {
 		label: finalProcessInfo.label,
 		status: finalProcessInfo.status,
@@ -161,10 +169,14 @@ export async function checkProcessStatusImpl(
 		logs: returnedLogs,
 		log_file_path: finalProcessInfo.logFilePath,
 		tail_command: finalProcessInfo.logFilePath
-			? `tail -f "${finalProcessInfo.logFilePath}"`
+			? `tail -f \"${finalProcessInfo.logFilePath}\"`
 			: undefined,
 		hint: logHint,
-		message: summaryMessage,
+		message: waitingMessage
+			? `${summaryMessage}\n${waitingMessage}`
+			: summaryMessage,
+		is_waiting_for_input: !!waitingMessage,
+		waiting_for_input_log: promptDetection.matchedLine,
 	};
 
 	log.info(

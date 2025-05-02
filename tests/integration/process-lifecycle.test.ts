@@ -617,4 +617,91 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 		},
 		TEST_TIMEOUT,
 	);
+
+	it(
+		"should detect waiting for user input in process logs (prompt detection)",
+		async () => {
+			logVerbose("[TEST][promptDetection] Starting test...");
+			const uniqueLabel = `test-prompt-${Date.now()}`;
+			const command = "node";
+			const args = [
+				"-e",
+				// This script writes a prompt and waits for input (now with newline)
+				"console.log('Enter value:'); process.stdin.resume(); setTimeout(() => {}, 10000);",
+			];
+			const workingDirectory = path.resolve(__dirname);
+			logVerbose(`[TEST][promptDetection] Starting process ${uniqueLabel}...`);
+			const startRequest = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "start_process",
+					arguments: { command, args, workingDirectory, label: uniqueLabel },
+				},
+				id: `req-start-prompt-${uniqueLabel}`,
+			};
+			const startResponse = (await sendRequest(
+				serverProcess,
+				startRequest,
+			)) as MCPResponse;
+			logVerbose(
+				`[TEST][promptDetection] Received start response: ${JSON.stringify(startResponse)}`,
+			);
+			const startResult = startResponse.result as CallToolResult;
+			const startContentText = startResult?.content?.[0]?.text;
+			expect(startContentText).toBeDefined();
+			if (!startContentText) throw new Error("startContentText is undefined");
+			const startPayload = JSON.parse(startContentText);
+			console.log("[DEBUG] startPayload:", startPayload);
+			// Do not assert on is_waiting_for_input in startPayload, as the prompt may not be present yet
+
+			// Wait briefly to allow the process to output the prompt
+			await new Promise((resolve) => setTimeout(resolve, 300));
+
+			// Now check status
+			const checkRequest = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "check_process_status",
+					arguments: { label: uniqueLabel },
+				},
+				id: `req-check-prompt-${uniqueLabel}`,
+			};
+			const checkResponse = (await sendRequest(
+				serverProcess,
+				checkRequest,
+			)) as MCPResponse;
+			logVerbose(
+				`[TEST][promptDetection] Received check response: ${JSON.stringify(checkResponse)}`,
+			);
+			const checkResult = checkResponse.result as CallToolResult;
+			const checkContentText = checkResult?.content?.[0]?.text;
+			expect(checkContentText).toBeDefined();
+			if (!checkContentText) throw new Error("checkContentText is undefined");
+			const checkPayload = JSON.parse(checkContentText);
+			console.log("[DEBUG] checkPayload:", checkPayload);
+			expect(checkPayload.is_waiting_for_input).toBe(true);
+			expect(checkPayload.message).toMatch(/waiting for user input/i);
+			if (checkPayload.waiting_for_input_log) {
+				expect(checkPayload.waiting_for_input_log).toMatch(/Enter value:/);
+			}
+
+			// Cleanup
+			const stopRequest = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "stop_process",
+					arguments: { label: uniqueLabel },
+				},
+				id: `req-stop-prompt-${uniqueLabel}`,
+			};
+			await sendRequest(serverProcess, stopRequest);
+			logVerbose(
+				"[TEST][promptDetection] Cleanup stop request sent. Test finished.",
+			);
+		},
+		TEST_TIMEOUT,
+	);
 });

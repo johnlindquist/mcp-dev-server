@@ -34,6 +34,7 @@ import type {
 import type * as schemas from "../types/schemas.js";
 import { formatLogsForResponse, getTailCommand, log } from "../utils.js";
 
+import { detectPromptInLogs } from "./detectPrompt.js";
 // Import newly created functions
 import { setupLogFileStream } from "./logging.js";
 import { handleProcessExit } from "./retry.js"; // Assuming retry logic helper is named this
@@ -484,10 +485,24 @@ export async function startProcess(
 	}
 
 	// Success case
+	const logsForPayload = formatLogsForResponse(
+		finalProcessInfo.logs.map((l) => l.content),
+		cfg.defaultReturnLogLines,
+	);
+
+	// --- Prompt Detection ---
+	const promptDetection = detectPromptInLogs(logsForPayload);
+	let waitingMessage: string | undefined = undefined;
+	if (promptDetection.isWaiting) {
+		waitingMessage = `It looks like your process is waiting for user input.${promptDetection.matchedLine ? ` (Detected: \"${promptDetection.matchedLine.trim()}\")` : ""}`;
+	}
+
 	const successPayload: z.infer<typeof schemas.StartSuccessPayloadSchema> & {
 		status: ProcessStatus;
 		logs?: string[];
 		monitoring_hint?: string;
+		is_waiting_for_input?: boolean;
+		waiting_for_input_log?: string;
 	} = {
 		label: finalProcessInfo.label,
 		command: finalProcessInfo.command,
@@ -496,14 +511,15 @@ export async function startProcess(
 		workingDirectory: finalProcessInfo.cwd,
 		status: finalProcessInfo.status,
 		host: finalProcessInfo.host,
-		message: `Process '${label}' started successfully. Current status: ${finalProcessInfo.status}.`,
-		logs: formatLogsForResponse(
-			finalProcessInfo.logs.map((l) => l.content),
-			cfg.defaultReturnLogLines,
-		),
+		message: waitingMessage
+			? `Process '${label}' started successfully. Current status: ${finalProcessInfo.status}.\n${waitingMessage}`
+			: `Process '${label}' started successfully. Current status: ${finalProcessInfo.status}.`,
+		logs: logsForPayload,
 		monitoring_hint:
 			"Use check_process_status periodically to get status updates and new logs.",
 		tail_command: getTailCommand(finalProcessInfo.logFilePath) || undefined,
+		is_waiting_for_input: !!waitingMessage,
+		waiting_for_input_log: promptDetection.matchedLine,
 	};
 	log.info(label, successPayload.message);
 
