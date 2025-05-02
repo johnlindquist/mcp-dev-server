@@ -11,7 +11,7 @@ export function analyseLogs(logs: string[]): ChangeSummary {
 	const warnings = logs.filter((l) => /\bwarn(ing)?\b/i.test(l));
 	const urls = logs.filter((l) => /(https?:\/\/[^\s]+)/i.test(l));
 	const prompts = logs.filter((l) =>
-		/(?:\?|\binput\b|\bpassword\b).*[:?]$/i.test(l),
+		/(?:\?|\binput\b|\bpassword\b).*[:?]\s*$/i.test(l),
 	);
 
 	const notable = [...errors, ...warnings, ...urls, ...prompts];
