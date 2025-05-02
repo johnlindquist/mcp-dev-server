@@ -6,56 +6,35 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 // const { delay } = require("../../build/utils.js"); // CJS require workaround
 import type { CallToolResult } from "../../src/types/index.js";
 
-// --- Configuration ---
-const SERVER_EXECUTABLE = "node";
-// Resolve path from 'tests/integration/' to 'build/index.mjs'
-const SERVER_SCRIPT_PATH = path.resolve(__dirname, "../../build/index.mjs");
-const SERVER_ARGS: string[] = []; // No specific args needed to start
-// From src/main.ts log output
-const SERVER_READY_OUTPUT = "MCP Server connected and listening via stdio.";
-const STARTUP_TIMEOUT = 20000; // 20 seconds (adjust as needed)
-const TEST_TIMEOUT = STARTUP_TIMEOUT + 5000; // Test timeout slightly longer than startup
+// Import shared elements
+import {
+	type MCPResponse,
+	type ProcessStatusResult, // Ensure this is exported/imported
+	SERVER_ARGS,
+	SERVER_EXECUTABLE,
+	SERVER_READY_OUTPUT,
+	SERVER_SCRIPT_PATH,
+	STARTUP_TIMEOUT,
+	TEST_TIMEOUT, // Use TEST_TIMEOUT from helpers
+	logVerbose,
+	logVerboseError,
+	sendRequest,
+} from "./test-helpers.js"; // Add .js extension for ESM compatibility if needed
 
-// --- Verbose Logging ---
-const IS_VERBOSE = process.env.MCP_TEST_VERBOSE === "1";
-function logVerbose(...args: unknown[]) {
-	if (IS_VERBOSE) {
-		console.log("[VERBOSE]", ...args);
-	}
-}
-function logVerboseError(...args: unknown[]) {
-	if (IS_VERBOSE) {
-		console.error("[VERBOSE_ERR]", ...args);
-	}
-}
-// ---------------------
+// --- Configuration --- (Remove constants defined in helpers)
+// const SERVER_EXECUTABLE = ... (Remove)
+// const SERVER_SCRIPT_PATH = ... (Remove)
+// ... etc ...
 
-// --- Type definitions for MCP responses (simplified) ---
-type MCPResponse = {
-	jsonrpc: "2.0";
-	id: string;
-	result?: unknown;
-	error?: { code: number; message: string; data?: unknown };
-};
+// --- Verbose Logging --- (Remove functions defined in helpers)
+// const IS_VERBOSE = ... (Remove)
+// function logVerbose(...){...} (Remove)
+// function logVerboseError(...){...} (Remove)
 
-// Define a type for the content array within the result
-type ResultContent = {
-	content: Array<{ type: string; text: string }>;
-};
-
-type ProcessStatusResult = {
-	label: string;
-	status: "running" | "stopped" | "starting" | "error" | "crashed";
-	pid?: number;
-	command?: string;
-	args?: string[];
-	cwd?: string;
-	exitCode?: number | null;
-	signal?: string | null;
-	logs?: string[];
-	log_hint?: string;
-	// Other fields omitted for simplicity
-};
+// --- Type definitions --- (Remove types defined in helpers)
+// type MCPResponse = {...} (Remove)
+// type ResultContent = {...} (Remove if not used, or keep if specific)
+// type ProcessStatusResult = {...} (Remove)
 
 describe("MCP Process Manager Server (Stdio Integration)", () => {
 	let serverProcess: ChildProcessWithoutNullStreams | null = null;
@@ -100,29 +79,37 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 
 		const startupTimeoutTimer = setTimeout(() => {
 			if (!serverReady) {
-				const err = new Error(
-					`[TEST] Server startup timed out after ${STARTUP_TIMEOUT}ms. Stderr: ${serverErrorOutput.join("")}`,
+				console.error(
+					`[TEST] Server startup timed out after ${STARTUP_TIMEOUT}ms. Last 10 lines of STDERR:`, // Use imported constant
+					serverErrorOutput.slice(-10).join(""),
 				);
-				console.error(err.message);
 				serverWasKilled = true;
 				serverProcess?.kill("SIGKILL"); // Force kill on timeout
-				rejectServerReady(err);
+				rejectServerReady(
+					new Error(`Server startup timed out after ${STARTUP_TIMEOUT}ms.`), // Use imported constant
+				);
 			}
-		}, STARTUP_TIMEOUT);
+		}, STARTUP_TIMEOUT); // Use imported constant
 
 		serverProcess.stdout.on("data", (data: Buffer) => {
 			const output = data.toString();
-			logVerbose(`[Server STDOUT RAW]: ${output}`); // Replaced console.log
+			logVerbose(`[Server STDOUT RAW]: ${output}`); // Use imported logVerbose
 			serverStdoutOutput.push(output); // Store for debugging
 			// NOTE: MCP responses go to stdout, but the *ready* signal for mcp-pm goes to stderr
-			logVerbose(`[Server STDOUT]: ${output.trim()}`); // Replaced console.log
+			if (!serverReady && output.includes(SERVER_READY_OUTPUT)) {
+				console.log("[TEST] MCP server ready signal detected in stdout.");
+				serverReady = true;
+				clearTimeout(startupTimeoutTimer);
+				resolveServerReady();
+			}
+			logVerbose(`[Server STDOUT]: ${output.trim()}`); // Use imported logVerbose
 		});
 
 		serverProcess.stderr.on("data", (data: Buffer) => {
 			const output = data.toString();
-			logVerboseError(`[Server STDERR RAW]: ${output}`); // Replaced console.error
+			logVerboseError(`[Server STDERR RAW]: ${output}`); // Use imported logVerboseError
 			serverErrorOutput.push(output); // Store for debugging/errors
-			logVerboseError(`[Server STDERR]: ${output.trim()}`); // Replaced console.error
+			logVerboseError(`[Server STDERR]: ${output.trim()}`); // Use imported logVerboseError
 
 			// Check for the ready signal in stderr
 			if (!serverReady && output.includes(SERVER_READY_OUTPUT)) {
@@ -169,10 +156,16 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 
 		serverProcess.on("close", () => {
 			logVerbose("[TEST] Server stdio streams closed.");
+			if (!serverReady) {
+				// If closed before ready and not already handled by 'exit' or 'error'
+				const errMsg = `Server process closed prematurely before ready signal. Exit code: ${serverExitCode}.`;
+				console.error(errMsg);
+				rejectServerReady(new Error(errMsg));
+			}
 		});
 
 		try {
-			logVerbose("[TEST] Waiting for server ready promise...");
+			logVerbose("[TEST] Waiting for server ready promise..."); // Use imported logVerbose
 			await serverReadyPromise;
 			console.log("[TEST] Server startup successful.");
 		} catch (err) {
@@ -187,9 +180,9 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 		}
 
 		// Add a small delay after server is ready before proceeding
-		await new Promise((resolve) => setTimeout(resolve, 200));
-		logVerbose("[TEST] Short delay after server ready signal completed.");
-	}, TEST_TIMEOUT); // Vitest timeout for the hook
+		await new Promise((resolve) => setTimeout(resolve, 200)); // e.g., 200ms delay
+		logVerbose("[TEST] Short delay after server ready signal completed."); // Use imported logVerbose
+	}, TEST_TIMEOUT); // Use imported constant
 
 	afterAll(async () => {
 		console.log("[TEST] AfterAll: Tearing down server...");
@@ -224,151 +217,6 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 		// Optional: Cleanup temporary directories/files if created by tests
 		console.log("[TEST] AfterAll: Teardown complete.");
 	});
-
-	// Can be placed inside the describe block or outside (if exported from a helper module)
-	// Using the guide's version directly, ensure it's adapted for TypeScript/Vitest context
-	async function sendRequest(
-		process: ChildProcessWithoutNullStreams,
-		request: Record<string, unknown>,
-		timeoutMs = 10000, // 10 second timeout
-	): Promise<unknown> {
-		const requestId = request.id as string;
-		if (!requestId) {
-			throw new Error('Request must have an "id" property');
-		}
-		const requestString = `${JSON.stringify(request)}\n`;
-		logVerbose(
-			`[sendRequest] Sending request (ID ${requestId}): ${requestString.trim()}`,
-		);
-
-		return new Promise((resolve, reject) => {
-			let responseBuffer = "";
-			let responseReceived = false;
-			let responseListenersAttached = false; // Flag to prevent attaching multiple listeners
-
-			const timeoutTimer = setTimeout(() => {
-				if (!responseReceived) {
-					cleanup();
-					const errorMsg = `Timeout waiting for response ID ${requestId} after ${timeoutMs}ms. Request: ${JSON.stringify(request)}`;
-					console.error(`[sendRequest] ${errorMsg}`);
-					reject(new Error(errorMsg));
-				}
-			}, timeoutMs);
-
-			const onData = (data: Buffer) => {
-				const rawChunk = data.toString();
-				logVerbose(
-					`[sendRequest] Received raw STDOUT chunk for ${requestId}: ${rawChunk}`,
-				); // Added logVerbose for raw chunks
-				responseBuffer += rawChunk;
-				const lines = responseBuffer.split("\n");
-				responseBuffer = lines.pop() || ""; // Keep incomplete line fragment
-
-				for (const line of lines) {
-					if (line.trim() === "") continue;
-					logVerbose(`[sendRequest] Processing line for ${requestId}: ${line}`); // Added logVerbose for processed lines
-					try {
-						const parsedResponse = JSON.parse(line);
-						if (parsedResponse.id === requestId) {
-							logVerbose(
-								`[sendRequest] Received matching response for ID ${requestId}: ${line.trim()}`,
-							);
-							responseReceived = true;
-							cleanup();
-							resolve(parsedResponse);
-							return; // Found the response
-						}
-						logVerbose(
-							`[sendRequest] Ignoring response with different ID (${parsedResponse.id}) for request ${requestId}`,
-						); // Added logVerbose for ignored responses
-					} catch (e) {
-						// Ignore lines that aren't valid JSON or don't match ID
-						logVerboseError(
-							`[sendRequest] Failed to parse potential JSON line for ${requestId}: ${line}`,
-							e,
-						); // Added logVerboseError for parse errors
-					}
-
-					// Log the full received result object when ID matches, before resolving
-					if (parsedResponse.id === requestId) {
-						logVerbose(
-							`[sendRequest] Full MATCHING response object for ${requestId}:`,
-							JSON.stringify(parsedResponse),
-						);
-					}
-				}
-			};
-
-			const onError = (err: Error) => {
-				if (!responseReceived) {
-					cleanup();
-					const errorMsg = `Server process emitted error while waiting for ID ${requestId}: ${err.message}`;
-					console.error(`[sendRequest] ${errorMsg}`);
-					reject(new Error(errorMsg));
-				}
-			};
-
-			const onExit = (code: number | null, signal: string | null) => {
-				if (!responseReceived) {
-					cleanup();
-					const errorMsg = `Server process exited (code ${code}, signal ${signal}) before response ID ${requestId} was received.`;
-					console.error(`[sendRequest] ${errorMsg}`);
-					reject(new Error(errorMsg));
-				}
-			};
-
-			const cleanup = () => {
-				logVerbose(
-					`[sendRequest] Cleaning up listeners for request ID ${requestId}`,
-				); // Added logVerbose for cleanup
-				clearTimeout(timeoutTimer);
-				if (responseListenersAttached) {
-					process.stdout.removeListener("data", onData);
-					process.stderr.removeListener("data", logStderr); // Also remove stderr listener if added
-					process.removeListener("error", onError);
-					process.removeListener("exit", onExit);
-					responseListenersAttached = false; // Mark as removed
-				}
-			};
-
-			// Temporary stderr listener during request wait (optional, for debugging)
-			const logStderr = (data: Buffer) => {
-				logVerboseError(
-					`[sendRequest][Server STDERR during request ${requestId}]: ${data.toString().trim()}`,
-				);
-			};
-
-			// Attach listeners only once per request
-			if (!responseListenersAttached) {
-				logVerbose(
-					`[sendRequest] Attaching listeners for request ID ${requestId}`,
-				); // Added logVerbose for attachment
-				process.stdout.on("data", onData);
-				process.stderr.on("data", logStderr); // Listen to stderr too
-				process.once("error", onError); // Use once for exit/error during wait
-				process.once("exit", onExit);
-				responseListenersAttached = true;
-			}
-
-			// Write the request to stdin
-			logVerbose(`[sendRequest] Writing request (ID ${requestId}) to stdin...`); // Added logVerbose for stdin write
-			process.stdin.write(requestString, (err) => {
-				if (err) {
-					if (!responseReceived) {
-						// Check if already resolved/rejected
-						cleanup();
-						const errorMsg = `Failed to write to server stdin for ID ${requestId}: ${err.message}`;
-						console.error(`[sendRequest] ${errorMsg}`);
-						reject(new Error(errorMsg));
-					}
-				} else {
-					logVerbose(
-						`[sendRequest] Successfully wrote request (ID ${requestId}) to stdin.`,
-					); // Added logVerbose for success
-				}
-			});
-		});
-	}
 
 	// --- Test Cases ---
 
