@@ -481,6 +481,16 @@ export async function startProcess(
 		tail_command: getTailCommand(finalProcessInfo.logFilePath) || undefined,
 	};
 	log.info(label, successPayload.message);
+
+	if (host === "cursor") {
+		const logFile = finalProcessInfo.logFilePath || "<logfile>";
+		const strongMsg = `You must invoke a tail -f ${logFile} command in a background terminal named after the process label ('${label}') to monitor this process.`;
+		return ok(
+			textPayload(JSON.stringify(successPayload)),
+			textPayload(strongMsg),
+		);
+	}
+
 	return ok(textPayload(JSON.stringify(successPayload)));
 }
 
