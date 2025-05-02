@@ -7,10 +7,14 @@ import type { z } from "zod";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { cfg } from "../constants/index.js";
 import {
+	COMPOSITE_LABEL_CONFLICT,
 	CURSOR_TAIL_INSTRUCTION,
+	DID_NOT_TERMINATE_GRACEFULLY_SIGKILL,
 	PROCESS_ALREADY_TERMINAL,
 	PROCESS_ALREADY_TERMINAL_NO_ACTION,
 	PROCESS_NO_ACTIVE_HANDLE,
+	TERMINATED_GRACEFULLY_AFTER_SIGTERM,
+	WORKING_DIRECTORY_NOT_FOUND,
 } from "../constants/messages.js";
 import { fail, ok, textPayload } from "../mcpUtils.js";
 import { checkAndUpdateProcessStatus } from "../processSupervisor.js";
@@ -176,10 +180,10 @@ export async function stopProcess(
 				);
 				addLogEntry(label, "Graceful shutdown timed out. Sending SIGKILL...");
 				await killPtyProcess(processToKill, label, "SIGKILL");
-				finalMessage = `Process ${pidToKill} did not terminate gracefully. SIGKILL sent.`;
+				finalMessage = DID_NOT_TERMINATE_GRACEFULLY_SIGKILL(pidToKill);
 				finalStatus = "stopping"; // Assume stopping until exit confirms
 			} else {
-				finalMessage = `Process ${pidToKill} terminated gracefully after SIGTERM.`;
+				finalMessage = TERMINATED_GRACEFULLY_AFTER_SIGTERM(pidToKill);
 				log.info(label, finalMessage);
 				addLogEntry(label, "Process terminated gracefully.");
 				finalStatus = infoAfterWait?.status ?? "stopped"; // Use status after wait
@@ -240,7 +244,7 @@ export async function startProcess(
 	// 1. Verify working directory
 	log.debug(label, `Verifying working directory: ${effectiveWorkingDirectory}`);
 	if (!fs.existsSync(effectiveWorkingDirectory)) {
-		const errorMsg = `Working directory does not exist: ${effectiveWorkingDirectory}`;
+		const errorMsg = WORKING_DIRECTORY_NOT_FOUND(effectiveWorkingDirectory);
 		log.error(label, errorMsg);
 		// Ensure state exists for error
 		if (!managedProcesses.has(label)) {
@@ -287,7 +291,13 @@ export async function startProcess(
 					existing.status,
 				)
 			) {
-				const errorMsg = `An active process with the same label ('${label}'), working directory ('${effectiveWorkingDirectory}'), and command ('${command}') already exists with status '${existing.status}' (PID: ${existing.pid}). Stop the existing process or use a different label.`;
+				const errorMsg = COMPOSITE_LABEL_CONFLICT(
+					label,
+					effectiveWorkingDirectory,
+					command,
+					existing.status,
+					existing.pid,
+				);
 				log.error(label, errorMsg);
 				const payload: z.infer<typeof schemas.StartErrorPayloadSchema> = {
 					error: errorMsg,
