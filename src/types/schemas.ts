@@ -281,6 +281,11 @@ export const CheckStatusPayloadSchema = ProcessStatusInfoSchema.extend({
 		.describe(
 			"Hint about the returned logs (e.g., if truncated or if more lines are stored).",
 		),
+	message: z
+		.string()
+		.describe(
+			"Natural-language summary of everything notable since the last check.",
+		),
 }).describe("Response payload for a check_process_status call.");
 export type CheckStatusPayloadType = z.infer<typeof CheckStatusPayloadSchema>;
 
@@ -397,3 +402,7 @@ export const HealthCheckPayloadSchema = z
 	})
 	.describe("Response payload for a health_check call.");
 export type HealthCheckPayloadType = z.infer<typeof HealthCheckPayloadSchema>;
+
+export const BaseRequestSchema = z.object({
+	requestId: z.string().uuid().optional(),
+});
