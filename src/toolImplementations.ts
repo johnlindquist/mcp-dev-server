@@ -283,7 +283,9 @@ export async function stopAllProcessesImpl(): Promise<CallToolResult> {
 
 	const finalMessage = `Stop all request completed. Stopped: ${stoppedCount}, Skipped: ${skippedCount}, Errors: ${errorCount}`;
 	const payload: z.infer<typeof schemas.StopAllProcessesPayloadSchema> = {
-		message: finalMessage,
+		stopped_count: stoppedCount,
+		skipped_count: skippedCount,
+		error_count: errorCount,
 		details: details,
 	};
 

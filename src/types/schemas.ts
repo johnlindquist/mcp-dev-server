@@ -327,6 +327,8 @@ export type StopProcessPayloadType = z.infer<typeof StopProcessPayloadSchema>;
 // stop_all_processes payload
 export const StopAllProcessesPayloadSchema = z
 	.object({
+		/** Human-readable summary line */
+		message: z.string(),
 		stopped_count: z.number().int(),
 		skipped_count: z.number().int(),
 		error_count: z.number().int(),

@@ -58,6 +58,8 @@ export interface ProcessInfo {
 	logFilePath: string | null;
 	logFileStream: fs.WriteStream | null;
 	lastLogTimestampReturned?: number;
+	/** Timestamp of the last summary sent back to the client (used for diffing). */
+	lastSummaryTimestampReturned?: number;
 	mainDataListenerDisposable?: IDisposable;
 	mainExitListenerDisposable?: IDisposable;
 	partialLineBuffer?: string;
