@@ -14,8 +14,8 @@ function createPayload(
 	...content: readonly ToolContent[]
 ): CallToolResult {
 	let payloadContent: string;
-	let contentType: "application/json" | "text/plain";
-	let finalIsError = isError; // Use a local variable
+	let contentType: "text/plain";
+	const finalIsError = isError; // Use a local variable
 
 	if (content.length === 0) {
 		payloadContent = "";
@@ -24,17 +24,17 @@ function createPayload(
 		const [firstContent] = content;
 		if (typeof firstContent === "string") {
 			payloadContent = firstContent;
-			contentType = "text/plain";
+		} else if (
+			typeof firstContent === "object" &&
+			firstContent !== null &&
+			"text" in firstContent &&
+			typeof firstContent.text === "string"
+		) {
+			payloadContent = firstContent.text;
 		} else {
-			try {
-				payloadContent = JSON.stringify(firstContent);
-				contentType = "application/json";
-			} catch (error) {
-				payloadContent = "Error: Could not serialize tool result content.";
-				contentType = "text/plain";
-				finalIsError = true; // Assign to the local variable
-			}
+			payloadContent = String(firstContent);
 		}
+		contentType = "text/plain";
 	}
 
 	return {

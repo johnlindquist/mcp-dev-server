@@ -18,7 +18,7 @@
 		"watch": "tsc --watch",
 		"inspector": "pnpm dlx @modelcontextprotocol/inspector build/index.mjs",
 		"lint:fix": "biome check --write .",
-		"verify": "pnpm build && pnpm lint:fix",
+		"verify": "pnpm build && pnpm lint:fix && pnpm exec tsc --noEmit",
 		"start": "node build/index.mjs",
 		"test": "pnpm verify && vitest run --test-timeout=60000",
 		"test:single": "pnpm verify && vitest run --test-timeout=60000",

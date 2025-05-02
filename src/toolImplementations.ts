@@ -1,6 +1,6 @@
 import type { z } from "zod";
 import { cfg } from "./constants/index.js";
-import { fail, getResultText, ok } from "./mcpUtils.js";
+import { fail, getResultText, ok, textPayload } from "./mcpUtils.js";
 import { startProcess, stopProcess } from "./process/lifecycle.js";
 import {
 	checkAndUpdateProcessStatus,
@@ -38,15 +38,15 @@ export async function checkProcessStatusImpl(
 	if (!initialProcessInfo) {
 		log.warn(label, `Process with label "${label}" not found.`);
 		return fail(
-			JSON.stringify({ error: `Process with label "${label}" not found.` }),
+			textPayload(
+				JSON.stringify({ error: `Process with label "${label}" not found.` }),
+			),
 		);
 	}
 
 	const initialStatus = initialProcessInfo.status;
 	const previousLastLogTimestampReturned =
 		initialProcessInfo.lastLogTimestampReturned ?? 0;
-	const previousLastSummaryTimestampReturned =
-		initialProcessInfo.lastSummaryTimestampReturned ?? 0;
 
 	const finalProcessInfo = initialProcessInfo;
 
@@ -61,13 +61,12 @@ export async function checkProcessStatusImpl(
 	);
 
 	const newLogsForSummary = allLogs.filter(
-		(logEntry) => logEntry.timestamp > previousLastSummaryTimestampReturned,
+		(logEntry) => logEntry.timestamp > previousLastLogTimestampReturned,
 	);
 
 	let logHint = "";
 	const returnedLogs: string[] = [];
 	let newLastLogTimestamp = previousLastLogTimestampReturned;
-	let newLastSummaryTimestamp = previousLastSummaryTimestampReturned;
 
 	if (newLogsForPayload.length > 0) {
 		log.debug(
@@ -116,19 +115,19 @@ export async function checkProcessStatusImpl(
 
 	log.debug(
 		label,
-		`Analysing ${newLogsForSummary.length} logs for summary since timestamp ${previousLastSummaryTimestampReturned}`,
+		`Analysing ${newLogsForSummary.length} logs for summary since timestamp ${previousLastLogTimestampReturned}`,
 	);
 	const { message: summaryMessage } = analyseLogs(
 		newLogsForSummary.map((l) => l.content),
 	);
 	if (newLogsForSummary.length > 0) {
-		newLastSummaryTimestamp =
+		newLastLogTimestamp =
 			newLogsForSummary[newLogsForSummary.length - 1].timestamp;
 		log.debug(
 			label,
-			`Updating lastSummaryTimestampReturned to ${newLastSummaryTimestamp}`,
+			`Updating lastLogTimestampReturned to ${newLastLogTimestamp}`,
 		);
-		finalProcessInfo.lastSummaryTimestampReturned = newLastSummaryTimestamp;
+		finalProcessInfo.lastLogTimestampReturned = newLastLogTimestamp;
 	}
 
 	const payload: z.infer<typeof schemas.CheckStatusPayloadSchema> = {
@@ -154,7 +153,7 @@ export async function checkProcessStatusImpl(
 		`check_process_status returning final status: ${payload.status}. New logs returned: ${returnedLogs.length}. New lastLogTimestamp: ${newLastLogTimestamp}`,
 	);
 
-	return ok(JSON.stringify(payload));
+	return ok(textPayload(JSON.stringify(payload)));
 }
 
 export async function listProcessesImpl(
@@ -201,7 +200,7 @@ export async function listProcessesImpl(
 		}
 	}
 
-	return ok(JSON.stringify(processList, null, 2));
+	return ok(textPayload(JSON.stringify(processList)));
 }
 
 export async function stopProcessImpl(
@@ -209,6 +208,9 @@ export async function stopProcessImpl(
 ): Promise<CallToolResult> {
 	const { label, force } = params;
 	const result = await stopProcess(label, force);
+	if (typeof result === "object" && result !== null && !Array.isArray(result)) {
+		return ok(textPayload(JSON.stringify(result)));
+	}
 	return result;
 }
 
@@ -281,14 +283,18 @@ export async function stopAllProcessesImpl(): Promise<CallToolResult> {
 		}
 	}
 
-	const finalMessage = `Stop all request completed. Stopped: ${stoppedCount}, Skipped: ${skippedCount}, Errors: ${errorCount}`;
 	const payload: z.infer<typeof schemas.StopAllProcessesPayloadSchema> = {
-		message: finalMessage,
+		stopped_count: stoppedCount,
+		skipped_count: skippedCount,
+		error_count: errorCount,
 		details: details,
 	};
 
-	log.info(null, finalMessage);
-	return ok(JSON.stringify(payload));
+	log.info(
+		null,
+		`Stop all request completed. Stopped: ${stoppedCount}, Skipped: ${skippedCount}, Errors: ${errorCount}`,
+	);
+	return ok(textPayload(JSON.stringify(payload)));
 }
 
 export async function restartProcessImpl(
@@ -305,7 +311,7 @@ export async function restartProcessImpl(
 			error: `Process with label "${label}" not found.`,
 			label,
 		};
-		return fail(JSON.stringify(errorPayload));
+		return fail(textPayload(JSON.stringify(errorPayload)));
 	}
 
 	log.debug(label, "Stopping process before restart...");
@@ -320,7 +326,7 @@ export async function restartProcessImpl(
 			error: `Failed to stop existing process: ${getResultText(stopResult)}`,
 			label,
 		};
-		return fail(JSON.stringify(errorPayload));
+		return fail(textPayload(JSON.stringify(errorPayload)));
 	}
 	log.debug(label, "Process stopped successfully.");
 
@@ -349,10 +355,25 @@ export async function restartProcessImpl(
 			error: `Failed to start process after stopping: ${getResultText(startResult)}`,
 			label,
 		};
-		return fail(JSON.stringify(errorPayload));
+		return fail(textPayload(JSON.stringify(errorPayload)));
 	}
 
 	log.info(label, "Process restarted successfully.");
+	if (
+		typeof startResult === "object" &&
+		startResult !== null &&
+		!Array.isArray(startResult) &&
+		"payload" in startResult &&
+		Array.isArray(startResult.payload) &&
+		startResult.payload[0]?.content
+	) {
+		try {
+			const parsed = JSON.parse(startResult.payload[0].content);
+			return ok(textPayload(JSON.stringify(parsed)));
+		} catch {
+			return ok(textPayload(startResult.payload[0].content));
+		}
+	}
 	return startResult;
 }
 
@@ -381,7 +402,7 @@ export async function waitForProcessImpl(
 				final_status: "error",
 				message,
 			};
-			return fail(JSON.stringify(payload));
+			return fail(textPayload(JSON.stringify(payload)));
 		}
 
 		const currentStatus = processInfo.status;
@@ -397,7 +418,7 @@ export async function waitForProcessImpl(
 				message,
 				timed_out: false,
 			};
-			return ok(JSON.stringify(payload));
+			return ok(textPayload(JSON.stringify(payload)));
 		}
 
 		if (
@@ -414,7 +435,7 @@ export async function waitForProcessImpl(
 					final_status: currentStatus,
 					message,
 				};
-				return ok(JSON.stringify(payload));
+				return ok(textPayload(JSON.stringify(payload)));
 			}
 		}
 
@@ -427,7 +448,7 @@ export async function waitForProcessImpl(
 				message,
 				timed_out: true,
 			};
-			return ok(JSON.stringify(payload));
+			return ok(textPayload(JSON.stringify(payload)));
 		}
 
 		await new Promise((resolve) => setTimeout(resolve, checkIntervalMs));
@@ -445,7 +466,9 @@ export async function getAllLoglinesImpl(
 			label,
 			`Process with label "${label}" not found for getAllLoglines.`,
 		);
-		return fail(JSON.stringify({ error: `Process "${label}" not found.` }));
+		return fail(
+			textPayload(JSON.stringify({ error: `Process "${label}" not found.` })),
+		);
 	}
 
 	const allLogs = processInfo.logs || [];
@@ -469,7 +492,7 @@ export async function getAllLoglinesImpl(
 		label,
 		`getAllLoglines returning ${lineCount} lines. Truncated: ${isTruncated}`,
 	);
-	return ok(JSON.stringify(payload));
+	return ok(textPayload(JSON.stringify(payload)));
 }
 
 export async function sendInputImpl(
@@ -484,13 +507,13 @@ export async function sendInputImpl(
 		const status = processInfo?.status ?? "not_found";
 		const message = `Process "${label}" not running or not found (status: ${status}). Cannot send input.`;
 		log.warn(label, message);
-		return fail(JSON.stringify({ error: message }));
+		return fail(textPayload(JSON.stringify({ error: message })));
 	}
 
 	if (processInfo.status !== "running" && processInfo.status !== "verifying") {
 		const message = `Process "${label}" is not in a running or verifying state (status: ${processInfo.status}). Cannot reliably send input.`;
 		log.warn(label, message);
-		return fail(JSON.stringify({ error: message }));
+		return fail(textPayload(JSON.stringify({ error: message })));
 	}
 
 	try {
@@ -504,13 +527,15 @@ export async function sendInputImpl(
 
 		const message = `Input sent successfully to process "${label}".`;
 		log.info(label, message);
-		return ok(JSON.stringify({ message }));
+		return ok(textPayload(JSON.stringify({ message })));
 	} catch (error) {
 		const message = `Failed to send input to process "${label}".`;
 		log.error(label, message, (error as Error).message);
 		const errorMsg =
 			error instanceof Error ? error.message : "Unknown PTY write error";
-		return fail(JSON.stringify({ error: `${message}: ${errorMsg}` }));
+		return fail(
+			textPayload(JSON.stringify({ error: `${message}: ${errorMsg}` })),
+		);
 	}
 }
 
@@ -522,5 +547,5 @@ export async function healthCheckImpl(): Promise<CallToolResult> {
 		active_processes: managedProcesses.size,
 		is_zombie_check_active: isZombieCheckActive(),
 	};
-	return ok(JSON.stringify(payload));
+	return ok(textPayload(JSON.stringify(payload)));
 }

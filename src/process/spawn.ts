@@ -29,7 +29,7 @@ export function spawnPtyProcess(
 			rows: 30,
 			cwd,
 			env,
-			shell, // Pass the determined shell
+			// shell, // Removed: not a valid property for node-pty
 			// useConpty: false, // Uncomment for Windows debugging if needed
 		});
 		log.debug(

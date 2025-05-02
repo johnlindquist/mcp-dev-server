@@ -1,4 +1,4 @@
-import type { McpServer, RequestHandlerExtra } from "@modelcontextprotocol/sdk";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ZodRawShape, z } from "zod";
 import { startProcess, stopProcess } from "./process/lifecycle.js";
 import { handleToolCall } from "./toolHandler.js";
@@ -12,6 +12,7 @@ import {
 	stopAllProcessesImpl,
 	waitForProcessImpl,
 } from "./toolImplementations.js";
+import type { ToolContent } from "./types/index.js";
 import * as schemas from "./types/schemas.js";
 import { log } from "./utils.js";
 
@@ -36,12 +37,51 @@ export type GetAllLoglinesParamsType = z.infer<
 >;
 export type SendInputParamsType = z.infer<typeof schemas.SendInputParams>;
 
+function toMcpSdkResponse(result: Awaited<ReturnType<typeof handleToolCall>>): {
+	content: ToolContent[];
+	payload: { content: string }[];
+	rawPayload: { content: string }[];
+	isError?: boolean;
+} {
+	// Always serialize payload content to JSON string if not already a string
+	const payloadArr = Array.isArray(result.payload)
+		? result.payload.map((p) => {
+				if (typeof p === "string") return { content: p };
+				if (
+					typeof p === "object" &&
+					p !== null &&
+					"content" in p &&
+					typeof p.content === "string"
+				) {
+					return { content: p.content };
+				}
+				return { content: JSON.stringify(p) };
+			})
+		: result.payload
+			? [
+					{
+						content:
+							typeof result.payload === "string"
+								? result.payload
+								: JSON.stringify(result.payload),
+					},
+				]
+			: [];
+
+	return {
+		content: payloadArr.map((p) => ({ type: "text", text: p.content })),
+		payload: payloadArr,
+		rawPayload: payloadArr,
+		isError: result.isError,
+	};
+}
+
 export function registerToolDefinitions(server: McpServer): void {
 	server.tool(
 		"start_process",
 		"Starts a background process (like a dev server or script) and manages it.",
 		shape(schemas.StartProcessParams.shape),
-		(params: StartProcessParamsType, extra: RequestHandlerExtra) => {
+		(params: StartProcessParamsType) => {
 			const cwdForLabel = params.workingDirectory;
 			const effectiveLabel = params.label || `${cwdForLabel}:${params.command}`;
 			const hostValue = params.host;
@@ -73,7 +113,7 @@ export function registerToolDefinitions(server: McpServer): void {
 						false,
 					);
 				},
-			);
+			).then(toMcpSdkResponse);
 		},
 	);
 
@@ -81,13 +121,13 @@ export function registerToolDefinitions(server: McpServer): void {
 		"check_process_status",
 		"Checks the status and retrieves recent logs of a managed background process.",
 		shape(schemas.CheckProcessStatusParams.shape),
-		(params: CheckProcessStatusParamsType, extra: RequestHandlerExtra) => {
+		(params: CheckProcessStatusParamsType) => {
 			return handleToolCall(
 				params.label,
 				"check_process_status",
 				params,
 				async () => await checkProcessStatusImpl(params),
-			);
+			).then(toMcpSdkResponse);
 		},
 	);
 
@@ -95,13 +135,13 @@ export function registerToolDefinitions(server: McpServer): void {
 		"stop_process",
 		"Stops a specific background process.",
 		shape(schemas.StopProcessParams.shape),
-		(params: StopProcessParamsType, extra: RequestHandlerExtra) => {
+		(params: StopProcessParamsType) => {
 			return handleToolCall(
 				params.label,
 				"stop_process",
 				params,
 				async () => await stopProcess(params.label, params.force),
-			);
+			).then(toMcpSdkResponse);
 		},
 	);
 
@@ -109,13 +149,13 @@ export function registerToolDefinitions(server: McpServer): void {
 		"stop_all_processes",
 		"Attempts to gracefully stop all active background processes.",
 		{},
-		(params: Record<string, unknown>, extra: RequestHandlerExtra) => {
+		(params: Record<string, unknown>) => {
 			return handleToolCall(
 				null,
 				"stop_all_processes",
 				{},
 				async () => await stopAllProcessesImpl(),
-			);
+			).then(toMcpSdkResponse);
 		},
 	);
 
@@ -123,13 +163,13 @@ export function registerToolDefinitions(server: McpServer): void {
 		"list_processes",
 		"Lists all managed background processes and their statuses.",
 		shape(schemas.ListProcessesParams.shape),
-		(params: ListProcessesParamsType, extra: RequestHandlerExtra) => {
+		(params: ListProcessesParamsType) => {
 			return handleToolCall(
 				null,
 				"list_processes",
 				params,
 				async () => await listProcessesImpl(params),
-			);
+			).then(toMcpSdkResponse);
 		},
 	);
 
@@ -137,13 +177,13 @@ export function registerToolDefinitions(server: McpServer): void {
 		"restart_process",
 		"Restarts a specific background process by stopping and then starting it again.",
 		shape(schemas.RestartProcessParams.shape),
-		(params: RestartProcessParamsType, extra: RequestHandlerExtra) => {
+		(params: RestartProcessParamsType) => {
 			return handleToolCall(
 				params.label,
 				"restart_process",
 				params,
 				async () => await restartProcessImpl(params),
-			);
+			).then(toMcpSdkResponse);
 		},
 	);
 
@@ -151,13 +191,13 @@ export function registerToolDefinitions(server: McpServer): void {
 		"wait_for_process",
 		"Waits for a specific background process to reach a target status (e.g., running).",
 		shape(schemas.WaitForProcessParams.shape),
-		(params: WaitForProcessParamsType, extra: RequestHandlerExtra) => {
+		(params: WaitForProcessParamsType) => {
 			return handleToolCall(
 				params.label,
 				"wait_for_process",
 				params,
 				async () => await waitForProcessImpl(params),
-			);
+			).then(toMcpSdkResponse);
 		},
 	);
 
@@ -165,13 +205,13 @@ export function registerToolDefinitions(server: McpServer): void {
 		"get_all_loglines",
 		"Retrieves the complete remaining log history for a specific managed process.",
 		shape(schemas.GetAllLoglinesParams.shape),
-		(params: GetAllLoglinesParamsType, extra: RequestHandlerExtra) => {
+		(params: GetAllLoglinesParamsType) => {
 			return handleToolCall(
 				params.label,
 				"get_all_loglines",
 				params,
 				async () => await getAllLoglinesImpl(params),
-			);
+			).then(toMcpSdkResponse);
 		},
 	);
 
@@ -179,7 +219,7 @@ export function registerToolDefinitions(server: McpServer): void {
 		"send_input",
 		"Sends input to a specific managed process.",
 		shape(schemas.SendInputParams.shape),
-		(params: SendInputParamsType, extra: RequestHandlerExtra) => {
+		(params: SendInputParamsType) => {
 			return handleToolCall(
 				params.label,
 				"send_input",
@@ -190,7 +230,7 @@ export function registerToolDefinitions(server: McpServer): void {
 						params.input,
 						params.append_newline,
 					),
-			);
+			).then(toMcpSdkResponse);
 		},
 	);
 
@@ -198,13 +238,13 @@ export function registerToolDefinitions(server: McpServer): void {
 		"health_check",
 		"Provides a health status summary of the MCP Process Manager itself.",
 		{},
-		(params: Record<string, unknown>, extra: RequestHandlerExtra) => {
+		(params: Record<string, unknown>) => {
 			return handleToolCall(
 				null,
 				"health_check",
 				{},
 				async () => await healthCheckImpl(),
-			);
+			).then(toMcpSdkResponse);
 		},
 	);
 
