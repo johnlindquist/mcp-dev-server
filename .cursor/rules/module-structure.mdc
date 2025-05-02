@@ -3,18 +3,27 @@ description:
 globs:
 alwaysApply: always
 ---
-
 # Project Module Structure
 
 This project is structured into several modules within the `src` directory to improve organization and maintainability.
 
-- **[index.ts](mdc:src/index.ts)**: The main entry point of the application. It imports the `main` function and signal handlers from `main.ts` and starts the application.
-- **[main.ts](mdc:src/main.ts)**: Contains the core application setup, including initializing the MCP server, registering tools, setting up the zombie process check interval, connecting the transport, and defining the main `cleanup` logic and signal handlers.
-- **[constants.ts](mdc:src/constants.ts)**: Defines shared constant values used throughout the application (e.g., log line limits, retry delays, server name/version).
-- **[types.ts](mdc:src/types.ts)**: Contains TypeScript type definitions and interfaces, including `ServerStatus`, `ServerInfo`, and re-exports common MCP types from `types.js`.
-- **[utils.ts](mdc:src/utils.ts)**: Provides utility functions, including the shared `log` object for logging and helper functions like `stripAnsiSafe` and `formatLogsForResponse`.
-- **[state.ts](mdc:src/state.ts)**: Manages the application's state, primarily the `managedProcesses` map and the `zombieCheckIntervalId`. It includes functions for manipulating this state, such as `addLogEntry`, `updateProcessStatus`, `handleCrashAndRetry`, `handleExit`, `doesProcessExist`, `checkAndUpdateProcessStatus`, `reapZombies`, and `stopAllProcessesOnExit`.
-- **[serverLogic.ts](mdc:src/serverLogic.ts)**: Encapsulates the core logic for interacting with managed background processes, specifically the internal `_startProcess` and `_stopProcess` functions that handle spawning and terminating `node-pty` processes.
-- **[toolHandler.ts](mdc:src/toolHandler.ts)**: Contains the generic `handleToolCall` wrapper function used by all tool definitions to provide consistent logging and error handling.
-- **[toolDefinitions.ts](mdc:src/toolDefinitions.ts)**: Defines all the MCP tools exposed by this server. It includes Zod schemas for parameters, helper functions containing the specific logic for each tool (e.g., `_checkProcessStatus`, `_listProcesses`), and uses `handleToolCall` to register them with the MCP server via the exported `registerToolDefinitions` function.
-- **[types.js](mdc:src/types.js)**: (Original file) Provides foundational MCP payload primitives and helper functions like `ok`, `fail`, `textPayload`. It is re-exported by `types.ts`.
+- **`[index.ts](mdc:src/index.ts)`**: The main entry point of the application. Imports and runs the `main` function from `main.ts`.
+- **`[main.ts](mdc:src/main.ts)`**: Contains the core application setup: initializing the MCP server, registering tools (`toolDefinitions.ts`), setting up the zombie process check interval (`state.ts`), connecting the transport, and defining cleanup logic and signal handlers.
+- **`[constants/index.ts](mdc:src/constants/index.ts)`**: Defines shared constant values used throughout the application (e.g., log limits, retry delays, server name/version).
+- **`[process/](mdc:src/process/)`**: Module responsible for all aspects of child process management.
+  - **`[lifecycle.ts](mdc:src/process/lifecycle.ts)`**: Functions for starting (`startProcess`) and stopping (`stopProcess`) processes.
+  - **`[logging.ts](mdc:src/process/logging.ts)`**: Handles capturing and storing log output from child processes.
+  - **`[retry.ts](mdc:src/process/retry.ts)`**: Logic for automatically retrying crashed processes.
+  - **`[spawn.ts](mdc:src/process/spawn.ts)`**: Core logic for spawning child processes using `node-pty`.
+  - **`[verify.ts](mdc:src/process/verify.ts)`**: Logic for verifying successful process startup based on output patterns.
+- **`[types/](mdc:src/types/)`**: Contains TypeScript type definitions and schemas.
+  - **`[index.ts](mdc:src/types/index.ts)`**: Exports core types and MCP result helpers (`ok`, `fail`, `textPayload`).
+  - **`[process.ts](mdc:src/types/process.ts)`**: Defines types related to managed processes (e.g., `ManagedProcess`, `ProcessStatus`).
+  - **`[resource.ts](mdc:src/types/resource.ts)`**: Defines resource types (currently unused or specific to internal details).
+  - **`[schemas.ts](mdc:src/types/schemas.ts)`**: Defines Zod schemas for validating MCP tool parameters.
+- **`[utils.ts](mdc:src/utils.ts)`**: Provides utility functions, including the shared `log` object (pino) and helpers like `stripAnsiSafe`.
+- **`[state.ts](mdc:src/state.ts)`**: Manages the application's global state, primarily the `managedProcesses` map (tracking process status, logs, pty instances) and the zombie process check interval. Includes functions for state manipulation and zombie reaping.
+- **`[toolHandler.ts](mdc:src/toolHandler.ts)`**: Contains the generic `handleToolCall` wrapper function used by tool definitions for consistent logging and error handling.
+- **`[toolDefinitions.ts](mdc:src/toolDefinitions.ts)`**: Defines all MCP tools exposed by the server. It imports schemas (`types/schemas.ts`), implementation logic (`toolImplementations.ts`), and registers them with the MCP server.
+- **`[toolImplementations.ts](mdc:src/toolImplementations.ts)`**: Contains the actual implementation logic for each MCP tool, interacting with `state.ts` and the `process/` module functions.
+- **`[mcpUtils.ts](mdc:src/mcpUtils.ts)`**: Utility functions specifically related to MCP operations or potentially shared MCP logic (needs further inspection for specific role).

@@ -19,10 +19,11 @@ This MCP server allows an AI agent to:
 
 - **Start Processes:** Initiate new background processes with a given command and working directory.
 - **Check Status:** Query the status (starting, running, stopped, crashed, etc.) of managed processes.
-- **View Logs:** Retrieve recent logs for a specific process.
+- **View Logs:** Retrieve recent logs (`check_process_status`) or all stored logs (`get_all_loglines`) for a specific process.
 - **Stop Processes:** Terminate a specific process or all managed processes.
 - **Restart Processes:** Stop and then restart a specific process.
-- **Wait for Processes:** Pause execution until a specific process reaches a stable 'running' state.
+- **Wait for Processes:** Pause execution until a specific process reaches a target status (e.g., 'running').
+- **Send Input:** Send text input to the stdin of a running process.
 - **Health Check:** Get an overall status of the process manager itself.
 
 ## Available Tools
@@ -34,12 +35,19 @@ This MCP server allows an AI agent to:
 - `stop_all_processes`
 - `restart_process`
 - `wait_for_process`
+- `get_all_loglines`
+- `send_input`
 - `health_check`
 
 ## Key Components
 
-- **`[src/index.ts](mdc:src/index.ts)**: The main entry point and server logic. It sets up an MCP server using `@modelcontextprotocol/sdk` and defines tools for managing development server processes. It utilizes `node-pty` for robust process management and communication, including handling logs, status tracking, crashes, and retries.
-- **`[src/types.ts](mdc:src/types.ts)**: Defines TypeScript types and helper functions used throughout the project, particularly for standardizing the `CallToolResult` structure returned by the MCP tools and providing utility functions.
+- **`[src/index.ts](mdc:src/index.ts)**: The main entry point. Initializes and starts the MCP server via `main.ts`.
+- **`[src/main.ts](mdc:src/main.ts)**: Core application setup: initializes the server, registers tools (`toolDefinitions.ts`), sets up zombie process checking (`state.ts`), connects transport, and handles signals/cleanup.
+- **`[src/toolDefinitions.ts](mdc:src/toolDefinitions.ts)**: Registers all MCP tools with the server, defines their schemas (`src/types/schemas.ts`), and links them to their implementation logic (`src/toolImplementations.ts`) via `toolHandler.ts`.
+- **`[src/toolImplementations.ts](mdc:src/toolImplementations.ts)**: Contains the core logic for each tool (e.g., interacting with process state, calling process lifecycle functions).
+- **`[src/process/](mdc:src/process/)`**: Module containing the logic for spawning (`spawn.ts`), managing lifecycle (`lifecycle.ts`), logging (`logging.ts`), retrying (`retry.ts`), and verifying (`verify.ts`) child processes using `node-pty`.
+- **`[src/state.ts](mdc:src/state.ts)**: Manages the global state, primarily the `managedProcesses` map tracking all active/inactive child processes and their associated data (status, logs, PTY instances, etc.). Also handles zombie process reaping.
+- **`[src/types/](mdc:src/types/)`**: Contains TypeScript definitions, including tool parameter schemas (`schemas.ts`), process-related types (`process.ts`), and general MCP response types (`index.ts`).
 
 ## Technology Stack
 
