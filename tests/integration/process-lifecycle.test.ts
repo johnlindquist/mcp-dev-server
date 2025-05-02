@@ -173,7 +173,6 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 		});
 	}
 
-	// --- Start Process Test ---
 	it(
 		"should start a simple process and receive confirmation",
 		async () => {
@@ -267,7 +266,6 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 		TEST_TIMEOUT,
 	);
 
-	// --- Check Status Test ---
 	it(
 		"should check the status of a running process",
 		async () => {
@@ -371,7 +369,6 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 		TEST_TIMEOUT,
 	);
 
-	// --- Restart Process Test ---
 	it(
 		"should restart a running process",
 		async () => {
@@ -481,9 +478,7 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 			const checkResultWrapper = checkResponse.result as CallToolResult;
 			try {
 				checkResult = JSON.parse(checkResultWrapper.payload[0].content);
-			} catch (e) {
-				// Handle error
-			}
+			} catch (e) {}
 
 			expect(checkResult?.status).toBe("running");
 			expect(checkResult?.pid).toBe(restartedPid);

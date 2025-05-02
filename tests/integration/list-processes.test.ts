@@ -12,7 +12,6 @@ import {
 	logVerbose,
 } from "./test-helpers";
 
-// Local sendRequest that takes a process argument
 async function sendRequest(
 	process: ChildProcessWithoutNullStreams,
 	request: Record<string, unknown>,
