@@ -1,6 +1,5 @@
 import path from "node:path";
 
-// --- Configuration ---
 export const SERVER_EXECUTABLE = "node";
 export const SERVER_SCRIPT_PATH = path.resolve(
 	__dirname,
@@ -9,10 +8,9 @@ export const SERVER_SCRIPT_PATH = path.resolve(
 export const SERVER_ARGS: string[] = [];
 export const SERVER_READY_OUTPUT =
 	"MCP Server connected and listening via stdio.";
-export const STARTUP_TIMEOUT = 20000; // 20 seconds
-export const TEST_TIMEOUT = STARTUP_TIMEOUT + 10000; // Increase slightly for overhead
+export const STARTUP_TIMEOUT = 20000;
+export const TEST_TIMEOUT = STARTUP_TIMEOUT + 10000;
 
-// --- Verbose Logging ---
 export const IS_VERBOSE = process.env.MCP_TEST_VERBOSE === "1";
 export function logVerbose(...args: unknown[]) {
 	if (IS_VERBOSE) {
@@ -25,7 +23,6 @@ export function logVerboseError(...args: unknown[]) {
 	}
 }
 
-// --- Type definitions ---
 export type MCPResponse = {
 	jsonrpc: "2.0";
 	id: string;
