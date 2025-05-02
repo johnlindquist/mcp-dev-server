@@ -26,18 +26,40 @@ It allows MCP-compatible clients to start, monitor, retrieve logs from, and stop
 *   **Wait for Status:** Pause execution until a process reaches a desired state (e.g., 'running').
 *   **Optional Labels:** Provide a custom label for a process or let the server generate one based on the command and working directory.
 *   **Automatic Cleanup:** Includes basic zombie process detection and attempts to terminate managed processes on shutdown.
+*   **Stronger Cursor-tail instructions:** Enhanced instructions for Cursor IDE users when starting background processes.
+*   **Automatic Purging:** Stopped processes are automatically purged from the process list; querying a purged process returns a stopped status and empty logs.
+
+---
+
+<blockquote style="border-left: 6px solid #222; background: #fff3cd; color: #222; padding: 28px 32px; margin: 32px 0; border-radius: 10px; text-align: center;">
+  <div style="font-size: 1.5em; font-weight: bold; margin-bottom: 8px; color: #222;">
+    🚀 Want to Become a <span style="color:#0d6efd;">Cursor Pro</span>? 🏆
+  </div>
+  <div style="font-size: 1.1em; margin-bottom: 10px; color: #222;">
+    Unlock advanced workflows, tips, and real-world AI dev strategies in Cursor.<br>
+    <strong>I teach semi-weekly workshops live on Thursdays.</strong>
+  </div>
+  <a href="https://egghead.io/workshop/cursor" style="display: inline-block; background: #0d6efd; color: #fff; font-weight: bold; font-size: 1.15em; padding: 14px 28px; border-radius: 6px; text-decoration: none; margin-top: 8px; box-shadow: 0 2px 8px rgba(13,110,253,0.10);">
+    👉 Click here to learn more!
+  </a>
+</blockquote>
+
+---
 
 ## Available Tools
 
 This server exposes the following tools for MCP clients:
 
 *   `start_process`: Starts a new background process. (Label is optional)
+*   `start_process_with_verification`: Starts a new background process with verification, timeout, and retry options. (Label is optional)
 *   `check_process_status`: Checks the status and logs of a specific process. (Requires label)
 *   `stop_process`: Stops a specific process. (Requires label)
 *   `list_processes`: Lists all currently managed processes and their basic status.
 *   `stop_all_processes`: Attempts to stop all managed processes.
 *   `restart_process`: Restarts a specific process. (Requires label)
 *   `wait_for_process`: Waits for a specific process to reach a target status. (Requires label)
+*   `get_all_loglines`: Retrieves the complete stored log history for a specific managed process. (Requires label)
+*   `send_input`: Sends text input to the stdin of a running process. (Requires label)
 *   `health_check`: Provides a status summary of the process manager itself.
 
 ## Quick Start: Running the Server
@@ -97,17 +119,12 @@ If you want to modify the server or contribute to its development:
     ```
     You'll need to manually restart the `node build/index.js` process after each rebuild to run the updated code.
 
-## Debugging
-
-Since MCP servers communicate over stdio, standard debugging methods can be tricky. We recommend using the **MCP Inspector**:
-
-1.  **Ensure the project is built:** `npm run build`
-2.  **Run the inspector script:**
-    ```bash
-    npm run inspector
-    ```
-3.  **Access the Inspector:** The script will output a URL (usually `http://localhost:8080`). Open this URL in your web browser.
-4.  **Interact:** The Inspector provides a UI to manually call tools, view request/response logs, and introspect the server's behavior, making debugging much easier.
+**Development Notes:**
+- The codebase has been modularized for clarity and maintainability.
+- Types and constants are now centralized.
+- Integration and unit tests are split for clarity and speed.
+- All tests and helpers expect the MCP result format (`result.content[]`).
+- Type safety and MCP compliance are strictly enforced throughout the codebase.
 
 ## Technology Stack
 
@@ -117,6 +134,18 @@ Since MCP servers communicate over stdio, standard debugging methods can be tric
 *   `zod`: For runtime validation of tool parameters.
 *   `biomejs`: For formatting and linting.
 *   `semantic-release`: For automated versioning and publishing.
+
+## MCP Compliance
+
+This project strictly follows the official Model Context Protocol (MCP) standard for tool responses and type usage:
+
+- **All tool result/content types are imported directly from [`@modelcontextprotocol/sdk/types.js`](https://www.npmjs.com/package/@modelcontextprotocol/sdk) (with `.js` for ESM compatibility).**
+- **No custom type definitions for tool results or content are allowed.**
+- **All tool implementations and helpers must return the `{ content: [...], isError?: boolean }` structure as required by the MCP spec.**
+- **Tests and helpers must expect the new format (e.g., `result.content[0].text` instead of any legacy format).**
+- **Test helpers and type assertions must match the new format.**
+
+See [`src/mcpUtils.ts`], [`src/toolImplementations.ts`], and [`tests/integration/test-helpers.ts`] for examples.
 
 ## Tool Catalogue
 
@@ -133,10 +162,6 @@ Starts a background process (like a dev server or script) and manages it.
 *   `label` (string, optional): Optional human-readable identifier (e.g. 'dev-server'). Leave blank to let the server generate one based on CWD and command.
 *   `args` (array of strings, optional, default: `[]`): Optional arguments for the command.
 *   `host` (string, optional, enum: `"cursor"`, `"claude"`, `"chatgpt"`, `"vscode"`, `"windsurf"`, `"unknown"`, default: `"unknown"`): Identifier for the client initiating the process. Helps tailor responses or instructions.
-*   `verification_pattern` (string, optional): Optional regex pattern to match in stdout/stderr to verify successful startup.
-*   `verification_timeout_ms` (integer, optional, default: `-1`): Milliseconds to wait for the verification pattern. -1 disables the timer (default).
-*   `retry_delay_ms` (integer, optional, default: 1000): Optional delay before restarting a crashed process in milliseconds.
-*   `max_retries` (integer, optional, default: 3): Optional maximum number of restart attempts for a crashed process. 0 disables restarts.
 
 **Returns:** (JSON)
 
@@ -152,9 +177,45 @@ On failure, returns an error object, potentially including `error`, `status`, `c
   "args": ["run", "dev"],
   "workingDirectory": "/path/to/my-web-app",
   "label": "webapp-dev-server",
+  "host": "cursor"
+}
+```
+
+### `start_process_with_verification`
+
+Starts a background process with verification (pattern, timeout, retries).
+
+**Parameters:**
+
+*   `command` (string, required): The command to execute.
+*   `workingDirectory` (string, required): The absolute working directory to run the command from. This setting is required. Do not use relative paths like '.' or '../'. Provide the full path (e.g., /Users/me/myproject).
+*   `label` (string, optional): Optional human-readable identifier (e.g. 'dev-server'). Leave blank to let the server generate one based on CWD and command.
+*   `args` (array of strings, optional, default: `[]`): Optional arguments for the command.
+*   `host` (string, optional, enum: `"cursor"`, `"claude"`, `"chatgpt"`, `"vscode"`, `"windsurf"`, `"unknown"`, default: `"unknown"`): Identifier for the client initiating the process. Helps tailor responses or instructions.
+*   `verification_pattern` (string, optional): Optional regex pattern to match in stdout/stderr to verify successful startup. e.g., 'running on port 3000' or 'localhost'.
+*   `verification_timeout_ms` (integer, optional, default: -1): Milliseconds to wait for the verification pattern. -1 disables the timer (default).
+*   `retry_delay_ms` (integer, optional): Optional delay before restarting a crashed process in milliseconds (default: 1000ms).
+*   `max_retries` (integer, optional): Optional maximum number of restart attempts for a crashed process (default: 3). 0 disables restarts.
+
+**Returns:** (JSON)
+
+Response payload for a successful start_process_with_verification call. Contains fields like `label`, `status`, `pid`, `command`, `args`, `cwd`, `exitCode`, `signal`, `log_file_path`, `tail_command`, `message`, `logs`, `monitoring_hint`, `info_message`.
+*   `instructions` (string, optional): If the `host` was specified as `"cursor"` and file logging is enabled, this field will contain a suggested instruction for the Cursor IDE, like starting a background terminal to run the `tail_command`.
+On failure, returns an error object, potentially including `error`, `status`, `cwd`, `error_type`.
+
+**Example Usage:**
+
+```json
+{
+  "command": "npm",
+  "args": ["run", "dev"],
+  "workingDirectory": "/path/to/my-web-app",
+  "label": "webapp-dev-server",
   "host": "cursor",
   "verification_pattern": "ready - started server on",
-  "verification_timeout_ms": 30000
+  "verification_timeout_ms": 30000,
+  "retry_delay_ms": 1000,
+  "max_retries": 3
 }
 ```
 
@@ -248,97 +309,4 @@ Restarts a specific managed process (stops it if running, then starts it again w
 
 **Returns:** (JSON)
 
-Response payload for a successful restart_process call (structure mirrors start_process success). On failure, returns an error object with `error`, `status`, `pid`.
-
-**Example Usage:**
-
-```json
-{
-  "label": "webapp-dev-server"
-}
-```
-
-### `wait_for_process`
-
-Waits for a specific managed process to reach a target status.
-
-**Parameters:**
-
-*   `label` (string, required): The label of the process to wait for.
-*   `target_status` (string, optional, enum: `"running"`, `"stopped"`, `"crashed"`, `"error"`, default: `"running"`): The target status to wait for (e.g., 'running', 'stopped'). Defaults to 'running'.
-*   `timeout_seconds` (integer, optional, default: 60): Maximum time to wait in seconds. Defaults to 60.
-*   `check_interval_seconds` (integer, optional, default: 2): Interval between status checks in seconds. Defaults to 2.
-
-**Returns:** (JSON)
-
-Response payload for wait_for_process. Contains `label`, `final_status`, `message`, `timed_out` (boolean).
-
-**Example Usage:**
-
-```json
-{
-  "label": "data-import-job",
-  "target_status": "stopped",
-  "timeout_seconds": 300
-}
-```
-
-### `get_all_loglines`
-
-Retrieves the complete stored log history for a specific managed process.
-
-**Parameters:**
-
-*   `label` (string, required): The label of the process whose logs are requested.
-
-**Returns:** (JSON)
-
-Response payload for get_all_loglines. Contains `label`, `logs` (array of strings), `count` (integer), `storage_limit` (integer).
-
-**Example Usage:**
-
-```json
-{
-  "label": "webapp-dev-server"
-}
-```
-
-### `send_input`
-
-Sends text input to the standard input (stdin) of a running process.
-
-**Parameters:**
-
-*   `label` (string, required): The label of the target process.
-*   `input` (string, required): The text input to send to the process stdin.
-*   `append_newline` (boolean, optional, default: `true`): Whether to automatically append a carriage return character ('\r') after the input, simulating pressing Enter. Defaults to true.
-
-**Returns:** (JSON)
-
-Response payload for send_input. Contains `label` and `message`.
-
-**Example Usage:**
-
-```json
-{
-  "label": "interactive-script",
-  "input": "yes",
-  "append_newline": true
-}
-```
-
-### `health_check`
-
-Provides basic health information about the mcp-pm server itself.
-
-**Parameters:** None
-
-**Returns:** (JSON)
-
-Response payload for health_check. Contains `status`, `server_name`, `version`, `active_processes`, `zombie_check_active`.
-
-**Example Usage:**
-
-```json
-{}
-```
+Response payload for a successful restart_process call (structure mirrors start_process success). On failure, returns an error object with `
