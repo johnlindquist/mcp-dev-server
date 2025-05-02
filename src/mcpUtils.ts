@@ -11,7 +11,7 @@ export const textPayload = (text: string): TextContent =>
 // Helper to create the payload structure
 function createPayload(
 	isError: boolean,
-	...content: readonly ToolContent[]
+	...content: readonly (ToolContent | string)[]
 ): CallToolResult {
 	let payloadContent: string;
 	let contentType: "application/json" | "text/plain";
