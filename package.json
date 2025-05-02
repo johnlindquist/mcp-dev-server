@@ -20,10 +20,10 @@
 		"lint:fix": "biome check --write .",
 		"verify": "pnpm build && pnpm lint:fix",
 		"start": "node build/index.mjs",
-		"test": "pnpm build && vitest run --test-timeout=60000",
-		"test:verbose": "pnpm build && MCP_TEST_VERBOSE=1 vitest run --test-timeout=60000",
-		"test:watch": "pnpm build &&vitest",
-		"test:filter-logs": "pnpm build && vitest run -t \"should filter logs correctly on repeated checks of an active process\"",
+		"test": "pnpm verify && vitest run --test-timeout=60000",
+		"test:verbose": "pnpm verify && MCP_TEST_VERBOSE=1 vitest run --test-timeout=60000",
+		"test:watch": "pnpm verify && vitest",
+		"test:filter-logs": "pnpm verify && vitest run -t \"should filter logs correctly on repeated checks of an active process\"",
 		"postinstall": "pnpm rebuild node-pty"
 	},
 	"dependencies": {

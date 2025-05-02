@@ -20,6 +20,7 @@ import type {
 } from "./types/schemas.js";
 import type * as schemas from "./types/schemas.js";
 
+import { analyseLogs } from "./logAnalysis.js";
 import {
 	formatLogsForResponse,
 	log,
@@ -44,6 +45,8 @@ export async function checkProcessStatusImpl(
 	const initialStatus = initialProcessInfo.status;
 	const previousLastLogTimestampReturned =
 		initialProcessInfo.lastLogTimestampReturned ?? 0;
+	const previousLastSummaryTimestampReturned =
+		initialProcessInfo.lastSummaryTimestampReturned ?? 0;
 
 	const finalProcessInfo = initialProcessInfo;
 
@@ -53,17 +56,26 @@ export async function checkProcessStatusImpl(
 		`Filtering logs. Total logs available: ${allLogs.length}. Filtering for timestamp > ${previousLastLogTimestampReturned}`,
 	);
 
-	const newLogs = allLogs.filter(
+	const newLogsForPayload = allLogs.filter(
 		(logEntry) => logEntry.timestamp > previousLastLogTimestampReturned,
+	);
+
+	const newLogsForSummary = allLogs.filter(
+		(logEntry) => logEntry.timestamp > previousLastSummaryTimestampReturned,
 	);
 
 	let logHint = "";
 	const returnedLogs: string[] = [];
 	let newLastLogTimestamp = previousLastLogTimestampReturned;
+	let newLastSummaryTimestamp = previousLastSummaryTimestampReturned;
 
-	if (newLogs.length > 0) {
-		log.debug(label, `Found ${newLogs.length} new log entries.`);
-		newLastLogTimestamp = newLogs[newLogs.length - 1].timestamp;
+	if (newLogsForPayload.length > 0) {
+		log.debug(
+			label,
+			`Found ${newLogsForPayload.length} new log entries for payload.`,
+		);
+		newLastLogTimestamp =
+			newLogsForPayload[newLogsForPayload.length - 1].timestamp;
 		log.debug(
 			label,
 			`Updating lastLogTimestampReturned in process state to ${newLastLogTimestamp}`,
@@ -74,8 +86,10 @@ export async function checkProcessStatusImpl(
 			0,
 			log_lines ?? cfg.defaultCheckStatusLogLines,
 		);
-		const startIndex = Math.max(0, newLogs.length - numLogsToReturn);
-		returnedLogs.push(...newLogs.slice(startIndex).map((l) => l.content));
+		const startIndex = Math.max(0, newLogsForPayload.length - numLogsToReturn);
+		returnedLogs.push(
+			...newLogsForPayload.slice(startIndex).map((l) => l.content),
+		);
 
 		log.debug(
 			label,
@@ -86,8 +100,8 @@ export async function checkProcessStatusImpl(
 			`Returning ${returnedLogs.length} raw log lines (limited by request).`,
 		);
 
-		if (returnedLogs.length < newLogs.length) {
-			const omittedCount = newLogs.length - returnedLogs.length;
+		if (returnedLogs.length < newLogsForPayload.length) {
+			const omittedCount = newLogsForPayload.length - returnedLogs.length;
 			logHint = `Returned ${returnedLogs.length} newest log lines since last check (${previousLastLogTimestampReturned}). ${omittedCount} more new lines were generated but not shown due to limit (${numLogsToReturn}).`;
 		} else {
 			logHint = `Returned all ${returnedLogs.length} new log lines since last check (${previousLastLogTimestampReturned}).`;
@@ -98,6 +112,23 @@ export async function checkProcessStatusImpl(
 			`No new logs found using filter timestamp ${previousLastLogTimestampReturned}`,
 		);
 		logHint = `No new log lines since last check (${previousLastLogTimestampReturned}).`;
+	}
+
+	log.debug(
+		label,
+		`Analysing ${newLogsForSummary.length} logs for summary since timestamp ${previousLastSummaryTimestampReturned}`,
+	);
+	const { message: summaryMessage } = analyseLogs(
+		newLogsForSummary.map((l) => l.content),
+	);
+	if (newLogsForSummary.length > 0) {
+		newLastSummaryTimestamp =
+			newLogsForSummary[newLogsForSummary.length - 1].timestamp;
+		log.debug(
+			label,
+			`Updating lastSummaryTimestampReturned to ${newLastSummaryTimestamp}`,
+		);
+		finalProcessInfo.lastSummaryTimestampReturned = newLastSummaryTimestamp;
 	}
 
 	const payload: z.infer<typeof schemas.CheckStatusPayloadSchema> = {
@@ -115,6 +146,7 @@ export async function checkProcessStatusImpl(
 			? `tail -f "${finalProcessInfo.logFilePath}"`
 			: undefined,
 		hint: logHint,
+		message: summaryMessage,
 	};
 
 	log.info(
