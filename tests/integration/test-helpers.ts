@@ -27,7 +27,6 @@ export function logVerboseError(...args: unknown[]) {
 }
 
 // --- Type definitions ---
-// (Keep these simplified or import from src if preferred and stable)
 export type MCPResponse = {
 	jsonrpc: "2.0";
 	id: string;
@@ -35,12 +34,11 @@ export type MCPResponse = {
 	error?: { code: number; message: string; data?: unknown };
 };
 
-// Adjusted based on usage in tests
 export type CallToolResult = {
-	toolCallId?: string; // Optional based on MCP spec/impl
-	toolName?: string; // Optional
-	isError?: boolean; // Common pattern
-	payload: Array<{ type: "text"; content: string }>; // Assuming text content holds JSON string
+	toolCallId?: string;
+	toolName?: string;
+	isError?: boolean;
+	payload: Array<{ type: "text"; content: string }>;
 };
 
 export type ProcessStatusResult = {
@@ -53,19 +51,16 @@ export type ProcessStatusResult = {
 	exitCode?: number | null;
 	signal?: string | null;
 	logs?: string[];
-	log_hint?: string; // Add log_hint here
-	message?: string; // Added for summary test
-	// Other fields omitted for simplicity
+	log_hint?: string;
+	message?: string;
 };
 
 // --- sendRequest Function ---
-// Note: We will modify this later to accept the process from global setup
 export async function sendRequest(
-	process: ChildProcessWithoutNullStreams, // Keep process as argument for now
+	process: ChildProcessWithoutNullStreams,
 	request: Record<string, unknown>,
-	timeoutMs = 15000, // Slightly increased default timeout
+	timeoutMs = 15000,
 ): Promise<MCPResponse> {
-	// Return MCPResponse directly
 	const requestId = request.id as string;
 	if (!requestId) {
 		throw new Error('Request must have an "id" property');
@@ -75,12 +70,10 @@ export async function sendRequest(
 		`[sendRequest] Sending request (ID ${requestId}): ${requestString.trim()}`,
 	);
 
-	// Wrap the existing logic in a promise
 	return new Promise<MCPResponse>((resolve, reject) => {
 		let responseBuffer = "";
 		let responseReceived = false;
 		let responseListenersAttached = false;
-		let newlineIndex: number; // Explicitly type newlineIndex
 
 		const timeoutTimer = setTimeout(() => {
 			if (!responseReceived) {
@@ -97,15 +90,12 @@ export async function sendRequest(
 				`[sendRequest] Received raw STDOUT chunk for ${requestId}: ${rawChunk.substring(0, 200)}${rawChunk.length > 200 ? "..." : ""}`,
 			);
 			responseBuffer += rawChunk;
-			// Process buffer line by line
+			let newlineIndex: number;
 			while (true) {
-				// Loop indefinitely, break inside
 				newlineIndex = responseBuffer.indexOf("\n");
-				if (newlineIndex === -1) {
-					break; // No more complete lines in the buffer
-				}
+				if (newlineIndex === -1) break;
 				const line = responseBuffer.substring(0, newlineIndex).trim();
-				responseBuffer = responseBuffer.substring(newlineIndex + 1); // Remove processed line + newline
+				responseBuffer = responseBuffer.substring(newlineIndex + 1);
 
 				if (line === "") continue;
 				logVerbose(
@@ -118,15 +108,14 @@ export async function sendRequest(
 						logVerbose(
 							`[sendRequest] Received matching response for ID ${requestId}: ${line.trim()}`,
 						);
-						// Log the full received result object when ID matches, before resolving
 						logVerbose(
 							`[sendRequest] Full MATCHING response object for ${requestId}:`,
 							JSON.stringify(parsedResponse),
 						);
 						responseReceived = true;
 						cleanup();
-						resolve(parsedResponse as MCPResponse); // Resolve with the parsed response
-						return; // Found the response, exit handler
+						resolve(parsedResponse as MCPResponse);
+						return;
 					}
 					logVerbose(
 						`[sendRequest] Ignoring response with different ID (${parsedResponse.id}) for request ${requestId}`,
@@ -163,7 +152,6 @@ export async function sendRequest(
 				`[sendRequest] Cleaning up listeners for request ID ${requestId}`,
 			);
 			clearTimeout(timeoutTimer);
-			// Check if process exists and streams are readable/writable before removing listeners
 			if (
 				responseListenersAttached &&
 				process &&
@@ -178,7 +166,7 @@ export async function sendRequest(
 				process.stderr &&
 				!process.stderr.destroyed
 			) {
-				process.stderr.removeListener("data", logStderr); // Also remove stderr listener if added
+				process.stderr.removeListener("data", logStderr);
 			}
 			if (responseListenersAttached && process && !process.killed) {
 				process.removeListener("error", onError);
@@ -193,7 +181,6 @@ export async function sendRequest(
 			);
 		};
 
-		// Attach listeners only if process streams are available
 		if (process?.stdout && process?.stderr) {
 			logVerbose(
 				`[sendRequest] Attaching listeners for request ID ${requestId}`,
@@ -213,7 +200,6 @@ export async function sendRequest(
 		}
 
 		logVerbose(`[sendRequest] Writing request (ID ${requestId}) to stdin...`);
-		// Check if stdin is writable before writing
 		if (process?.stdin?.writable) {
 			process.stdin.write(requestString, (err) => {
 				if (err) {
@@ -232,7 +218,7 @@ export async function sendRequest(
 		} else {
 			const errorMsg = `Server stdin is not writable for request ID ${requestId}`;
 			console.error(`[sendRequest] ${errorMsg}`);
-			cleanup(); // Cleanup listeners if attach failed
+			cleanup();
 			reject(new Error(errorMsg));
 		}
 	});
