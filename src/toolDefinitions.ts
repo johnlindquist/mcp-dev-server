@@ -19,17 +19,8 @@ import {
 	stopAllProcessesImpl,
 	waitForProcessImpl,
 } from "./toolImplementations.js";
+import { HostEnum } from "./types.js";
 import { log } from "./utils.js";
-
-export const HostEnum = z.enum([
-	"cursor",
-	"claude",
-	"chatgpt",
-	"vscode",
-	"windsurf",
-	"unknown", // Default value
-]);
-export type HostEnumType = z.infer<typeof HostEnum>;
 
 export const labelSchema = z
 	.string()

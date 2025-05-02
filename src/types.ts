@@ -3,8 +3,19 @@ import type * as fs from "node:fs";
 // import type { ProcessInfo as OriginalProcessInfo } from "@cursor/types"; // REMOVED
 import type { IDisposable, IPty } from "node-pty";
 import { z } from "zod";
-import { HostEnum } from "./toolDefinitions.js"; // <-- IMPORT HostEnum Zod object
+// REMOVE: import { HostEnum } from "./toolDefinitions.js"; // <-- IMPORT HostEnum Zod object
 // REMOVE: import { ProcessInfo as OriginalProcessInfo } from "@cursor/types"; // ADD back temporarily for ProcessInfo extension
+
+// ADD HostEnum definition here
+export const HostEnum = z.enum([
+	"cursor",
+	"claude",
+	"chatgpt",
+	"vscode",
+	"windsurf",
+	"unknown",
+]);
+export type HostEnumType = z.infer<typeof HostEnum>;
 
 /* ------------------------------------------------------------------------ */
 /*  1.  MCP payload primitives - RESTORED LOCAL DEFINITIONS                 */
@@ -102,7 +113,8 @@ export interface ProcessInfo {
 	command: string;
 	args: string[];
 	cwd: string;
-	host: HostEnum;
+	// CHANGE: No longer need import alias, use directly
+	host: HostEnumType;
 	status: ProcessStatus;
 	logs: LogEntry[];
 	pid: number | undefined;
@@ -375,8 +387,6 @@ export const HealthCheckPayloadSchema = z
 			.describe("Indicates if the zombie process check timer is running."),
 	})
 	.describe("Response payload for health_check.");
-
-export type { HostEnum }; // <-- EXPORT HostEnum
 
 export type StartSuccessPayload = z.infer<typeof StartSuccessPayloadSchema> & {
 	status: ProcessStatus;
