@@ -495,7 +495,7 @@ export async function startProcess(
 		// verificationFailureReason: verificationFailed ? failureReason : undefined,
 	};
 	log.info(label, successPayload.message);
-	return ok(JSON.stringify(successPayload));
+	return ok(textPayload(JSON.stringify(successPayload)));
 }
 
 // TODO: Move retry logic from processLifecycle.ts to retry.ts
