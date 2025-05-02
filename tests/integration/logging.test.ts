@@ -173,7 +173,6 @@ describe("Tool Features: Logging and Summaries", () => {
 		});
 	}
 
-	// --- Log Filtering Test ---
 	it(
 		"should filter logs correctly on repeated checks of an active process",
 		async () => {
@@ -316,7 +315,6 @@ describe("Tool Features: Logging and Summaries", () => {
 		TEST_TIMEOUT + 5000,
 	);
 
-	// --- Summary Message Test ---
 	it(
 		"should generate a summary message for notable log events",
 		async () => {
