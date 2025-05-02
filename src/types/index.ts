@@ -34,11 +34,9 @@ export type ToolContent =
 	| AudioContent
 	| ResourceContent;
 
-/** Result structure for tool calls, indicating success or failure. */
+/** Result structure for tool calls, matching SDK expectation. */
 export interface CallToolResult {
-	isError: boolean;
-	payload: {
-		contentType: "text/plain" | "application/json";
-		content: string;
-	}[];
+	isError?: boolean; // Optional as per SDK
+	content: ToolContent[]; // Array of ToolContent objects
+	[key: string]: unknown; // Add index signature
 }

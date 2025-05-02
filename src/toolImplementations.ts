@@ -243,9 +243,9 @@ export async function stopAllProcessesImpl(): Promise<CallToolResult> {
 				}
 				details.push({
 					label,
-					status: resultJson.status ?? "unknown",
+					status: stopResult.isError ? "error" : "stopped",
 					message: resultJson.message ?? "Stop signal sent.",
-					is_error: stopResult.isError,
+					is_error: stopResult.isError ?? false,
 				});
 				if (stopResult.isError) {
 					errorCount++;
@@ -283,6 +283,7 @@ export async function stopAllProcessesImpl(): Promise<CallToolResult> {
 
 	const finalMessage = `Stop all request completed. Stopped: ${stoppedCount}, Skipped: ${skippedCount}, Errors: ${errorCount}`;
 	const payload: z.infer<typeof schemas.StopAllProcessesPayloadSchema> = {
+		message: finalMessage,
 		stopped_count: stoppedCount,
 		skipped_count: skippedCount,
 		error_count: errorCount,
@@ -290,7 +291,7 @@ export async function stopAllProcessesImpl(): Promise<CallToolResult> {
 	};
 
 	log.info(null, finalMessage);
-	return ok(JSON.stringify(payload));
+	return ok(finalMessage);
 }
 
 export async function restartProcessImpl(
@@ -316,13 +317,10 @@ export async function restartProcessImpl(
 		log.error(
 			label,
 			"Failed to stop process cleanly during restart. Aborting restart.",
-			{ payload: stopResult.payload },
+			{ stopResult },
 		);
-		const errorPayload: z.infer<typeof schemas.RestartErrorPayloadSchema> = {
-			error: `Failed to stop existing process: ${getResultText(stopResult)}`,
-			label,
-		};
-		return fail(JSON.stringify(errorPayload));
+		const errorMessage = `Failed to stop existing process: ${getResultText(stopResult) ?? "Unknown error"}`;
+		return fail(errorMessage);
 	}
 	log.debug(label, "Process stopped successfully.");
 
@@ -345,13 +343,10 @@ export async function restartProcessImpl(
 
 	if (startResult.isError) {
 		log.error(label, "Failed to start process during restart.", {
-			payload: startResult.payload,
+			startResult,
 		});
-		const errorPayload: z.infer<typeof schemas.RestartErrorPayloadSchema> = {
-			error: `Failed to start process after stopping: ${getResultText(startResult)}`,
-			label,
-		};
-		return fail(JSON.stringify(errorPayload));
+		const errorMessage = `Failed to start process after stopping: ${getResultText(startResult) ?? "Unknown error"}`;
+		return fail(errorMessage);
 	}
 
 	log.info(label, "Process restarted successfully.");

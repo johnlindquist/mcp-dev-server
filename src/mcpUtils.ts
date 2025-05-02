@@ -3,50 +3,34 @@ import type {
 	CallToolResult,
 	TextContent,
 	ToolContent,
-} from "./types/index.js"; // Update path
+} from "./types/index.js"; // Use local types
 
 export const textPayload = (text: string): TextContent =>
 	({ type: "text", text }) as const;
 
-// Helper to create the payload structure
+// Helper creates the payload structure matching the (now correct) local CallToolResult type
 function createPayload(
 	isError: boolean,
 	...content: readonly (ToolContent | string)[]
 ): CallToolResult {
-	let payloadContent: string;
-	let contentType: "application/json" | "text/plain";
-	let finalIsError = isError; // Use a local variable
-
-	if (content.length === 0) {
-		payloadContent = "";
-		contentType = "text/plain";
-	} else {
-		const [firstContent] = content;
-		if (typeof firstContent === "string") {
-			payloadContent = firstContent;
-			contentType = "text/plain";
-		} else {
-			try {
-				payloadContent = JSON.stringify(firstContent);
-				contentType = "application/json";
-			} catch (error) {
-				payloadContent = "Error: Could not serialize tool result content.";
-				contentType = "text/plain";
-				finalIsError = true; // Assign to the local variable
-			}
+	const processedContent: ToolContent[] = content.map((item) => {
+		if (typeof item === "string") {
+			return textPayload(item);
 		}
-	}
+		return item;
+	});
 
 	return {
-		isError: finalIsError, // Return the local variable's value
-		payload: [{ contentType, content: payloadContent }],
+		isError: isError,
+		content: processedContent,
 	};
 }
 
-export const ok = (...c: readonly ToolContent[]): CallToolResult =>
+// Ensure ok/fail use the updated createPayload
+export const ok = (...c: readonly (ToolContent | string)[]): CallToolResult =>
 	createPayload(false, ...c);
 
-export const fail = (...c: readonly ToolContent[]): CallToolResult =>
+export const fail = (...c: readonly (ToolContent | string)[]): CallToolResult =>
 	createPayload(true, ...c);
 
 export const shape = <T extends ZodRawShape>(x: T) => x;
@@ -57,13 +41,19 @@ export const safeSubstring = (v: unknown, len = 100): string =>
 export const isRunning = (status: string) =>
 	status === "running" || status === "verifying";
 
-// Update getResultText to access the correct structure
+// getResultText now works with the correctly typed CallToolResult
 export const getResultText = (result: CallToolResult): string | null => {
-	if (result.payload && result.payload.length > 0) {
-		const firstPayload = result.payload[0];
-		if (firstPayload?.content) {
-			return firstPayload.content;
+	if (result.content && result.content.length > 0) {
+		const firstContent = result.content[0];
+		if (
+			firstContent?.type === "text" &&
+			typeof firstContent.text === "string"
+		) {
+			return firstContent.text;
 		}
+		try {
+			return JSON.stringify(firstContent);
+		} catch {}
 	}
 	return null;
 };

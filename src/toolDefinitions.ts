@@ -1,4 +1,15 @@
-import type { McpServer, RequestHandlerExtra } from "@modelcontextprotocol/sdk";
+import type {
+	McpServer,
+	// ServerRequest, // Not exported here
+	// ServerNotification, // Not exported here
+	// CallToolResult, // Use local definition now
+	// ToolContent, // Use local definition now
+} from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
+import type {
+	ServerNotification,
+	ServerRequest,
+} from "@modelcontextprotocol/sdk/types.js";
 import type { ZodRawShape, z } from "zod";
 import { startProcess, stopProcess } from "./process/lifecycle.js";
 import { handleToolCall } from "./toolHandler.js";
@@ -41,7 +52,10 @@ export function registerToolDefinitions(server: McpServer): void {
 		"start_process",
 		"Starts a background process (like a dev server or script) and manages it.",
 		shape(schemas.StartProcessParams.shape),
-		(params: StartProcessParamsType, extra: RequestHandlerExtra) => {
+		(
+			params: StartProcessParamsType,
+			extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
+		) => {
 			const cwdForLabel = params.workingDirectory;
 			const effectiveLabel = params.label || `${cwdForLabel}:${params.command}`;
 			const hostValue = params.host;
@@ -81,7 +95,10 @@ export function registerToolDefinitions(server: McpServer): void {
 		"check_process_status",
 		"Checks the status and retrieves recent logs of a managed background process.",
 		shape(schemas.CheckProcessStatusParams.shape),
-		(params: CheckProcessStatusParamsType, extra: RequestHandlerExtra) => {
+		(
+			params: CheckProcessStatusParamsType,
+			extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
+		) => {
 			return handleToolCall(
 				params.label,
 				"check_process_status",
@@ -95,7 +112,10 @@ export function registerToolDefinitions(server: McpServer): void {
 		"stop_process",
 		"Stops a specific background process.",
 		shape(schemas.StopProcessParams.shape),
-		(params: StopProcessParamsType, extra: RequestHandlerExtra) => {
+		(
+			params: StopProcessParamsType,
+			extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
+		) => {
 			return handleToolCall(
 				params.label,
 				"stop_process",
@@ -109,7 +129,10 @@ export function registerToolDefinitions(server: McpServer): void {
 		"stop_all_processes",
 		"Attempts to gracefully stop all active background processes.",
 		{},
-		(params: Record<string, unknown>, extra: RequestHandlerExtra) => {
+		(
+			params: Record<string, unknown>,
+			extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
+		) => {
 			return handleToolCall(
 				null,
 				"stop_all_processes",
@@ -123,7 +146,10 @@ export function registerToolDefinitions(server: McpServer): void {
 		"list_processes",
 		"Lists all managed background processes and their statuses.",
 		shape(schemas.ListProcessesParams.shape),
-		(params: ListProcessesParamsType, extra: RequestHandlerExtra) => {
+		(
+			params: ListProcessesParamsType,
+			extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
+		) => {
 			return handleToolCall(
 				null,
 				"list_processes",
@@ -137,7 +163,10 @@ export function registerToolDefinitions(server: McpServer): void {
 		"restart_process",
 		"Restarts a specific background process by stopping and then starting it again.",
 		shape(schemas.RestartProcessParams.shape),
-		(params: RestartProcessParamsType, extra: RequestHandlerExtra) => {
+		(
+			params: RestartProcessParamsType,
+			extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
+		) => {
 			return handleToolCall(
 				params.label,
 				"restart_process",
@@ -151,7 +180,10 @@ export function registerToolDefinitions(server: McpServer): void {
 		"wait_for_process",
 		"Waits for a specific background process to reach a target status (e.g., running).",
 		shape(schemas.WaitForProcessParams.shape),
-		(params: WaitForProcessParamsType, extra: RequestHandlerExtra) => {
+		(
+			params: WaitForProcessParamsType,
+			extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
+		) => {
 			return handleToolCall(
 				params.label,
 				"wait_for_process",
@@ -165,7 +197,10 @@ export function registerToolDefinitions(server: McpServer): void {
 		"get_all_loglines",
 		"Retrieves the complete remaining log history for a specific managed process.",
 		shape(schemas.GetAllLoglinesParams.shape),
-		(params: GetAllLoglinesParamsType, extra: RequestHandlerExtra) => {
+		(
+			params: GetAllLoglinesParamsType,
+			extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
+		) => {
 			return handleToolCall(
 				params.label,
 				"get_all_loglines",
@@ -179,7 +214,10 @@ export function registerToolDefinitions(server: McpServer): void {
 		"send_input",
 		"Sends input to a specific managed process.",
 		shape(schemas.SendInputParams.shape),
-		(params: SendInputParamsType, extra: RequestHandlerExtra) => {
+		(
+			params: SendInputParamsType,
+			extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
+		) => {
 			return handleToolCall(
 				params.label,
 				"send_input",
@@ -198,7 +236,10 @@ export function registerToolDefinitions(server: McpServer): void {
 		"health_check",
 		"Provides a health status summary of the MCP Process Manager itself.",
 		{},
-		(params: Record<string, unknown>, extra: RequestHandlerExtra) => {
+		(
+			params: Record<string, unknown>,
+			extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
+		) => {
 			return handleToolCall(
 				null,
 				"health_check",
