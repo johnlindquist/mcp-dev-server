@@ -1,6 +1,6 @@
 {
 	"defaultCommand": {
-		"exclude": [".cursor/plans/**"]
+		"exclude": [".cursor/plans/**", ".husky/**"]
 	},
 	"commands": {}
 }
