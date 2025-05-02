@@ -264,6 +264,13 @@ export const ProcessStatusInfoSchema = z.object({
 		.describe(
 			"Convenience command to tail the log file in a terminal (e.g., 'tail -f /path/to/log').",
 		),
+	isAwaitingInput: z
+		.boolean()
+		.optional()
+		.default(false)
+		.describe(
+			"Whether the process is currently believed to be waiting for user input at a prompt.",
+		),
 });
 
 // start_process success payload
