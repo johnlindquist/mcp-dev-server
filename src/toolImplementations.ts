@@ -6,8 +6,7 @@ import {
 	checkAndUpdateProcessStatus,
 	isZombieCheckActive,
 } from "./processSupervisor.js";
-import { writeToPty } from "./ptyManager.js";
-import { addLogEntry, managedProcesses } from "./state.js";
+import { managedProcesses } from "./state.js";
 import type { CallToolResult } from "./types/index.js";
 import type { LogEntry } from "./types/process.js";
 import type {
@@ -21,11 +20,7 @@ import type {
 import type * as schemas from "./types/schemas.js";
 
 import { analyseLogs } from "./logAnalysis.js";
-import {
-	formatLogsForResponse,
-	log,
-	stripAnsiAndControlChars,
-} from "./utils.js";
+import { formatLogsForResponse, log } from "./utils.js";
 
 export async function checkProcessStatusImpl(
 	params: CheckProcessStatusParams,
@@ -154,7 +149,7 @@ export async function checkProcessStatusImpl(
 		`check_process_status returning final status: ${payload.status}. New logs returned: ${returnedLogs.length}. New lastLogTimestamp: ${newLastLogTimestamp}`,
 	);
 
-	return ok(JSON.stringify(payload));
+	return ok(payload);
 }
 
 export async function listProcessesImpl(
@@ -201,7 +196,11 @@ export async function listProcessesImpl(
 		}
 	}
 
-	return ok(JSON.stringify(processList, null, 2));
+	log.info(
+		null,
+		`listProcesses returning ${processList.length} processes. Log lines per process: ${log_lines}`,
+	);
+	return ok(processList);
 }
 
 export async function stopProcessImpl(
@@ -378,7 +377,7 @@ export async function waitForProcessImpl(
 				final_status: "error",
 				message,
 			};
-			return fail(JSON.stringify(payload));
+			return fail(payload);
 		}
 
 		const currentStatus = processInfo.status;
@@ -394,7 +393,7 @@ export async function waitForProcessImpl(
 				message,
 				timed_out: false,
 			};
-			return ok(JSON.stringify(payload));
+			return ok(payload);
 		}
 
 		if (
@@ -411,7 +410,7 @@ export async function waitForProcessImpl(
 					final_status: currentStatus,
 					message,
 				};
-				return ok(JSON.stringify(payload));
+				return ok(payload);
 			}
 		}
 
@@ -424,7 +423,7 @@ export async function waitForProcessImpl(
 				message,
 				timed_out: true,
 			};
-			return ok(JSON.stringify(payload));
+			return ok(payload);
 		}
 
 		await new Promise((resolve) => setTimeout(resolve, checkIntervalMs));
@@ -466,7 +465,7 @@ export async function getAllLoglinesImpl(
 		label,
 		`getAllLoglines returning ${lineCount} lines. Truncated: ${isTruncated}`,
 	);
-	return ok(JSON.stringify(payload));
+	return ok(payload);
 }
 
 export async function sendInputImpl(
@@ -477,37 +476,34 @@ export async function sendInputImpl(
 	log.info(label, "Tool invoked: send_input");
 	const processInfo = await checkAndUpdateProcessStatus(label);
 
-	if (!processInfo || !processInfo.process) {
-		const status = processInfo?.status ?? "not_found";
-		const message = `Process "${label}" not running or not found (status: ${status}). Cannot send input.`;
-		log.warn(label, message);
-		return fail(JSON.stringify({ error: message }));
+	if (!processInfo) {
+		log.warn(label, `Process "${label}" not found for sendInput.`);
+		return fail(`Process "${label}" not found.`);
 	}
 
-	if (processInfo.status !== "running" && processInfo.status !== "verifying") {
-		const message = `Process "${label}" is not in a running or verifying state (status: ${processInfo.status}). Cannot reliably send input.`;
+	if (!isRunning(processInfo.status)) {
+		const message = `Process "${label}" is not running (status: ${processInfo.status}). Cannot send input.`;
 		log.warn(label, message);
-		return fail(JSON.stringify({ error: message }));
+		return fail(message);
+	}
+
+	if (!processInfo.ptyProcess) {
+		const message = `Process "${label}" does not have an active PTY. Cannot send input.`;
+		log.error(label, message);
+		return fail(message);
 	}
 
 	try {
-		const inputToSend = appendNewline ? `${input}\r` : input;
-		log.debug(
-			label,
-			`Sending input to PTY: "${stripAnsiAndControlChars(inputToSend)}"`,
-		);
-		await writeToPty(processInfo.process, inputToSend, label);
-		addLogEntry(label, `[MCP_INPUT] ${input}`);
-
-		const message = `Input sent successfully to process "${label}".`;
-		log.info(label, message);
-		return ok(JSON.stringify({ message }));
+		const dataToSend = appendNewline ? `${input}\r` : input;
+		processInfo.ptyProcess.write(dataToSend);
+		const message = `Input sent to process "${label}".`;
+		log.info(label, message, { input: safeSubstring(input, 20) });
+		return ok(message);
 	} catch (error) {
 		const message = `Failed to send input to process "${label}".`;
-		log.error(label, message, (error as Error).message);
-		const errorMsg =
-			error instanceof Error ? error.message : "Unknown PTY write error";
-		return fail(JSON.stringify({ error: `${message}: ${errorMsg}` }));
+		const errorMsg = error instanceof Error ? error.message : "Unknown error";
+		log.error(label, message, errorMsg);
+		return fail(`${message}: ${errorMsg}`);
 	}
 }
 
@@ -518,6 +514,7 @@ export async function healthCheckImpl(): Promise<CallToolResult> {
 		server_version: cfg.serverVersion,
 		active_processes: managedProcesses.size,
 		is_zombie_check_active: isZombieCheckActive(),
+		message: "OK",
 	};
-	return ok(JSON.stringify(payload));
+	return ok(payload);
 }
