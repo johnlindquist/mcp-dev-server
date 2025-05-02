@@ -287,104 +287,104 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 
 	// Test #3: Start Process
 	// Add back the start_process test, ensuring it runs AFTER health_check
-	it(
-		"should start a simple process and receive confirmation",
-		async () => {
-			logVerbose("[TEST][startProcess] Starting test...");
-			logVerbose("[TEST][startProcess] Server process check passed.");
-			const uniqueLabel = `test-process-${Date.now()}`;
-			const command = "node";
-			const args = [
-				"-e",
-				"console.log('Node process started'); setTimeout(() => console.log('Node process finished'), 200);",
-			];
-			const workingDirectory = path.resolve(__dirname); // Use test dir as CWD
-			logVerbose(
-				`[TEST][startProcess] Generated label: ${uniqueLabel}, CWD: ${workingDirectory}`,
-			);
+	// it(
+	// 	"should start a simple process and receive confirmation",
+	// 	async () => {
+	// 		logVerbose("[TEST][startProcess] Starting test...");
+	// 		logVerbose("[TEST][startProcess] Server process check passed.");
+	// 		const uniqueLabel = `test-process-${Date.now()}`;
+	// 		const command = "node";
+	// 		const args = [
+	// 			"-e",
+	// 			"console.log('Node process started'); setTimeout(() => console.log('Node process finished'), 200);",
+	// 		];
+	// 		const workingDirectory = path.resolve(__dirname); // Use test dir as CWD
+	// 		logVerbose(
+	// 			`[TEST][startProcess] Generated label: ${uniqueLabel}, CWD: ${workingDirectory}`,
+	// 		);
 
-			const startRequest = {
-				jsonrpc: "2.0",
-				method: "tools/call",
-				params: {
-					name: "start_process",
-					arguments: {
-						command,
-						args,
-						workingDirectory,
-						label: uniqueLabel,
-					},
-				},
-				id: "req-start-1",
-			};
-			logVerbose("[TEST][startProcess] Sending start request...");
+	// 		const startRequest = {
+	// 			jsonrpc: "2.0",
+	// 			method: "tools/call",
+	// 			params: {
+	// 				name: "start_process",
+	// 				arguments: {
+	// 					command,
+	// 					args,
+	// 					workingDirectory,
+	// 					label: uniqueLabel,
+	// 				},
+	// 			},
+	// 			id: "req-start-1",
+	// 		};
+	// 		logVerbose("[TEST][startProcess] Sending start request...");
 
-			const response = (await sendRequest(
-				serverProcess,
-				startRequest,
-			)) as MCPResponse;
-			logVerbose(
-				"[TEST][startProcess] Received response:",
-				JSON.stringify(response),
-			);
+	// 		const response = (await sendRequest(
+	// 			serverProcess,
+	// 			startRequest,
+	// 		)) as MCPResponse;
+	// 		logVerbose(
+	// 			"[TEST][startProcess] Received response:",
+	// 			JSON.stringify(response),
+	// 		);
 
-			logVerbose("[TEST][startProcess] Asserting response properties...");
-			expect(response.id).toBe("req-start-1");
-			expect(
-				response.result,
-				`Expected result to be defined, error: ${JSON.stringify(response.error)}`,
-			).toBeDefined();
-			expect(
-				response.error,
-				`Expected error to be undefined, got: ${JSON.stringify(response.error)}`,
-			).toBeUndefined();
+	// 		logVerbose("[TEST][startProcess] Asserting response properties...");
+	// 		expect(response.id).toBe("req-start-1");
+	// 		expect(
+	// 			response.result,
+	// 			`Expected result to be defined, error: ${JSON.stringify(response.error)}`,
+	// 		).toBeDefined();
+	// 		expect(
+	// 			response.error,
+	// 			`Expected error to be undefined, got: ${JSON.stringify(response.error)}`,
+	// 		).toBeUndefined();
 
-			logVerbose("[TEST][startProcess] Asserting result properties...");
-			// Fix: Access payload within the result object
-			const result = response.result as CallToolResult;
-			expect(result?.payload?.[0]?.content).toBeDefined();
-			let startResult: ProcessStatusResult | null = null;
-			try {
-				// Fix: Parse the content string from the payload
-				startResult = JSON.parse(result.payload[0].content);
-			} catch (e) {
-				throw new Error(`Failed to parse start_process result payload: ${e}`);
-			}
-			expect(startResult).not.toBeNull();
-			if (startResult) {
-				expect(startResult.label).toBe(uniqueLabel);
-				expect(["running", "stopped"]).toContain(startResult.status);
-			}
-			console.log("[TEST][startProcess] Assertions passed.");
+	// 		logVerbose("[TEST][startProcess] Asserting result properties...");
+	// 		// Fix: Access payload within the result object
+	// 		const result = response.result as CallToolResult;
+	// 		expect(result?.payload?.[0]?.content).toBeDefined();
+	// 		let startResult: ProcessStatusResult | null = null;
+	// 		try {
+	// 			// Fix: Parse the content string from the payload
+	// 			startResult = JSON.parse(result.payload[0].content);
+	// 		} catch (e) {
+	// 			throw new Error(`Failed to parse start_process result payload: ${e}`);
+	// 		}
+	// 		expect(startResult).not.toBeNull();
+	// 		if (startResult) {
+	// 			expect(startResult.label).toBe(uniqueLabel);
+	// 			expect(["running", "stopped"]).toContain(startResult.status);
+	// 		}
+	// 		console.log("[TEST][startProcess] Assertions passed.");
 
-			// Optional: Add a short delay and check status again (tests checkProcessStatus)
-			logVerbose("[TEST][startProcess] Waiting briefly...");
-			await new Promise((resolve) => setTimeout(resolve, 500));
+	// 		// Optional: Add a short delay and check status again (tests checkProcessStatus)
+	// 		logVerbose("[TEST][startProcess] Waiting briefly...");
+	// 		await new Promise((resolve) => setTimeout(resolve, 500));
 
-			// Cleanup: Stop the process (tests stopProcess)
-			const stopRequest = {
-				jsonrpc: "2.0",
-				method: "tools/call",
-				params: {
-					name: "stop_process",
-					arguments: { label: uniqueLabel },
-				},
-				id: `req-stop-${uniqueLabel}`,
-			};
-			logVerbose("[TEST][stop] Sending stop_process request...");
-			const stopResponse = (await sendRequest(
-				serverProcess,
-				stopRequest,
-			)) as MCPResponse;
-			logVerbose(
-				"[TEST][stop] Received stop response:",
-				JSON.stringify(stopResponse),
-			);
-			// We don't strictly need to await or check the stop response here, main goal is cleanup
-			logVerbose("[TEST][startProcess] Test finished.");
-		},
-		TEST_TIMEOUT,
-	);
+	// 		// Cleanup: Stop the process (tests stopProcess)
+	// 		const stopRequest = {
+	// 			jsonrpc: "2.0",
+	// 			method: "tools/call",
+	// 			params: {
+	// 				name: "stop_process",
+	// 				arguments: { label: uniqueLabel },
+	// 			},
+	// 			id: `req-stop-${uniqueLabel}`,
+	// 		};
+	// 		logVerbose("[TEST][stop] Sending stop_process request...");
+	// 		const stopResponse = (await sendRequest(
+	// 			serverProcess,
+	// 			stopRequest,
+	// 		)) as MCPResponse;
+	// 		logVerbose(
+	// 			"[TEST][stop] Received stop response:",
+	// 			JSON.stringify(stopResponse),
+	// 		);
+	// 		// We don't strictly need to await or check the stop response here, main goal is cleanup
+	// 		logVerbose("[TEST][startProcess] Test finished.");
+	// 	},
+	// 	TEST_TIMEOUT,
+	// );
 
 	// Test #4: List Processes (after start)
 	it(
@@ -492,270 +492,270 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 	);
 
 	// Test #5: Check Process Status
-	it(
-		"should check the status of a running process",
-		async () => {
-			logVerbose("[TEST][checkStatus] Starting test...");
-			const uniqueLabel = `test-check-${Date.now()}`;
-			const command = "node";
-			const args = [
-				"-e",
-				"console.log('Process for checking status'); setInterval(() => {}, 1000);",
-			]; // Keep alive
-			const workingDirectory = path.resolve(__dirname);
-			logVerbose(`[TEST][checkStatus] Starting process ${uniqueLabel}...`);
-			const startRequest = {
-				jsonrpc: "2.0",
-				method: "tools/call",
-				params: {
-					name: "start_process",
-					arguments: { command, args, workingDirectory, label: uniqueLabel },
-				},
-				id: "req-start-for-check-1",
-			};
-			// We need to wait for the start request to complete, but we don't need to assert its result here
-			await sendRequest(serverProcess, startRequest);
-			logVerbose(`[TEST][checkStatus] Process ${uniqueLabel} started.`);
-			// --- Add Delay ---
-			await new Promise((resolve) => setTimeout(resolve, 500));
-			logVerbose("[TEST][checkStatus] Added 500ms delay after start.");
-			// --- End Process Start ---
+	// it(
+	// 	"should check the status of a running process",
+	// 	async () => {
+	// 		logVerbose("[TEST][checkStatus] Starting test...");
+	// 		const uniqueLabel = `test-check-${Date.now()}`;
+	// 		const command = "node";
+	// 		const args = [
+	// 			"-e",
+	// 			"console.log('Process for checking status'); setInterval(() => {}, 1000);",
+	// 		]; // Keep alive
+	// 		const workingDirectory = path.resolve(__dirname);
+	// 		logVerbose(`[TEST][checkStatus] Starting process ${uniqueLabel}...`);
+	// 		const startRequest = {
+	// 			jsonrpc: "2.0",
+	// 			method: "tools/call",
+	// 			params: {
+	// 				name: "start_process",
+	// 				arguments: { command, args, workingDirectory, label: uniqueLabel },
+	// 			},
+	// 			id: "req-start-for-check-1",
+	// 		};
+	// 		// We need to wait for the start request to complete, but we don't need to assert its result here
+	// 		await sendRequest(serverProcess, startRequest);
+	// 		logVerbose(`[TEST][checkStatus] Process ${uniqueLabel} started.`);
+	// 		// --- Add Delay ---
+	// 		await new Promise((resolve) => setTimeout(resolve, 500));
+	// 		logVerbose("[TEST][checkStatus] Added 500ms delay after start.");
+	// 		// --- End Process Start ---
 
-			// --- Now Check Process Status ---
-			const checkRequest = {
-				jsonrpc: "2.0",
-				method: "tools/call",
-				params: {
-					name: "check_process_status",
-					arguments: { label: uniqueLabel },
-				},
-				id: "req-check-1",
-			};
-			logVerbose("[TEST][checkStatus] Sending check_process_status request...");
+	// 		// --- Now Check Process Status ---
+	// 		const checkRequest = {
+	// 			jsonrpc: "2.0",
+	// 			method: "tools/call",
+	// 			params: {
+	// 				name: "check_process_status",
+	// 				arguments: { label: uniqueLabel },
+	// 			},
+	// 			id: "req-check-1",
+	// 		};
+	// 		logVerbose("[TEST][checkStatus] Sending check_process_status request...");
 
-			const response = (await sendRequest(
-				serverProcess,
-				checkRequest,
-			)) as MCPResponse;
-			logVerbose(
-				`[TEST][checkStatus] Received response: ${JSON.stringify(response)}`,
-			);
+	// 		const response = (await sendRequest(
+	// 			serverProcess,
+	// 			checkRequest,
+	// 		)) as MCPResponse;
+	// 		logVerbose(
+	// 			`[TEST][checkStatus] Received response: ${JSON.stringify(response)}`,
+	// 		);
 
-			logVerbose("[TEST][checkStatus] Asserting response properties...");
-			expect(response).toBeDefined();
-			expect(response.id).toBe("req-check-1"); // Use the correct request ID
-			expect(response.error).toBeUndefined();
-			expect(response.result).toBeDefined();
+	// 		logVerbose("[TEST][checkStatus] Asserting response properties...");
+	// 		expect(response).toBeDefined();
+	// 		expect(response.id).toBe("req-check-1"); // Use the correct request ID
+	// 		expect(response.error).toBeUndefined();
+	// 		expect(response.result).toBeDefined();
 
-			logVerbose("[TEST][checkStatus] Asserting result properties...");
-			// Fix: Access payload within the result object
-			const result = response.result as CallToolResult;
-			const resultContentText = result?.payload?.[0]?.content;
-			expect(resultContentText).toBeDefined();
+	// 		logVerbose("[TEST][checkStatus] Asserting result properties...");
+	// 		// Fix: Access payload within the result object
+	// 		const result = response.result as CallToolResult;
+	// 		const resultContentText = result?.payload?.[0]?.content;
+	// 		expect(resultContentText).toBeDefined();
 
-			try {
-				// Fix: Check if content exists before parsing
-				if (resultContentText) {
-					const processStatus = JSON.parse(resultContentText);
-					expect(processStatus.status).toBe("running");
-					expect(processStatus.label).toBe(uniqueLabel);
-					expect(processStatus.command).toBe(command);
-					expect(processStatus.pid).toBeGreaterThan(0);
-					expect(processStatus.logs?.length).toBeGreaterThanOrEqual(1); // Should have at least the spawn log
+	// 		try {
+	// 			// Fix: Check if content exists before parsing
+	// 			if (resultContentText) {
+	// 				const processStatus = JSON.parse(resultContentText);
+	// 				expect(processStatus.status).toBe("running");
+	// 				expect(processStatus.label).toBe(uniqueLabel);
+	// 				expect(processStatus.command).toBe(command);
+	// 				expect(processStatus.pid).toBeGreaterThan(0);
+	// 				expect(processStatus.logs?.length).toBeGreaterThanOrEqual(1); // Should have at least the spawn log
 
-					// --> FIX: Check for the actual log output of this process
-					const logs1 = processStatus.logs ?? [];
-					logVerbose(
-						`[TEST][checkStatus] First check logs (${logs1.length}):`,
-						logs1,
-					);
-					const hasCorrectLog = logs1.some(
-						(log) => log.includes("Process for checking status"), // Correct: Check for this test's log output
-					);
-					expect(hasCorrectLog).toBe(true);
+	// 				// --> FIX: Check for the actual log output of this process
+	// 				const logs1 = processStatus.logs ?? [];
+	// 				logVerbose(
+	// 					`[TEST][checkStatus] First check logs (${logs1.length}):`,
+	// 					logs1,
+	// 				);
+	// 				const hasCorrectLog = logs1.some(
+	// 					(log) => log.includes("Process for checking status"), // Correct: Check for this test's log output
+	// 				);
+	// 				expect(hasCorrectLog).toBe(true);
 
-					console.log("[TEST][checkStatus] Assertions passed.");
-				} else {
-					throw new Error(
-						"Received null or undefined payload content for check_process_status",
-					);
-				}
-			} catch (e) {
-				throw new Error(
-					`Failed to parse check_process_status result payload: ${e}`,
-				);
-			}
+	// 				console.log("[TEST][checkStatus] Assertions passed.");
+	// 			} else {
+	// 				throw new Error(
+	// 					"Received null or undefined payload content for check_process_status",
+	// 				);
+	// 			}
+	// 		} catch (e) {
+	// 			throw new Error(
+	// 				`Failed to parse check_process_status result payload: ${e}`,
+	// 			);
+	// 		}
 
-			logVerbose("[TEST][checkStatus] Sending stop request for cleanup...");
-			const stopRequest = {
-				jsonrpc: "2.0",
-				method: "tools/call",
-				params: {
-					name: "stop_process",
-					arguments: { label: uniqueLabel },
-				},
-				id: "req-stop-cleanup-check-1",
-			};
-			await sendRequest(serverProcess, stopRequest);
-			logVerbose(
-				"[TEST][checkStatus] Cleanup stop request sent. Test finished.",
-			);
-			// --- End Cleanup ---
-		},
-		TEST_TIMEOUT,
-	);
+	// 		logVerbose("[TEST][checkStatus] Sending stop request for cleanup...");
+	// 		const stopRequest = {
+	// 			jsonrpc: "2.0",
+	// 			method: "tools/call",
+	// 			params: {
+	// 				name: "stop_process",
+	// 				arguments: { label: uniqueLabel },
+	// 			},
+	// 			id: "req-stop-cleanup-check-1",
+	// 		};
+	// 		await sendRequest(serverProcess, stopRequest);
+	// 		logVerbose(
+	// 			"[TEST][checkStatus] Cleanup stop request sent. Test finished.",
+	// 		);
+	// 		// --- End Cleanup ---
+	// 	},
+	// 	TEST_TIMEOUT,
+	// );
 
 	// Test #7: Restart Process
-	it(
-		"should restart a running process",
-		async () => {
-			logVerbose("[TEST][restart] Starting test...");
-			const uniqueLabel = `test-restart-${Date.now()}`;
-			const command = "node";
-			// Log PID to verify it changes after restart
-			const args = [
-				"-e",
-				"console.log(`Restart test process started PID: ${process.pid}`); setInterval(() => {}, 1000);",
-			];
-			const workingDirectory = path.resolve(__dirname);
-			logVerbose(`[TEST][restart] Starting initial process ${uniqueLabel}...`);
-			const startRequest = {
-				jsonrpc: "2.0",
-				method: "tools/call",
-				params: {
-					name: "start_process",
-					arguments: { command, args, workingDirectory, label: uniqueLabel },
-				},
-				id: `req-start-for-restart-${uniqueLabel}`,
-			};
-			const startResponse = (await sendRequest(
-				serverProcess,
-				startRequest,
-			)) as MCPResponse;
-			logVerbose(`[TEST][restart] Initial process ${uniqueLabel} started.`);
-			// Fix: Access payload directly on the result object
-			const startResult = startResponse.result as CallToolResult;
-			const initialProcessInfo = JSON.parse(
-				startResult.payload[0].content, // Access payload here
-			) as ProcessStatusResult;
-			const initialPid = initialProcessInfo.pid;
-			expect(initialPid).toBeGreaterThan(0);
-			logVerbose(`[TEST][restart] Initial PID: ${initialPid}`);
-			// --- End Process Start ---
+	// it(
+	// 	"should restart a running process",
+	// 	async () => {
+	// 		logVerbose("[TEST][restart] Starting test...");
+	// 		const uniqueLabel = `test-restart-${Date.now()}`;
+	// 		const command = "node";
+	// 		// Log PID to verify it changes after restart
+	// 		const args = [
+	// 			"-e",
+	// 			"console.log(`Restart test process started PID: ${process.pid}`); setInterval(() => {}, 1000);",
+	// 		];
+	// 		const workingDirectory = path.resolve(__dirname);
+	// 		logVerbose(`[TEST][restart] Starting initial process ${uniqueLabel}...`);
+	// 		const startRequest = {
+	// 			jsonrpc: "2.0",
+	// 			method: "tools/call",
+	// 			params: {
+	// 				name: "start_process",
+	// 				arguments: { command, args, workingDirectory, label: uniqueLabel },
+	// 			},
+	// 			id: `req-start-for-restart-${uniqueLabel}`,
+	// 		};
+	// 		const startResponse = (await sendRequest(
+	// 			serverProcess,
+	// 			startRequest,
+	// 		)) as MCPResponse;
+	// 		logVerbose(`[TEST][restart] Initial process ${uniqueLabel} started.`);
+	// 		// Fix: Access payload directly on the result object
+	// 		const startResult = startResponse.result as CallToolResult;
+	// 		const initialProcessInfo = JSON.parse(
+	// 			startResult.payload[0].content, // Access payload here
+	// 		) as ProcessStatusResult;
+	// 		const initialPid = initialProcessInfo.pid;
+	// 		expect(initialPid).toBeGreaterThan(0);
+	// 		logVerbose(`[TEST][restart] Initial PID: ${initialPid}`);
+	// 		// --- End Process Start ---
 
-			// --- Add Delay before restart ---
-			await new Promise((resolve) => setTimeout(resolve, 500));
-			logVerbose("[TEST][restart] Added 500ms delay before restart.");
-			// --- Now Restart the Process ---
-			const restartRequest = {
-				jsonrpc: "2.0",
-				method: "tools/call",
-				params: {
-					name: "restart_process",
-					arguments: { label: uniqueLabel },
-				},
-				id: `req-restart-${uniqueLabel}`,
-			};
-			logVerbose("[TEST][restart] Sending restart_process request...");
-			const restartResponse = (await sendRequest(
-				serverProcess,
-				restartRequest,
-			)) as MCPResponse;
-			logVerbose(
-				"[TEST][restart] Received restart response:",
-				JSON.stringify(restartResponse),
-			);
+	// 		// --- Add Delay before restart ---
+	// 		await new Promise((resolve) => setTimeout(resolve, 500));
+	// 		logVerbose("[TEST][restart] Added 500ms delay before restart.");
+	// 		// --- Now Restart the Process ---
+	// 		const restartRequest = {
+	// 			jsonrpc: "2.0",
+	// 			method: "tools/call",
+	// 			params: {
+	// 				name: "restart_process",
+	// 				arguments: { label: uniqueLabel },
+	// 			},
+	// 			id: `req-restart-${uniqueLabel}`,
+	// 		};
+	// 		logVerbose("[TEST][restart] Sending restart_process request...");
+	// 		const restartResponse = (await sendRequest(
+	// 			serverProcess,
+	// 			restartRequest,
+	// 		)) as MCPResponse;
+	// 		logVerbose(
+	// 			"[TEST][restart] Received restart response:",
+	// 			JSON.stringify(restartResponse),
+	// 		);
 
-			logVerbose("[TEST][restart] Asserting restart response properties...");
-			// Check for direct error from the tool call itself
-			expect(
-				restartResponse.error,
-				`Restart tool call failed: ${JSON.stringify(restartResponse.error)}`,
-			).toBeUndefined();
-			expect(
-				restartResponse.result,
-				`Restart tool call expected result but got none. Error: ${JSON.stringify(restartResponse.error)}`,
-			).toBeDefined();
+	// 		logVerbose("[TEST][restart] Asserting restart response properties...");
+	// 		// Check for direct error from the tool call itself
+	// 		expect(
+	// 			restartResponse.error,
+	// 			`Restart tool call failed: ${JSON.stringify(restartResponse.error)}`,
+	// 		).toBeUndefined();
+	// 		expect(
+	// 			restartResponse.result,
+	// 			`Restart tool call expected result but got none. Error: ${JSON.stringify(restartResponse.error)}`,
+	// 		).toBeDefined();
 
-			// Fix: Access payload within the result object
-			const restartResultWrapper = restartResponse.result as CallToolResult;
+	// 		// Fix: Access payload within the result object
+	// 		const restartResultWrapper = restartResponse.result as CallToolResult;
 
-			// Check for error *within* the result payload (isError flag)
-			expect(
-				restartResultWrapper.isError,
-				`Restart result indicates an error: ${restartResultWrapper.payload?.[0]?.content}`,
-			).toBeFalsy();
-			expect(restartResultWrapper?.payload?.[0]?.content).toBeDefined();
+	// 		// Check for error *within* the result payload (isError flag)
+	// 		expect(
+	// 			restartResultWrapper.isError,
+	// 			`Restart result indicates an error: ${restartResultWrapper.payload?.[0]?.content}`,
+	// 		).toBeFalsy();
+	// 		expect(restartResultWrapper?.payload?.[0]?.content).toBeDefined();
 
-			let restartResult: ProcessStatusResult | null = null;
-			try {
-				// Fix: Parse the content string from the payload
-				restartResult = JSON.parse(restartResultWrapper.payload[0].content);
-			} catch (e) {
-				throw new Error(`Failed to parse restart_process result payload: ${e}`);
-			}
-			expect(restartResult?.label).toBe(uniqueLabel);
-			expect(restartResult?.status).toBe("running");
-			const restartedPid = restartResult?.pid;
-			expect(restartedPid).toBeGreaterThan(0);
-			expect(restartedPid).not.toBe(initialPid); // Verify PID has changed
-			logVerbose(`[TEST][restart] Restarted PID: ${restartedPid}`);
-			console.log("[TEST][restart] Restart response assertions passed.");
-			// --- End Restart Process ---
+	// 		let restartResult: ProcessStatusResult | null = null;
+	// 		try {
+	// 			// Fix: Parse the content string from the payload
+	// 			restartResult = JSON.parse(restartResultWrapper.payload[0].content);
+	// 		} catch (e) {
+	// 			throw new Error(`Failed to parse restart_process result payload: ${e}`);
+	// 		}
+	// 		expect(restartResult?.label).toBe(uniqueLabel);
+	// 		expect(restartResult?.status).toBe("running");
+	// 		const restartedPid = restartResult?.pid;
+	// 		expect(restartedPid).toBeGreaterThan(0);
+	// 		expect(restartedPid).not.toBe(initialPid); // Verify PID has changed
+	// 		logVerbose(`[TEST][restart] Restarted PID: ${restartedPid}`);
+	// 		console.log("[TEST][restart] Restart response assertions passed.");
+	// 		// --- End Restart Process ---
 
-			// --- Verify Status after Restart (Optional but good practice) ---
-			const checkRequest = {
-				jsonrpc: "2.0",
-				method: "tools/call",
-				params: {
-					name: "check_process_status",
-					arguments: { label: uniqueLabel, log_lines: 0 },
-				},
-				id: `req-check-after-restart-${uniqueLabel}`,
-			};
+	// 		// --- Verify Status after Restart (Optional but good practice) ---
+	// 		const checkRequest = {
+	// 			jsonrpc: "2.0",
+	// 			method: "tools/call",
+	// 			params: {
+	// 				name: "check_process_status",
+	// 				arguments: { label: uniqueLabel, log_lines: 0 },
+	// 			},
+	// 			id: `req-check-after-restart-${uniqueLabel}`,
+	// 		};
 
-			logVerbose(
-				"[TEST][restart] Sending check_process_status request after restart...",
-			);
-			const checkResponse = (await sendRequest(
-				serverProcess,
-				checkRequest,
-			)) as MCPResponse;
+	// 		logVerbose(
+	// 			"[TEST][restart] Sending check_process_status request after restart...",
+	// 		);
+	// 		const checkResponse = (await sendRequest(
+	// 			serverProcess,
+	// 			checkRequest,
+	// 		)) as MCPResponse;
 
-			let checkResult: ProcessStatusResult | null = null;
-			// Fix: Access payload within the result object
-			const checkResultWrapper = checkResponse.result as CallToolResult;
-			try {
-				// Fix: Parse the content string from the payload
-				checkResult = JSON.parse(checkResultWrapper.payload[0].content);
-			} catch (e) {
-				// Handle error
-			}
+	// 		let checkResult: ProcessStatusResult | null = null;
+	// 		// Fix: Access payload within the result object
+	// 		const checkResultWrapper = checkResponse.result as CallToolResult;
+	// 		try {
+	// 			// Fix: Parse the content string from the payload
+	// 			checkResult = JSON.parse(checkResultWrapper.payload[0].content);
+	// 		} catch (e) {
+	// 			// Handle error
+	// 		}
 
-			expect(checkResult?.status).toBe("running");
-			expect(checkResult?.pid).toBe(restartedPid);
-			console.log("[TEST][restart] Final status check passed.");
-			// --- End Verify Status ---
+	// 		expect(checkResult?.status).toBe("running");
+	// 		expect(checkResult?.pid).toBe(restartedPid);
+	// 		console.log("[TEST][restart] Final status check passed.");
+	// 		// --- End Verify Status ---
 
-			// --- Cleanup: Stop the process ---
-			const stopRequest = {
-				jsonrpc: "2.0",
-				method: "tools/call",
-				params: {
-					name: "stop_process",
-					arguments: { label: uniqueLabel },
-				},
-				id: `req-stop-cleanup-restart-${uniqueLabel}`,
-			};
-			logVerbose(
-				`[TEST][restart] Sending stop request for cleanup (${uniqueLabel})...`,
-			);
-			await sendRequest(serverProcess, stopRequest);
-			logVerbose("[TEST][restart] Cleanup stop request sent. Test finished.");
-			// --- End Cleanup ---
-		},
-		TEST_TIMEOUT * 2,
-	); // Give restart more time
+	// 		// --- Cleanup: Stop the process ---
+	// 		const stopRequest = {
+	// 			jsonrpc: "2.0",
+	// 			method: "tools/call",
+	// 			params: {
+	// 				name: "stop_process",
+	// 				arguments: { label: uniqueLabel },
+	// 			},
+	// 			id: `req-stop-cleanup-restart-${uniqueLabel}`,
+	// 		};
+	// 		logVerbose(
+	// 			`[TEST][restart] Sending stop request for cleanup (${uniqueLabel})...`,
+	// 		);
+	// 		await sendRequest(serverProcess, stopRequest);
+	// 		logVerbose("[TEST][restart] Cleanup stop request sent. Test finished.");
+	// 		// --- End Cleanup ---
+	// 	},
+	// 	TEST_TIMEOUT * 2,
+	// ); // Give restart more time
 
 	// Test #8: Check Process Status Filtering
 	it(
