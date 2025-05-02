@@ -1,0 +1,6 @@
+{
+	"defaultCommand": {
+		"exclude": [".cursor/plans/**"]
+	},
+	"commands": {}
+}

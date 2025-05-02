@@ -1,5 +1,5 @@
 import { MAX_STORED_LOG_LINES } from "./constants.js";
-import type { LogEntry, ProcessInfo, ProcessStatus } from "./types.ts"; // Import LogEntry from types.ts
+import type { LogEntry, ProcessInfo, ProcessStatus } from "./types/process.js"; // Update path
 import { log } from "./utils.js";
 
 // Renamed Map

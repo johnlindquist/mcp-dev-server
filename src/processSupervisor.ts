@@ -1,5 +1,5 @@
 import { managedProcesses, updateProcessStatus } from "./state.js";
-import type { ProcessInfo } from "./types.js"; // Import necessary types
+import type { ProcessInfo } from "./types/process.js"; // Update path
 import { log } from "./utils.js";
 
 // Keep zombieCheckIntervalId managed via exported functions

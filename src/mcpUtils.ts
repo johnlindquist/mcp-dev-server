@@ -1,5 +1,9 @@
 import type { ZodRawShape } from "zod";
-import type { CallToolResult, TextContent, ToolContent } from "./types.js"; // Import necessary types
+import type {
+	CallToolResult,
+	TextContent,
+	ToolContent,
+} from "./types/index.js"; // Update path
 
 export const textPayload = (text: string): TextContent =>
 	({ type: "text", text }) as const;

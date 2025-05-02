@@ -471,10 +471,10 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				const result = JSON.parse(resultContent.content[0].text);
 				expect(result.status).toBe("ok");
 				expect(result.server_name).toBe("mcp-pm");
-				expect(result.version).toBeDefined();
+				expect(result.server_version).toBeDefined();
 				expect(result.active_processes).toBe(0);
 				// In fast mode (which tests always use), zombie check is disabled
-				expect(result.zombie_check_active).toBe(false);
+				expect(result.is_zombie_check_active).toBe(false);
 				console.log("[TEST][healthCheck] Assertions passed.");
 				logVerbose("[TEST][healthCheck] Test finished.");
 			} catch (e) {
