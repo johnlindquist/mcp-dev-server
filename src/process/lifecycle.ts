@@ -1,10 +1,17 @@
 import * as fs from "node:fs";
+import * as osModule from "node:os";
 import * as path from "node:path";
 import type { IPty } from "node-pty";
 import type { z } from "zod";
 
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { cfg } from "../constants/index.js";
+import {
+	CURSOR_TAIL_INSTRUCTION,
+	PROCESS_ALREADY_TERMINAL,
+	PROCESS_ALREADY_TERMINAL_NO_ACTION,
+	PROCESS_NO_ACTIVE_HANDLE,
+} from "../constants/messages.js";
 import { fail, ok, textPayload } from "../mcpUtils.js";
 import { checkAndUpdateProcessStatus } from "../processSupervisor.js";
 import { killPtyProcess } from "../ptyManager.js";
@@ -16,6 +23,7 @@ import {
 } from "../state.js";
 import type {
 	HostEnumType,
+	OperatingSystemEnumType,
 	ProcessInfo,
 	ProcessStatus,
 } from "../types/process.js";
@@ -80,12 +88,12 @@ export async function stopProcess(
 	) {
 		log.info(
 			label,
-			`Process already in terminal state: ${initialProcessInfo.status}. No action needed.`,
+			PROCESS_ALREADY_TERMINAL_NO_ACTION(initialProcessInfo.status),
 		);
 		const payload: z.infer<typeof schemas.StopProcessPayloadSchema> = {
 			label,
 			status: initialProcessInfo.status,
-			message: `Process already in terminal state: ${initialProcessInfo.status}.`,
+			message: PROCESS_ALREADY_TERMINAL(initialProcessInfo.status),
 			// pid: initialProcessInfo.pid, // PID might not be in the schema, check schemas.ts
 		};
 		return ok(textPayload(JSON.stringify(payload)));
@@ -104,7 +112,7 @@ export async function stopProcess(
 		const payload: z.infer<typeof schemas.StopProcessPayloadSchema> = {
 			label,
 			status: "error",
-			message: "Process found but has no active process handle or PID.",
+			message: PROCESS_NO_ACTIVE_HANDLE,
 			// pid: initialProcessInfo.pid,
 		};
 		// Return failure as we couldn't perform the stop action
@@ -251,6 +259,7 @@ export async function startProcess(
 				signal: null,
 				logFilePath: null,
 				logFileStream: null,
+				os: "linux",
 			});
 		}
 		updateProcessStatus(label, "error");
@@ -321,6 +330,7 @@ export async function startProcess(
 				signal: null,
 				logFilePath: null,
 				logFileStream: null,
+				os: "linux",
 			});
 		}
 		updateProcessStatus(label, "error");
@@ -332,6 +342,13 @@ export async function startProcess(
 		};
 		return fail(textPayload(JSON.stringify(payload)));
 	}
+
+	// Detect OS
+	let detectedOS: OperatingSystemEnumType = "linux";
+	const platform = osModule.platform();
+	if (platform === "win32") detectedOS = "windows";
+	else if (platform === "darwin") detectedOS = "mac";
+	else detectedOS = "linux";
 
 	// 4. Create/Update ProcessInfo State
 	const processInfo: ProcessInfo = {
@@ -348,7 +365,6 @@ export async function startProcess(
 		signal: null,
 		lastExitTimestamp: existingProcess?.lastExitTimestamp,
 		restartAttempts: isRestart ? (existingProcess?.restartAttempts ?? 0) : 0, // Reset on fresh start
-		// Removed verificationPattern, verificationTimeoutMs, etc.
 		retryDelayMs: undefined,
 		maxRetries: undefined,
 		logFilePath: null,
@@ -356,8 +372,7 @@ export async function startProcess(
 		mainDataListenerDisposable: undefined,
 		mainExitListenerDisposable: undefined,
 		partialLineBuffer: "",
-		// verificationFailureReason: undefined, // Add if needed by schema
-		// stopRequested: false, // Add if needed by schema
+		os: detectedOS,
 	};
 	managedProcesses.set(label, processInfo);
 	updateProcessStatus(label, "starting");
@@ -484,7 +499,11 @@ export async function startProcess(
 
 	if (host === "cursor") {
 		const logFile = finalProcessInfo.logFilePath || "<logfile>";
-		const strongMsg = `You must invoke a tail -f ${logFile} command in a background terminal named after the process label ('${label}') to monitor this process.`;
+		const strongMsg = CURSOR_TAIL_INSTRUCTION(
+			logFile,
+			label,
+			finalProcessInfo.os,
+		);
 		return ok(
 			textPayload(JSON.stringify(successPayload)),
 			textPayload(strongMsg),

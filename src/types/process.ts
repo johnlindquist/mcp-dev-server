@@ -13,6 +13,10 @@ export const HostEnum = z.enum([
 ]);
 export type HostEnumType = z.infer<typeof HostEnum>;
 
+// Operating system enum definition
+export const OperatingSystemEnum = z.enum(["windows", "linux", "mac"]);
+export type OperatingSystemEnumType = z.infer<typeof OperatingSystemEnum>;
+
 /** Represents the current state of a managed process. */
 export type ProcessStatus =
 	| "starting"
@@ -61,4 +65,5 @@ export interface ProcessInfo {
 	mainDataListenerDisposable?: IDisposable;
 	mainExitListenerDisposable?: IDisposable;
 	partialLineBuffer?: string;
+	os: OperatingSystemEnumType;
 }
