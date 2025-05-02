@@ -40,12 +40,26 @@ export async function checkProcessStatusImpl(
 	const initialProcessInfo = await checkAndUpdateProcessStatus(label);
 
 	if (!initialProcessInfo) {
-		log.warn(label, `Process with label "${label}" not found.`);
-		return fail(
-			textPayload(
-				JSON.stringify({ error: `Process with label "${label}" not found.` }),
-			),
+		log.warn(
+			label,
+			`Process with label "${label}" not found. Returning stopped status for purged process.`,
 		);
+		const payload = {
+			label,
+			status: "stopped",
+			pid: undefined,
+			command: undefined,
+			args: [],
+			cwd: undefined,
+			exitCode: undefined,
+			signal: undefined,
+			logs: [],
+			log_file_path: undefined,
+			tail_command: undefined,
+			hint: undefined,
+			message: "No notable events since last check.",
+		};
+		return ok(textPayload(JSON.stringify(payload)));
 	}
 
 	const initialStatus = initialProcessInfo.status;

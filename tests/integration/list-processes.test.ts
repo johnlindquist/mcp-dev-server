@@ -249,4 +249,84 @@ describe("Tool: list_processes", () => {
 		},
 		TEST_TIMEOUT,
 	);
+
+	it(
+		"should purge stopped processes from the process list",
+		async () => {
+			logVerbose("[TEST][purgeStopped] Starting test...");
+			const uniqueLabel = `test-purge-${Date.now()}`;
+			const command = "node";
+			const args = [
+				"-e",
+				"console.log('Process for purge test'); setTimeout(() => {}, 1000);",
+			];
+			const workingDirectory = __dirname;
+
+			// Start the process
+			const startRequest = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "start_process",
+					arguments: { command, args, workingDirectory, label: uniqueLabel },
+				},
+				id: `req-start-purge-${uniqueLabel}`,
+			};
+			logVerbose("[TEST][purgeStopped] Sending start_process request...");
+			await sendRequest(serverProcess, startRequest);
+			logVerbose("[TEST][purgeStopped] Process started.");
+
+			// Wait briefly to ensure process is running
+			await new Promise((resolve) => setTimeout(resolve, 500));
+
+			// Stop the process
+			const stopRequest = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "stop_process",
+					arguments: { label: uniqueLabel },
+				},
+				id: `req-stop-purge-${uniqueLabel}`,
+			};
+			logVerbose("[TEST][purgeStopped] Sending stop_process request...");
+			await sendRequest(serverProcess, stopRequest);
+			logVerbose("[TEST][purgeStopped] Process stopped.");
+
+			// Wait briefly to allow process manager to update
+			await new Promise((resolve) => setTimeout(resolve, 500));
+
+			// List processes and ensure the stopped process is not present
+			const listRequest = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "list_processes",
+					arguments: { log_lines: 0 },
+				},
+				id: `req-list-after-purge-${uniqueLabel}`,
+			};
+			logVerbose("[TEST][purgeStopped] Sending list_processes request...");
+			const response = (await sendRequest(
+				serverProcess,
+				listRequest,
+			)) as import("./test-helpers").MCPResponse;
+			logVerbose(
+				"[TEST][purgeStopped] Received response:",
+				JSON.stringify(response),
+			);
+			const result = response.result as import("./test-helpers").CallToolResult;
+			let listResult: import("./test-helpers").ProcessStatusResult[] | null =
+				null;
+			try {
+				listResult = JSON.parse(result.content[0].text);
+			} catch (e) {
+				throw new Error(`Failed to parse list_processes result content: ${e}`);
+			}
+			const found = listResult.find((p) => p.label === uniqueLabel);
+			expect(found).toBeUndefined();
+			console.log("[TEST][purgeStopped] Assertions passed. Test finished.");
+		},
+		TEST_TIMEOUT,
+	);
 });

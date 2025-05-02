@@ -1,6 +1,11 @@
 import { cfg } from "../constants/index.js"; // Update path
 import { killProcessTree } from "../processLifecycle.js";
-import { addLogEntry, getProcessInfo, updateProcessStatus } from "../state.js"; // Adjust path
+import {
+	addLogEntry,
+	getProcessInfo,
+	removeProcess,
+	updateProcessStatus,
+} from "../state.js"; // Adjust path
 import { managedProcesses } from "../state.js"; // Need state access
 import { log } from "../utils.js"; // Adjust path
 import { startProcessWithVerification } from "./lifecycle.js"; // Import the new startProcess
@@ -122,6 +127,17 @@ export function handleProcessExit(
 			`Process was explicitly stopped. Final code: ${code}, signal: ${signal}`,
 		);
 		updateProcessStatus(label, "stopped", { code, signal });
+		const updatedInfo = getProcessInfo(label);
+		if (
+			updatedInfo &&
+			["stopped", "crashed", "error"].includes(updatedInfo.status)
+		) {
+			removeProcess(label);
+			log.info(
+				label,
+				`Process purged from management after reaching terminal state: ${updatedInfo.status}`,
+			);
+		}
 	}
 	// Exited cleanly during startup/verification (let startProcess handle final state)
 	else if (code === 0 && (status === "starting" || status === "verifying")) {
@@ -138,6 +154,17 @@ export function handleProcessExit(
 			`[handleProcessExit] Condition met: code === 0 && status === \"running\". Calling updateProcessStatus('stopped').`,
 		);
 		updateProcessStatus(label, "stopped", { code, signal });
+		const updatedInfo = getProcessInfo(label);
+		if (
+			updatedInfo &&
+			["stopped", "crashed", "error"].includes(updatedInfo.status)
+		) {
+			removeProcess(label);
+			log.info(
+				label,
+				`Process purged from management after reaching terminal state: ${updatedInfo.status}`,
+			);
+		}
 	}
 	// Unexpected exit (crash)
 	else if (status !== "stopped" && status !== "error" && status !== "crashed") {
@@ -146,7 +173,17 @@ export function handleProcessExit(
 			`Process exited unexpectedly (code: ${code}, signal: ${signal}). Marking as crashed.`,
 		);
 		updateProcessStatus(label, "crashed", { code, signal });
-
+		const updatedInfo = getProcessInfo(label);
+		if (
+			updatedInfo &&
+			["stopped", "crashed", "error"].includes(updatedInfo.status)
+		) {
+			removeProcess(label);
+			log.info(
+				label,
+				`Process purged from management after reaching terminal state: ${updatedInfo.status}`,
+			);
+		}
 		// Check retry configuration
 		if (
 			processInfo.maxRetries !== undefined &&
