@@ -165,6 +165,7 @@ export async function checkProcessStatusImpl(
 			: undefined,
 		hint: logHint,
 		message: summaryMessage,
+		isAwaitingInput: finalProcessInfo.isAwaitingInput ?? false,
 	};
 
 	log.info(
@@ -214,6 +215,7 @@ export async function listProcessesImpl(
 				tail_command: processInfo.logFilePath
 					? `tail -f "${processInfo.logFilePath}"`
 					: null,
+				isAwaitingInput: processInfo.isAwaitingInput ?? false,
 			};
 			processList.push(processDetail);
 		}
