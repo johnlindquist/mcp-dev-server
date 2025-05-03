@@ -12,7 +12,9 @@ const rl = readline.createInterface({
 	output: process.stdout,
 });
 
-rl.question("Do you want to continue? (yes/no): ", (answer) => {
+rl.setPrompt("Do you want to continue? (yes/no): ");
+rl.prompt();
+rl.on("line", (answer) => {
 	console.log("[DEBUG] in rl.question callback");
 	if (answer.toLowerCase() === "yes") {
 		console.log("You selected YES.");

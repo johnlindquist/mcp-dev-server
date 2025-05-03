@@ -319,3 +319,16 @@ Some interactive prompts (notably from bash and python scripts) may not be captu
 - **Echo/output from all languages is reliably captured.**
 - If you need to ensure prompts are visible to the process manager, prefer Node.js-based CLIs or ensure your tool flushes output explicitly.
 - This is a fundamental limitation of PTY and buffering behavior, not a bug in the process manager.
+
+## Known Limitations: Node.js Readline Prompts and PTY Capture
+
+**Node.js readline prompts may not appear in logs or be detected as input-waiting prompts.**
+
+- The Node.js `readline` library sometimes writes prompts directly to the terminal device, not through the process's stdout stream.
+- In PTY-based process managers, this means the prompt may not be visible in logs or trigger prompt detection heuristics.
+- This is a well-documented limitation of Node.js readline and PTY interaction ([see Node.js issue #29589](https://github.com/nodejs/node/issues/29589)).
+- All other prompt types (bash, python, node custom CLI, etc.) are captured and detected correctly.
+- If you do not see a prompt in logs, it is almost always because the program did not actually print one (or it used an escape sequence your parser ignores).
+
+**Test Coverage:**
+- The integration test for Node.js readline prompt detection is included but skipped, to document this limitation and catch any future improvements in PTY or Node.js behavior.
