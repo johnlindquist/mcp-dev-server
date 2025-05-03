@@ -21,29 +21,31 @@ export const StartShellParams = z.object(
 		label: labelSchema
 			.optional()
 			.describe(
-				"Optional human-readable identifier (e.g. 'dev-server'). Leave blank to let the server generate one based on CWD and command.",
+				"Optional human-readable identifier for the shell (e.g. 'dev-server'). Leave blank to let the server generate one based on working directory and command.",
 			),
 		command: z
 			.string()
 			.min(1)
-			.describe("The command to execute. e.g., 'npm' or some other runner"),
+			.describe(
+				"The command to execute in the shell. For example, 'npm', 'python', or any executable.",
+			),
 		args: z
 			.array(z.string())
 			.optional()
 			.default([])
 			.describe(
-				"Optional arguments for the command, e.g. 'npm run dev' would be ['run', 'dev']",
+				"Optional arguments for the shell command, e.g. 'npm run dev' would be ['run', 'dev'].",
 			),
 		workingDirectory: z
 			.string()
 			.min(1)
 			.describe(
-				"The absolute working directory to run the command from. This setting is required. Do not use relative paths like '.' or '../'. Provide the full path (e.g., /Users/me/myproject).",
+				"The absolute working directory to launch the shell from. Required. Do not use relative paths like '.' or '../'. Provide the full path (e.g., /Users/me/myproject).",
 			),
 		host: HostEnum.optional()
 			.default("unknown")
 			.describe(
-				"Identifier for the client initiating the process (e.g., 'cursor', 'claude', 'vscode'). Defaults to 'unknown'.",
+				"Identifier for the client initiating the shell (e.g., 'cursor', 'claude', 'vscode'). Defaults to 'unknown'.",
 			),
 	}),
 );
@@ -55,35 +57,37 @@ export const StartShellWithVerificationParams = z.object(
 		label: labelSchema
 			.optional()
 			.describe(
-				"Optional human-readable identifier (e.g. 'dev-server'). Leave blank to let the server generate one based on CWD and command.",
+				"Optional human-readable identifier for the shell (e.g. 'dev-server'). Leave blank to let the server generate one based on working directory and command.",
 			),
 		command: z
 			.string()
 			.min(1)
-			.describe("The command to execute. e.g., 'npm' or some other runner"),
+			.describe(
+				"The command to execute in the shell. For example, 'npm', 'python', or any executable.",
+			),
 		args: z
 			.array(z.string())
 			.optional()
 			.default([])
 			.describe(
-				"Optional arguments for the command, e.g. 'npm run dev' would be ['run', 'dev']",
+				"Optional arguments for the shell command, e.g. 'npm run dev' would be ['run', 'dev'].",
 			),
 		workingDirectory: z
 			.string()
 			.min(1)
 			.describe(
-				"The absolute working directory to run the command from. This setting is required. Do not use relative paths like '.' or '../'. Provide the full path (e.g., /Users/me/myproject).",
+				"The absolute working directory to launch the shell from. Required. Do not use relative paths like '.' or '../'. Provide the full path (e.g., /Users/me/myproject).",
 			),
 		host: HostEnum.optional()
 			.default("unknown")
 			.describe(
-				"Identifier for the client initiating the process (e.g., 'cursor', 'claude', 'vscode'). Defaults to 'unknown'.",
+				"Identifier for the client initiating the shell (e.g., 'cursor', 'claude', 'vscode'). Defaults to 'unknown'.",
 			),
 		verification_pattern: z
 			.string()
 			.optional()
 			.describe(
-				"Optional regex pattern to match in stdout/stderr to verify successful startup. e.g., 'running on port 3000' or 'localhost'",
+				"Optional regex pattern to match in shell output to verify successful startup. For example, 'running on port 3000' or 'localhost'.",
 			),
 		verification_timeout_ms: z
 			.number()
@@ -92,7 +96,7 @@ export const StartShellWithVerificationParams = z.object(
 			.optional()
 			.default(cfg.defaultVerificationTimeoutMs)
 			.describe(
-				"Milliseconds to wait for the verification pattern. -1 disables the timer (default).",
+				"Milliseconds to wait for the verification pattern in shell output. -1 disables the timer (default).",
 			),
 		retry_delay_ms: z
 			.number()
@@ -100,7 +104,7 @@ export const StartShellWithVerificationParams = z.object(
 			.positive()
 			.optional()
 			.describe(
-				`Optional delay before restarting a crashed process in milliseconds (default: ${cfg.defaultRetryDelayMs}ms).`,
+				`Optional delay before restarting a crashed shell in milliseconds (default: ${cfg.defaultRetryDelayMs}ms).`,
 			),
 		max_retries: z
 			.number()
@@ -108,7 +112,7 @@ export const StartShellWithVerificationParams = z.object(
 			.min(0)
 			.optional()
 			.describe(
-				`Optional maximum number of restart attempts for a crashed process (default: ${cfg.maxRetries}). 0 disables restarts.`,
+				`Optional maximum number of restart attempts for a crashed shell (default: ${cfg.maxRetries}). 0 disables restarts.`,
 			),
 	}),
 );
@@ -126,7 +130,7 @@ export const CheckProcessStatusParams = z.object(
 			.optional()
 			.default(cfg.defaultCheckStatusLogLines)
 			.describe(
-				`Number of recent log lines to request. Default: ${cfg.defaultCheckStatusLogLines}. Max stored: ${cfg.maxStoredLogLines}. Use 'getAllLoglines' for the full stored history (up to ${cfg.maxStoredLogLines} lines).`,
+				`Number of recent output lines to request from the shell. Default: ${cfg.defaultCheckStatusLogLines}. Max stored: ${cfg.maxStoredLogLines}. Use 'getAllLoglines' for the full stored history (up to ${cfg.maxStoredLogLines} lines).`,
 			),
 	}),
 );
@@ -142,7 +146,7 @@ export const StopProcessParams = z.object(
 			.optional()
 			.default(false)
 			.describe(
-				"Use SIGKILL to force kill the process instead of SIGTERM for graceful termination. Defaults to false.",
+				"Use SIGKILL to force kill the shell instead of SIGTERM for graceful termination. Defaults to false.",
 			),
 	}),
 );
@@ -157,7 +161,7 @@ export const ListProcessesParams = z.object(
 			.optional()
 			.default(0)
 			.describe(
-				"Number of recent log lines to include for each process (default: 0 for none).",
+				"Number of recent output lines to include for each shell (default: 0 for none).",
 			),
 	}),
 );
@@ -178,7 +182,7 @@ export const WaitForProcessParams = z.object(
 			.optional()
 			.default("running")
 			.describe(
-				"The target status to wait for (e.g., 'running', 'stopped'). Defaults to 'running'.",
+				"The target status to wait for (e.g., 'running', 'stopped') for the shell. Defaults to 'running'.",
 			),
 		timeout_seconds: z
 			.number()
@@ -191,7 +195,9 @@ export const WaitForProcessParams = z.object(
 			.positive()
 			.optional()
 			.default(2)
-			.describe("Interval between status checks in seconds. Defaults to 2."),
+			.describe(
+				"Interval between shell status checks in seconds. Defaults to 2.",
+			),
 	}),
 );
 export type WaitForProcessParamsType = z.infer<typeof WaitForProcessParams>;
@@ -205,14 +211,14 @@ export type GetAllLoglinesParamsType = z.infer<typeof GetAllLoglinesParams>;
 
 export const SendInputParams = z.object(
 	shape({
-		label: labelSchema.describe("The label of the target process."),
-		input: z.string().describe("The text input to send to the process stdin."),
+		label: labelSchema.describe("The label of the target shell."),
+		input: z.string().describe("The text input to send to the shell's stdin."),
 		append_newline: z
 			.boolean()
 			.optional()
 			.default(true)
 			.describe(
-				"Whether to automatically append a carriage return character ('\r') after the input, simulating pressing Enter. Defaults to true.",
+				"Whether to automatically append a carriage return character ('\\r') after the input, simulating pressing Enter in the shell. Defaults to true.",
 			),
 	}),
 );
