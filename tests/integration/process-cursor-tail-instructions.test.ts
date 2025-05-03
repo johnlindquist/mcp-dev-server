@@ -154,7 +154,7 @@ describe("Process: Cursor Tail Instructions", () => {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "start_process",
+					name: "start_shell",
 					arguments: {
 						command,
 						args,
@@ -181,7 +181,7 @@ describe("Process: Cursor Tail Instructions", () => {
 			await sendRequest(serverProcess, {
 				jsonrpc: "2.0",
 				method: "tools/call",
-				params: { name: "stop_process", arguments: { label: uniqueLabel } },
+				params: { name: "stop_shell", arguments: { label: uniqueLabel } },
 				id: `req-stop-cursor-${uniqueLabel}`,
 			});
 		},
@@ -202,7 +202,7 @@ describe("Process: Cursor Tail Instructions", () => {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "start_process",
+					name: "start_shell",
 					arguments: {
 						command,
 						args,
@@ -234,7 +234,7 @@ describe("Process: Cursor Tail Instructions", () => {
 			await sendRequest(serverProcess, {
 				jsonrpc: "2.0",
 				method: "tools/call",
-				params: { name: "stop_process", arguments: { label: uniqueLabel } },
+				params: { name: "stop_shell", arguments: { label: uniqueLabel } },
 				id: `req-stop-unknown-${uniqueLabel}`,
 			});
 		},

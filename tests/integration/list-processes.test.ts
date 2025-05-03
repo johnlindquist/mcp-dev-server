@@ -166,7 +166,7 @@ async function sendRequest(
 	});
 }
 
-describe("Tool: list_processes", () => {
+describe("Tool: list_shelles", () => {
 	let serverProcess: ChildProcessWithoutNullStreams;
 
 	beforeAll(async () => {
@@ -212,12 +212,12 @@ describe("Tool: list_processes", () => {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "list_processes",
+					name: "list_shelles",
 					arguments: { log_lines: 0 },
 				},
 				id: "req-list-empty-2",
 			};
-			logVerbose("[TEST][listEmpty] Sending list_processes request...");
+			logVerbose("[TEST][listEmpty] Sending list_shelles request...");
 			const response = (await sendRequest(
 				serverProcess,
 				listRequest,
@@ -241,7 +241,7 @@ describe("Tool: list_processes", () => {
 			try {
 				listResult = JSON.parse(result.content[0].text);
 			} catch (e) {
-				throw new Error(`Failed to parse list_processes result content: ${e}`);
+				throw new Error(`Failed to parse list_shelles result content: ${e}`);
 			}
 			expect(listResult).toBeInstanceOf(Array);
 			expect(listResult?.length).toBe(0);
@@ -267,12 +267,12 @@ describe("Tool: list_processes", () => {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "start_process",
+					name: "start_shell",
 					arguments: { command, args, workingDirectory, label: uniqueLabel },
 				},
 				id: `req-start-purge-${uniqueLabel}`,
 			};
-			logVerbose("[TEST][purgeStopped] Sending start_process request...");
+			logVerbose("[TEST][purgeStopped] Sending start_shell request...");
 			await sendRequest(serverProcess, startRequest);
 			logVerbose("[TEST][purgeStopped] Process started.");
 
@@ -284,12 +284,12 @@ describe("Tool: list_processes", () => {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "stop_process",
+					name: "stop_shell",
 					arguments: { label: uniqueLabel },
 				},
 				id: `req-stop-purge-${uniqueLabel}`,
 			};
-			logVerbose("[TEST][purgeStopped] Sending stop_process request...");
+			logVerbose("[TEST][purgeStopped] Sending stop_shell request...");
 			await sendRequest(serverProcess, stopRequest);
 			logVerbose("[TEST][purgeStopped] Process stopped.");
 
@@ -301,12 +301,12 @@ describe("Tool: list_processes", () => {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "list_processes",
+					name: "list_shelles",
 					arguments: { log_lines: 0 },
 				},
 				id: `req-list-after-purge-${uniqueLabel}`,
 			};
-			logVerbose("[TEST][purgeStopped] Sending list_processes request...");
+			logVerbose("[TEST][purgeStopped] Sending list_shelles request...");
 			const response = (await sendRequest(
 				serverProcess,
 				listRequest,
@@ -321,7 +321,7 @@ describe("Tool: list_processes", () => {
 			try {
 				listResult = JSON.parse(result.content[0].text);
 			} catch (e) {
-				throw new Error(`Failed to parse list_processes result content: ${e}`);
+				throw new Error(`Failed to parse list_shelles result content: ${e}`);
 			}
 			const found = listResult.find((p) => p.label === uniqueLabel);
 			expect(found).toBeUndefined();

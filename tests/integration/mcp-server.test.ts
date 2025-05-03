@@ -189,7 +189,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "start_process",
+					name: "start_shell",
 					arguments: { command, args, workingDirectory, label: uniqueLabel },
 				},
 				id: "req-start-for-list-1",
@@ -205,13 +205,13 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "list_processes",
+					name: "list_shelles",
 					arguments: { log_lines: 5 },
 				},
 				id: "req-list-one-1",
 			};
 
-			logVerbose("[TEST][listOne] Sending list_processes request...");
+			logVerbose("[TEST][listOne] Sending list_shelles request...");
 			const response = (await sendRequest(
 				serverProcess,
 				listRequest,
@@ -232,7 +232,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			try {
 				listResult = JSON.parse(result.content[0].text);
 			} catch (e) {
-				throw new Error(`Failed to parse list_processes result content: ${e}`);
+				throw new Error(`Failed to parse list_shelles result content: ${e}`);
 			}
 
 			expect(listResult).toBeInstanceOf(Array);
@@ -256,7 +256,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "stop_process",
+					name: "stop_shell",
 					arguments: { label: uniqueLabel },
 				},
 				id: "req-stop-cleanup-list-1",

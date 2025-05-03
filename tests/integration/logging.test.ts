@@ -188,7 +188,7 @@ describe("Tool Features: Logging and Summaries", () => {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "start_process",
+					name: "start_shell",
 					arguments: {
 						command: "node",
 						args: [
@@ -219,13 +219,13 @@ describe("Tool Features: Logging and Summaries", () => {
 			logVerbose("[TEST][checkLogsFilter] Initial wait complete.");
 
 			logVerbose(
-				`[TEST][checkLogsFilter] Sending first check_process_status for ${label}...`,
+				`[TEST][checkLogsFilter] Sending first check_shell for ${label}...`,
 			);
 			const checkRequest1 = {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "check_process_status",
+					name: "check_shell",
 					arguments: { label: label, log_lines: 100 },
 				},
 				id: `req-check1-log-filter-${label}`,
@@ -257,13 +257,13 @@ describe("Tool Features: Logging and Summaries", () => {
 			await new Promise((resolve) => setTimeout(resolve, 100));
 
 			logVerbose(
-				`[TEST][checkLogsFilter] Sending second check_process_status for ${label}...`,
+				`[TEST][checkLogsFilter] Sending second check_shell for ${label}...`,
 			);
 			const check2Request = {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "check_process_status",
+					name: "check_shell",
 					arguments: { label: label, log_lines: 100 },
 				},
 				id: `req-check2-log-filter-${label}`,
@@ -307,7 +307,7 @@ describe("Tool Features: Logging and Summaries", () => {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "stop_process",
+					name: "stop_shell",
 					arguments: { label: label },
 				},
 				id: `req-stop-cleanup-log-filter-${label}`,
@@ -333,7 +333,7 @@ describe("Tool Features: Logging and Summaries", () => {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "start_process",
+					name: "start_shell",
 					arguments: {
 						command: "node",
 						args: [
@@ -365,13 +365,13 @@ describe("Tool Features: Logging and Summaries", () => {
 			await new Promise((resolve) => setTimeout(resolve, 200));
 
 			logVerbose(
-				`[TEST][checkSummary] Sending first check_process_status for ${label}...`,
+				`[TEST][checkSummary] Sending first check_shell for ${label}...`,
 			);
 			const checkRequest1 = {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "check_process_status",
+					name: "check_shell",
 					arguments: { label: label, log_lines: 100 },
 				},
 				id: `req-check1-summary-${label}`,
@@ -406,13 +406,13 @@ describe("Tool Features: Logging and Summaries", () => {
 			await new Promise((resolve) => setTimeout(resolve, 2000));
 
 			logVerbose(
-				`[TEST][checkSummary] Sending second check_process_status for ${label}...`,
+				`[TEST][checkSummary] Sending second check_shell for ${label}...`,
 			);
 			const checkRequest2 = {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "check_process_status",
+					name: "check_shell",
 					arguments: { label: label, log_lines: 10 },
 				},
 				id: `req-check2-summary-${label}`,
@@ -451,7 +451,7 @@ describe("Tool Features: Logging and Summaries", () => {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "stop_process",
+					name: "stop_shell",
 					arguments: { label: label },
 				},
 				id: `req-stop-cleanup-summary-${label}`,

@@ -279,7 +279,7 @@ export const ShellStatusInfoSchema = z.object({
 		),
 });
 
-// start_process success payload
+// start_shell success payload
 export const StartSuccessPayloadSchema = z
 	.object({
 		label: z.string(),
@@ -295,10 +295,10 @@ export const StartSuccessPayloadSchema = z
 		verificationPattern: z.string().optional(),
 		verificationTimeoutMs: z.number().optional(),
 	})
-	.describe("Response payload for a successful start_process call.");
+	.describe("Response payload for a successful start_shell call.");
 export type StartSuccessPayloadType = z.infer<typeof StartSuccessPayloadSchema>; // & { status: ProcessStatus, logs?: string[], monitoring_hint?: string }; // Add complex type if needed
 
-// start_process error payload
+// start_shell error payload
 export const StartErrorPayloadSchema = z
 	.object({
 		error: z.string().describe("Description of the error."),
@@ -314,10 +314,10 @@ export const StartErrorPayloadSchema = z
 				"Categorical type of error (e.g., 'working_directory_not_found').",
 			),
 	})
-	.describe("Response payload for a failed start_process call.");
+	.describe("Response payload for a failed start_shell call.");
 export type StartErrorPayloadType = z.infer<typeof StartErrorPayloadSchema>;
 
-// check_process_status payload
+// check_shell payload
 export const CheckStatusPayloadSchema = ShellStatusInfoSchema.extend({
 	logs: z
 		.array(z.string())
@@ -335,10 +335,10 @@ export const CheckStatusPayloadSchema = ShellStatusInfoSchema.extend({
 		.describe(
 			"Natural-language summary of everything notable since the last check.",
 		),
-}).describe("Response payload for a check_process_status call.");
+}).describe("Response payload for a check_shell call.");
 export type CheckStatusPayloadType = z.infer<typeof CheckStatusPayloadSchema>;
 
-// list_processes individual item schema
+// list_shelles individual item schema
 export const ListProcessDetailSchema = ShellStatusInfoSchema.extend({
 	logs: z
 		.array(z.string())
@@ -351,29 +351,29 @@ export const ListProcessDetailSchema = ShellStatusInfoSchema.extend({
 		.optional()
 		.describe("Hint about the logs shown (e.g., number stored vs shown)."),
 }).describe(
-	"Detailed information for a single process in the list_processes response.",
+	"Detailed information for a single process in the list_shelles response.",
 );
 export type ListProcessDetailType = z.infer<typeof ListProcessDetailSchema>;
 
-// list_processes payload (array of details)
+// list_shelles payload (array of details)
 export const ListProcessesPayloadSchema = z
 	.array(ListProcessDetailSchema)
-	.describe("Response payload for a list_processes call.");
+	.describe("Response payload for a list_shelles call.");
 export type ListProcessesPayloadType = z.infer<
 	typeof ListProcessesPayloadSchema
 >;
 
-// stop_process payload
+// stop_shell payload
 export const StopProcessPayloadSchema = z
 	.object({
 		label: z.string(),
 		status: z.string(), // Could refine this enum later
 		message: z.string(),
 	})
-	.describe("Response payload for a stop_process call.");
+	.describe("Response payload for a stop_shell call.");
 export type StopProcessPayloadType = z.infer<typeof StopProcessPayloadSchema>;
 
-// stop_all_processes payload
+// stop_all_shelles payload
 export const StopAllProcessesPayloadSchema = z
 	.object({
 		stopped_count: z.number().int(),
@@ -388,21 +388,21 @@ export const StopAllProcessesPayloadSchema = z
 			}),
 		),
 	})
-	.describe("Response payload for a stop_all_processes call.");
+	.describe("Response payload for a stop_all_shelles call.");
 export type StopAllProcessesPayloadType = z.infer<
 	typeof StopAllProcessesPayloadSchema
 >;
 
-// restart_process error payload
+// restart_shell error payload
 export const RestartErrorPayloadSchema = z
 	.object({
 		error: z.string(),
 		label: z.string().optional(),
 	})
-	.describe("Error payload for a failed restart_process call.");
+	.describe("Error payload for a failed restart_shell call.");
 export type RestartErrorPayloadType = z.infer<typeof RestartErrorPayloadSchema>;
 
-// wait_for_process payload
+// wait_for_shell payload
 export const WaitForProcessPayloadSchema = z
 	.object({
 		label: z.string(),
@@ -410,7 +410,7 @@ export const WaitForProcessPayloadSchema = z
 		message: z.string(),
 		timed_out: z.boolean().optional(),
 	})
-	.describe("Response payload for a wait_for_process call.");
+	.describe("Response payload for a wait_for_shell call.");
 export type WaitForProcessPayloadType = z.infer<
 	typeof WaitForProcessPayloadSchema
 >;
@@ -437,7 +437,7 @@ export const HealthCheckPayloadSchema = z
 			.describe("Overall health status (e.g., 'OK', 'WARNING')."),
 		server_name: z.string().describe("Name of the MCP-PM server."),
 		server_version: z.string().describe("Version of the MCP-PM server."),
-		active_processes: z
+		active_shelles: z
 			.number()
 			.int()
 			.describe("Number of currently managed processes."),

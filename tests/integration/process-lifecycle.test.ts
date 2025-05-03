@@ -202,7 +202,7 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "start_process",
+					name: "start_shell",
 					arguments: {
 						command,
 						args,
@@ -241,7 +241,7 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 			try {
 				startResult = JSON.parse(result.content[0].text);
 			} catch (e) {
-				throw new Error(`Failed to parse start_process result content: ${e}`);
+				throw new Error(`Failed to parse start_shell result content: ${e}`);
 			}
 			expect(startResult).not.toBeNull();
 			if (startResult) {
@@ -257,12 +257,12 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "stop_process",
+					name: "stop_shell",
 					arguments: { label: uniqueLabel },
 				},
 				id: `req-stop-${uniqueLabel}`,
 			};
-			logVerbose("[TEST][stop] Sending stop_process request...");
+			logVerbose("[TEST][stop] Sending stop_shell request...");
 			const stopResponse = (await sendRequest(
 				serverProcess,
 				stopRequest,
@@ -292,7 +292,7 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "start_process",
+					name: "start_shell",
 					arguments: { command, args, workingDirectory, label: uniqueLabel },
 				},
 				id: "req-start-for-check-1",
@@ -306,12 +306,12 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "check_process_status",
+					name: "check_shell",
 					arguments: { label: uniqueLabel },
 				},
 				id: "req-check-1",
 			};
-			logVerbose("[TEST][checkStatus] Sending check_process_status request...");
+			logVerbose("[TEST][checkStatus] Sending check_shell request...");
 
 			const response = (await sendRequest(
 				serverProcess,
@@ -352,13 +352,11 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 					console.log("[TEST][checkStatus] Assertions passed.");
 				} else {
 					throw new Error(
-						"Received null or undefined content text for check_process_status",
+						"Received null or undefined content text for check_shell",
 					);
 				}
 			} catch (e) {
-				throw new Error(
-					`Failed to parse check_process_status result content: ${e}`,
-				);
+				throw new Error(`Failed to parse check_shell result content: ${e}`);
 			}
 
 			logVerbose("[TEST][checkStatus] Sending stop request for cleanup...");
@@ -366,7 +364,7 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "stop_process",
+					name: "stop_shell",
 					arguments: { label: uniqueLabel },
 				},
 				id: "req-stop-cleanup-check-1",
@@ -395,7 +393,7 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "start_process",
+					name: "start_shell",
 					arguments: { command, args, workingDirectory, label: uniqueLabel },
 				},
 				id: `req-start-for-restart-${uniqueLabel}`,
@@ -420,12 +418,12 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "restart_process",
+					name: "restart_shell",
 					arguments: { label: uniqueLabel },
 				},
 				id: `req-restart-${uniqueLabel}`,
 			};
-			logVerbose("[TEST][restart] Sending restart_process request...");
+			logVerbose("[TEST][restart] Sending restart_shell request...");
 			const restartResponse = (await sendRequest(
 				serverProcess,
 				restartRequest,
@@ -456,7 +454,7 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 			try {
 				restartResult = JSON.parse(restartResultWrapper.content[0].text);
 			} catch (e) {
-				throw new Error(`Failed to parse restart_process result content: ${e}`);
+				throw new Error(`Failed to parse restart_shell result content: ${e}`);
 			}
 			expect(restartResult?.label).toBe(uniqueLabel);
 			expect(restartResult?.status).toBe("running");
@@ -470,14 +468,14 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "check_process_status",
+					name: "check_shell",
 					arguments: { label: uniqueLabel, log_lines: 0 },
 				},
 				id: `req-check-after-restart-${uniqueLabel}`,
 			};
 
 			logVerbose(
-				"[TEST][restart] Sending check_process_status request after restart...",
+				"[TEST][restart] Sending check_shell request after restart...",
 			);
 			const checkResponse = (await sendRequest(
 				serverProcess,
@@ -498,7 +496,7 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "stop_process",
+					name: "stop_shell",
 					arguments: { label: uniqueLabel },
 				},
 				id: `req-stop-cleanup-restart-${uniqueLabel}`,
@@ -531,7 +529,7 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "start_process_with_verification",
+					name: "start_shell_with_verification",
 					arguments: {
 						command,
 						args,
@@ -579,7 +577,7 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 				startResult = JSON.parse(result.content[0].text);
 			} catch (e) {
 				throw new Error(
-					`Failed to parse start_process_with_verification result content: ${e}`,
+					`Failed to parse start_shell_with_verification result content: ${e}`,
 				);
 			}
 			expect(startResult).not.toBeNull();
@@ -599,12 +597,12 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "stop_process",
+					name: "stop_shell",
 					arguments: { label: uniqueLabel },
 				},
 				id: `req-stop-verification-${uniqueLabel}`,
 			};
-			logVerbose("[TEST][stop] Sending stop_process request...");
+			logVerbose("[TEST][stop] Sending stop_shell request...");
 			const stopResponse = (await sendRequest(
 				serverProcess,
 				stopRequest,
@@ -636,7 +634,7 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "start_process",
+					name: "start_shell",
 					arguments: {
 						label,
 						command: COMMAND,
@@ -656,7 +654,7 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 					jsonrpc: "2.0",
 					method: "tools/call",
 					params: {
-						name: "check_process_status",
+						name: "check_shell",
 						arguments: { label, log_lines: 100 },
 					},
 					id: `req-check-${label}-${i}`,
@@ -691,7 +689,7 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 			const stopRequest = {
 				jsonrpc: "2.0",
 				method: "tools/call",
-				params: { name: "stop_process", arguments: { label } },
+				params: { name: "stop_shell", arguments: { label } },
 				id: `req-stop-${label}`,
 			};
 			await sendRequest(serverProcess, stopRequest);
@@ -764,7 +762,7 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 					jsonrpc: "2.0",
 					method: "tools/call",
 					params: {
-						name: "start_process",
+						name: "start_shell",
 						arguments: {
 							label,
 							command: fixture.command,
@@ -782,7 +780,7 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 						jsonrpc: "2.0",
 						method: "tools/call",
 						params: {
-							name: "check_process_status",
+							name: "check_shell",
 							arguments: { label, log_lines: 100 },
 						},
 						id: `req-check-${label}-${i}`,
@@ -819,7 +817,7 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 				const stopRequest = {
 					jsonrpc: "2.0",
 					method: "tools/call",
-					params: { name: "stop_process", arguments: { label } },
+					params: { name: "stop_shell", arguments: { label } },
 					id: `req-stop-${label}`,
 				};
 				await sendRequest(serverProcess, stopRequest);
@@ -862,7 +860,7 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 					jsonrpc: "2.0",
 					method: "tools/call",
 					params: {
-						name: "start_process",
+						name: "start_shell",
 						arguments: {
 							label,
 							command: fixture.command,
@@ -882,7 +880,7 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 						jsonrpc: "2.0",
 						method: "tools/call",
 						params: {
-							name: "check_process_status",
+							name: "check_shell",
 							arguments: {
 								label,
 								log_lines: 100,
@@ -923,7 +921,7 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 					jsonrpc: "2.0",
 					method: "tools/call",
 					params: {
-						name: "stop_process",
+						name: "stop_shell",
 						arguments: { label, force: true },
 					},
 					id: `req-stop-${label}`,

@@ -32,7 +32,7 @@ export function spawnPtyShell(
 	// Try to use stdbuf if available (Linux/macOS)
 	let useStdbuf = false;
 	try {
-		const { execSync } = require("node:child_process");
+		const { execSync } = require("node:child_shell");
 		execSync("stdbuf --version", { stdio: "ignore" });
 		useStdbuf = true;
 	} catch {}
@@ -40,7 +40,7 @@ export function spawnPtyShell(
 	// Try to use script if available (as a last resort for bash/python)
 	let useScript = false;
 	try {
-		const { execSync } = require("node:child_process");
+		const { execSync } = require("node:child_shell");
 		execSync("script --version", { stdio: "ignore" });
 		useScript = true;
 	} catch {}

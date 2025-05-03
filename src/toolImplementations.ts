@@ -36,7 +36,7 @@ export async function checkProcessStatusImpl(
 	params: CheckProcessStatusParams,
 ): Promise<CallToolResult> {
 	const { label, log_lines } = params;
-	log.debug(label, "Tool invoked: check_process_status", { params });
+	log.debug(label, "Tool invoked: check_shell", { params });
 
 	const initialProcessInfo = await checkAndUpdateProcessStatus(label);
 
@@ -170,7 +170,7 @@ export async function checkProcessStatusImpl(
 
 	log.info(
 		label,
-		`check_process_status returning final status: ${payload.status}. New logs returned: ${returnedLogs.length}. New lastLogTimestamp: ${newLastLogTimestamp}`,
+		`check_shell returning final status: ${payload.status}. New logs returned: ${returnedLogs.length}. New lastLogTimestamp: ${newLastLogTimestamp}`,
 	);
 
 	return ok(textPayload(JSON.stringify(payload)));
@@ -322,7 +322,7 @@ export async function restartProcessImpl(
 	params: RestartProcessParams,
 ): Promise<CallToolResult> {
 	const { label } = params;
-	log.info(label, "Tool invoked: restart_process");
+	log.info(label, "Tool invoked: restart_shell");
 
 	const processInfo = await checkAndUpdateProcessStatus(label);
 
@@ -582,7 +582,7 @@ export async function healthCheckImpl(): Promise<CallToolResult> {
 		status: "ok",
 		server_name: cfg.serverName,
 		server_version: cfg.serverVersion,
-		active_processes: managedShells.size,
+		active_shelles: managedShells.size,
 		is_zombie_check_active: isZombieCheckActive(),
 	};
 	return ok(textPayload(JSON.stringify(payload)));

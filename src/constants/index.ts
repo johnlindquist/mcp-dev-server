@@ -11,7 +11,7 @@ export const cfg = {
 	/** Maximum number of log lines to store in memory per process. */
 	maxStoredLogLines: 1000,
 
-	/** Default number of log lines returned by check_process_status and list_processes if not specified. */
+	/** Default number of log lines returned by check_shell and list_shelles if not specified. */
 	defaultReturnLogLines: 50, // Used in lifecycle.ts
 
 	/** Duration (ms) to wait for graceful process termination before forcing kill. */
@@ -41,7 +41,7 @@ export const cfg = {
 	/** Time window (ms) within which multiple crashes are considered a crash loop. */
 	crashLoopDetectionWindowMs: ms(60000, 500),
 
-	/** Default number of log lines requested by check_process_status if log_lines is unspecified. */
+	/** Default number of log lines requested by check_shell if log_lines is unspecified. */
 	defaultCheckStatusLogLines: 20, // Used in toolImplementations.ts
 
 	/** Timeout (ms) before assuming a verification pattern won't match. -1 disables the timer. */
@@ -50,14 +50,14 @@ export const cfg = {
 	/** Default delay (ms) before restarting a crashed process if retry_delay_ms is unspecified. */
 	defaultRetryDelayMs: ms(1000, 50),
 
-	// Constants for start_process log settling (used in verify.ts)
+	// Constants for start_shell log settling (used in verify.ts)
 	/** Duration (ms) of inactivity in logs required to consider the process startup settled. */
 	logSettleDurationMs: ms(2000, 75),
 
 	/** Maximum time (ms) to wait for log settling before considering startup complete or failed. */
 	overallLogWaitTimeoutMs: ms(15000, 500),
 
-	/** Duration (ms) to potentially wait during check_process_status for active processes (if needed). */
+	/** Duration (ms) to potentially wait during check_shell for active processes (if needed). */
 	checkStatusWaitDurationMs: ms(2000, 50), // Not currently used explicitly?
 } as const;
 

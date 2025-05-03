@@ -44,7 +44,7 @@ export type SendInputParamsType = z.infer<typeof schemas.SendInputParams>;
 
 export function registerToolDefinitions(server: McpServer): void {
 	server.tool(
-		"start_process",
+		"start_shell",
 		"Starts a shell (such as a dev server, test runner, or background script) in a managed environment. Returns commands to monitor the shell, and provides access to all output lines printed to the shell for inspection. Enables ongoing monitoring and interaction with the running shell.",
 		shape(schemas.StartShellParams.shape),
 		(params: StartProcessParamsType) => {
@@ -54,29 +54,24 @@ export function registerToolDefinitions(server: McpServer): void {
 
 			log.info(
 				effectiveLabel,
-				`Determined label for start_process: ${effectiveLabel}`,
+				`Determined label for start_shell: ${effectiveLabel}`,
 			);
 
-			return handleToolCall(
-				effectiveLabel,
-				"start_process",
-				params,
-				async () => {
-					return await startShell(
-						effectiveLabel,
-						params.command,
-						params.args,
-						params.workingDirectory,
-						hostValue,
-						false,
-					);
-				},
-			);
+			return handleToolCall(effectiveLabel, "start_shell", params, async () => {
+				return await startShell(
+					effectiveLabel,
+					params.command,
+					params.args,
+					params.workingDirectory,
+					hostValue,
+					false,
+				);
+			});
 		},
 	);
 
 	server.tool(
-		"start_process_with_verification",
+		"start_shell_with_verification",
 		"Starts a shell with verification (pattern, timeout, retries). Useful for dev servers, tests, or scripts that print a specific line when ready. Returns monitoring commands and all shell output for inspection.",
 		shape(schemas.StartShellWithVerificationParams.shape),
 		(params: schemas.StartProcessWithVerificationParamsType) => {
@@ -86,12 +81,12 @@ export function registerToolDefinitions(server: McpServer): void {
 
 			log.info(
 				effectiveLabel,
-				`Determined label for start_process_with_verification: ${effectiveLabel}`,
+				`Determined label for start_shell_with_verification: ${effectiveLabel}`,
 			);
 
 			return handleToolCall(
 				effectiveLabel,
-				"start_process_with_verification",
+				"start_shell_with_verification",
 				params,
 				async () => {
 					const verificationPattern = params.verification_pattern
@@ -115,13 +110,13 @@ export function registerToolDefinitions(server: McpServer): void {
 	);
 
 	server.tool(
-		"check_process_status",
+		"check_shell",
 		"Checks the status of a managed shell and retrieves recent output lines. Use this to monitor the shell's state and inspect its latest output.",
 		shape(schemas.CheckProcessStatusParams.shape),
 		(params: CheckProcessStatusParamsType) => {
 			return handleToolCall(
 				params.label,
-				"check_process_status",
+				"check_shell",
 				params,
 				async () => await checkProcessStatusImpl(params),
 			);
@@ -129,13 +124,13 @@ export function registerToolDefinitions(server: McpServer): void {
 	);
 
 	server.tool(
-		"stop_process",
+		"stop_shell",
 		"Stops a specific managed shell. Can forcefully terminate or gracefully stop the shell.",
 		shape(schemas.StopProcessParams.shape),
 		(params: StopProcessParamsType) => {
 			return handleToolCall(
 				params.label,
-				"stop_process",
+				"stop_shell",
 				params,
 				async () => await stopProcess(params.label, params.force),
 			);
@@ -143,13 +138,13 @@ export function registerToolDefinitions(server: McpServer): void {
 	);
 
 	server.tool(
-		"stop_all_processes",
+		"stop_all_shelles",
 		"Attempts to gracefully stop all active managed shells.",
 		{},
 		(params: Record<string, unknown>) => {
 			return handleToolCall(
 				null,
-				"stop_all_processes",
+				"stop_all_shelles",
 				{},
 				async () => await stopAllProcessesImpl(),
 			);
@@ -157,13 +152,13 @@ export function registerToolDefinitions(server: McpServer): void {
 	);
 
 	server.tool(
-		"list_processes",
+		"list_shelles",
 		"Lists all managed shells and their statuses, including recent output lines for each shell.",
 		shape(schemas.ListProcessesParams.shape),
 		(params: ListProcessesParamsType) => {
 			return handleToolCall(
 				null,
-				"list_processes",
+				"list_shelles",
 				params,
 				async () => await listProcessesImpl(params),
 			);
@@ -171,13 +166,13 @@ export function registerToolDefinitions(server: McpServer): void {
 	);
 
 	server.tool(
-		"restart_process",
+		"restart_shell",
 		"Restarts a specific managed shell by stopping and then starting it again. Useful for refreshing dev servers or test shells.",
 		shape(schemas.RestartProcessParams.shape),
 		(params: RestartProcessParamsType) => {
 			return handleToolCall(
 				params.label,
-				"restart_process",
+				"restart_shell",
 				params,
 				async () => await restartProcessImpl(params),
 			);
@@ -185,13 +180,13 @@ export function registerToolDefinitions(server: McpServer): void {
 	);
 
 	server.tool(
-		"wait_for_process",
+		"wait_for_shell",
 		"Waits for a specific managed shell to reach a target status (e.g., running). Use this to synchronize with shell readiness.",
 		shape(schemas.WaitForProcessParams.shape),
 		(params: WaitForProcessParamsType) => {
 			return handleToolCall(
 				params.label,
-				"wait_for_process",
+				"wait_for_shell",
 				params,
 				async () => await waitForProcessImpl(params),
 			);

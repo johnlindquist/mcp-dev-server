@@ -643,7 +643,7 @@ export async function startShell(
 			cfg.defaultReturnLogLines,
 		),
 		monitoring_hint:
-			"Use check_process_status periodically to get status updates and new logs.",
+			"Use check_shell periodically to get status updates and new logs.",
 		tail_command: getTailCommand(finalShellInfo.logFilePath) || undefined,
 	};
 	log.info(label, successPayload.message);
@@ -743,7 +743,7 @@ export async function startShellWithVerification(
 			cfg.defaultReturnLogLines,
 		),
 		monitoring_hint:
-			"Use check_process_status periodically to get status updates and new logs.",
+			"Use check_shell periodically to get status updates and new logs.",
 		tail_command: getTailCommand(finalShellInfo.logFilePath) || undefined,
 		isVerificationEnabled: !!finalShellInfo.verificationPattern,
 		verificationPattern:

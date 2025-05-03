@@ -132,7 +132,7 @@ describe("Process: Purged Process Status", () => {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "start_process",
+					name: "start_shell",
 					arguments: { command, args, workingDirectory, label: uniqueLabel },
 				},
 				id: `req-start-purged-${uniqueLabel}`,
@@ -145,7 +145,7 @@ describe("Process: Purged Process Status", () => {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "stop_process",
+					name: "stop_shell",
 					arguments: { label: uniqueLabel },
 				},
 				id: `req-stop-purged-${uniqueLabel}`,
@@ -158,7 +158,7 @@ describe("Process: Purged Process Status", () => {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "check_process_status",
+					name: "check_shell",
 					arguments: { label: uniqueLabel, log_lines: 100 },
 				},
 				id: `req-check-purged-${uniqueLabel}`,
