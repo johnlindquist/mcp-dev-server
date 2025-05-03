@@ -40,6 +40,9 @@ import { handleProcessExit } from "./retry.js"; // Assuming retry logic helper i
 import { spawnPtyProcess } from "./spawn.js"; // <-- Import spawnPtyProcess
 import { verifyProcessStartup } from "./verify.js";
 
+// Max length for rolling OSC 133 buffer
+const OSC133_BUFFER_MAXLEN = 40;
+
 /**
  * Handles incoming data chunks from a PTY process (stdout/stderr).
  * Logs the data to the process's state.
@@ -83,13 +86,34 @@ export function handleData(
 		log.error(label, `[TEST ALL DATA] ${JSON.stringify(data)}`);
 	}
 
-	// Heuristic: If the line looks like a prompt, set isProbablyAwaitingInput
+	// Heuristic: If the line looks like a prompt, set isProbablyAwaitingInput (never sets to false)
 	// Common prompt endings: ': ', '? ', '> ', '): ', etc.
 	const promptLike = /([:>?] ?|\)?: ?)$/.test(data);
 	if (promptLike && data.trim().length > 0) {
 		processInfo.isProbablyAwaitingInput = true;
-	} else {
-		processInfo.isProbablyAwaitingInput = false;
+	}
+
+	// DEBUG: Log every PTY data chunk and buffer state
+	log.error(label, `[OSC133 DEBUG] PTY chunk: ${JSON.stringify(data)}`);
+	log.error(
+		label,
+		`[OSC133 DEBUG] osc133Buffer: ${JSON.stringify(processInfo.osc133Buffer)}`,
+	);
+
+	// TEST-ONLY: Write raw char codes and buffer to /tmp for prompt-detect-test- labels
+	if (label.startsWith("prompt-detect-test-")) {
+		const out = `CHUNK: [${Array.from(data)
+			.map((c) => c.charCodeAt(0))
+			.join(",")}]
+BUFFER: [${
+			typeof processInfo.osc133Buffer === "string"
+				? Array.from(processInfo.osc133Buffer)
+						.map((c) => c.charCodeAt(0))
+						.join(",")
+				: ""
+		}]
+`;
+		fs.appendFileSync(`/tmp/osc133-debug-${label}.log`, out);
 	}
 }
 
@@ -441,6 +465,36 @@ export async function startProcess(
 			const currentInfo = getProcessInfo(label);
 			if (!currentInfo) return;
 
+			// --- OSC 133 rolling buffer detection (on every data chunk) ---
+			if (!currentInfo.osc133Buffer) currentInfo.osc133Buffer = "";
+			currentInfo.osc133Buffer += data;
+			if (currentInfo.osc133Buffer.length > OSC133_BUFFER_MAXLEN) {
+				currentInfo.osc133Buffer = currentInfo.osc133Buffer.slice(
+					-OSC133_BUFFER_MAXLEN,
+				);
+			}
+			const PROMPT_END_SEQUENCE = "\x1b]133;B\x07";
+			const COMMAND_START_SEQUENCE = "\x1b]133;C\x07";
+			let idx: number;
+			idx = currentInfo.osc133Buffer.indexOf(PROMPT_END_SEQUENCE);
+			while (idx !== -1) {
+				currentInfo.isProbablyAwaitingInput = true;
+				// Trim buffer to just after the matched sequence
+				currentInfo.osc133Buffer = currentInfo.osc133Buffer.slice(
+					idx + PROMPT_END_SEQUENCE.length,
+				);
+				idx = currentInfo.osc133Buffer.indexOf(PROMPT_END_SEQUENCE);
+			}
+			idx = currentInfo.osc133Buffer.indexOf(COMMAND_START_SEQUENCE);
+			while (idx !== -1) {
+				currentInfo.isProbablyAwaitingInput = false;
+				// Trim buffer to just after the matched sequence
+				currentInfo.osc133Buffer = currentInfo.osc133Buffer.slice(
+					idx + COMMAND_START_SEQUENCE.length,
+				);
+				idx = currentInfo.osc133Buffer.indexOf(COMMAND_START_SEQUENCE);
+			}
+
 			// Append new data to the buffer
 			currentInfo.partialLineBuffer =
 				(currentInfo.partialLineBuffer || "") + data;
@@ -492,6 +546,14 @@ export async function startProcess(
 			currentInfo.idleFlushTimer = setTimeout(() => {
 				flushBuffer();
 			}, FLUSH_IDLE_MS);
+
+			// DEBUG: Log when isProbablyAwaitingInput is set by OSC 133
+			if (idx !== -1) {
+				log.error(
+					label,
+					"[OSC133 DEBUG] Detected PROMPT_END_SEQUENCE, setting isProbablyAwaitingInput = true",
+				);
+			}
 		};
 		processInfo.mainDataListenerDisposable = ptyProcess.onData(dataListener);
 

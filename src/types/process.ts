@@ -68,4 +68,5 @@ export interface ProcessInfo {
 	idleFlushTimer?: NodeJS.Timeout;
 	os: OperatingSystemEnumType;
 	isProbablyAwaitingInput?: boolean;
+	osc133Buffer?: string;
 }

@@ -332,3 +332,12 @@ Some interactive prompts (notably from bash and python scripts) may not be captu
 
 **Test Coverage:**
 - The integration test for Node.js readline prompt detection is included but skipped, to document this limitation and catch any future improvements in PTY or Node.js behavior.
+
+## Known Limitation: OSC 133 Prompt Detection on macOS
+
+- On macOS (bash 3.2), emitting raw OSC 133 prompt sequences (e.g., `\x1b]133;B\x07`) from the shell is not reliable.
+- Even with direct `printf` or shell prompt configuration, the expected escape sequence does not appear in the PTY buffer.
+- This is a limitation of the shell/environment, not the detection logic.
+- As a result, OSC 133-based prompt detection tests are skipped, with detailed comments in the test file.
+- Heuristic prompt detection (e.g., lines ending with `:`, `?`, etc.) is used as a fallback and is sufficient for most interactive CLI use cases.
+- If you need robust OSC 133 detection, consider running tests in a Linux environment with a newer bash or zsh shell.
