@@ -310,3 +310,34 @@ Restarts a specific managed process (stops it if running, then starts it again w
 **Returns:** (JSON)
 
 Response payload for a successful restart_process call (structure mirrors start_process success). On failure, returns an error object with `
+
+## Known Limitations: Interactive Prompt Capture
+
+Some interactive prompts (notably from bash and python scripts) may not be captured in PTY logs, even with all known workarounds (e.g., stdbuf, script, unbuffered environment variables). This is due to OS-level and language-level output buffering that cannot always be bypassed from the outside.
+
+- **Node.js-based prompts are reliably captured.**
+- **Echo/output from all languages is reliably captured.**
+- If you need to ensure prompts are visible to the process manager, prefer Node.js-based CLIs or ensure your tool flushes output explicitly.
+- This is a fundamental limitation of PTY and buffering behavior, not a bug in the process manager.
+
+## Known Limitations: Node.js Readline Prompts and PTY Capture
+
+**Node.js readline prompts may not appear in logs or be detected as input-waiting prompts.**
+
+- The Node.js `readline` library sometimes writes prompts directly to the terminal device, not through the process's stdout stream.
+- In PTY-based process managers, this means the prompt may not be visible in logs or trigger prompt detection heuristics.
+- This is a well-documented limitation of Node.js readline and PTY interaction ([see Node.js issue #29589](https://github.com/nodejs/node/issues/29589)).
+- All other prompt types (bash, python, node custom CLI, etc.) are captured and detected correctly.
+- If you do not see a prompt in logs, it is almost always because the program did not actually print one (or it used an escape sequence your parser ignores).
+
+**Test Coverage:**
+- The integration test for Node.js readline prompt detection is included but skipped, to document this limitation and catch any future improvements in PTY or Node.js behavior.
+
+## Known Limitation: OSC 133 Prompt Detection on macOS
+
+- On macOS (bash 3.2), emitting raw OSC 133 prompt sequences (e.g., `\x1b]133;B\x07`) from the shell is not reliable.
+- Even with direct `printf` or shell prompt configuration, the expected escape sequence does not appear in the PTY buffer.
+- This is a limitation of the shell/environment, not the detection logic.
+- As a result, OSC 133-based prompt detection tests are skipped, with detailed comments in the test file.
+- Heuristic prompt detection (e.g., lines ending with `:`, `?`, etc.) is used as a fallback and is sufficient for most interactive CLI use cases.
+- If you need robust OSC 133 detection, consider running tests in a Linux environment with a newer bash or zsh shell.

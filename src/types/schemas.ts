@@ -264,7 +264,7 @@ export const ProcessStatusInfoSchema = z.object({
 		.describe(
 			"Convenience command to tail the log file in a terminal (e.g., 'tail -f /path/to/log').",
 		),
-	isAwaitingInput: z
+	isProbablyAwaitingInput: z
 		.boolean()
 		.optional()
 		.default(false)
