@@ -1,4 +1,4 @@
-import { managedProcesses, updateProcessStatus } from "./state.js";
+import { managedShells, updateProcessStatus } from "./state.js";
 import type { ShellInfo } from "./types/process.js"; // Update path
 import { log } from "./utils.js";
 
@@ -24,7 +24,7 @@ export function doesShellExist(pid: number): boolean {
 export async function checkAndUpdateProcessStatus(
 	label: string,
 ): Promise<ShellInfo | undefined> {
-	const initialProcessInfo = managedProcesses.get(label);
+	const initialProcessInfo = managedShells.get(label);
 	// ---> ADDED LOG: Log status at start
 	log.debug(
 		label,
@@ -99,7 +99,7 @@ export async function checkAndUpdateProcessStatus(
 	}
 
 	// Re-fetch the potentially updated info from state
-	const finalProcessInfo = managedProcesses.get(label);
+	const finalProcessInfo = managedShells.get(label);
 	return finalProcessInfo;
 }
 
@@ -107,7 +107,7 @@ export async function checkAndUpdateProcessStatus(
 export async function reapZombies(): Promise<void> {
 	log.debug(null, "Running zombie process check...");
 	let correctedCount = 0;
-	for (const [label, processInfo] of managedProcesses.entries()) {
+	for (const [label, processInfo] of managedShells.entries()) {
 		if (
 			processInfo.pid &&
 			(processInfo.status === "running" ||

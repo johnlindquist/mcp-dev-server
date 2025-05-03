@@ -12,7 +12,7 @@ import {
 	isZombieCheckActive,
 } from "./processSupervisor.js";
 import { writeToPty } from "./ptyManager.js";
-import { addLogEntry, managedProcesses } from "./state.js";
+import { addLogEntry, managedShells } from "./state.js";
 import type { LogEntry } from "./types/process.js";
 import type {
 	CheckProcessStatusParamsType as CheckProcessStatusParams,
@@ -182,7 +182,7 @@ export async function listProcessesImpl(
 	const { log_lines } = params;
 	const processList: z.infer<typeof schemas.ListProcessesPayloadSchema> = [];
 
-	for (const label of managedProcesses.keys()) {
+	for (const label of managedShells.keys()) {
 		const processInfo = await checkAndUpdateProcessStatus(label);
 		if (processInfo) {
 			const requestedLines = log_lines ?? 0;
@@ -244,7 +244,7 @@ export async function stopAllProcessesImpl(): Promise<CallToolResult> {
 	let skippedCount = 0;
 	let errorCount = 0;
 
-	const labels = Array.from(managedProcesses.keys());
+	const labels = Array.from(managedShells.keys());
 
 	for (const label of labels) {
 		const processInfo = await checkAndUpdateProcessStatus(label);
@@ -582,7 +582,7 @@ export async function healthCheckImpl(): Promise<CallToolResult> {
 		status: "ok",
 		server_name: cfg.serverName,
 		server_version: cfg.serverVersion,
-		active_processes: managedProcesses.size,
+		active_processes: managedShells.size,
 		is_zombie_check_active: isZombieCheckActive(),
 	};
 	return ok(textPayload(JSON.stringify(payload)));

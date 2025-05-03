@@ -22,7 +22,7 @@ import { killPtyProcess } from "../ptyManager.js";
 import {
 	addLogEntry,
 	getShellInfo,
-	managedProcesses,
+	managedShells,
 	updateProcessStatus,
 } from "../state.js";
 import type {
@@ -44,10 +44,10 @@ import { verifyProcessStartup } from "./verify.js";
 const OSC133_BUFFER_MAXLEN = 40;
 
 /**
- * Handles incoming data chunks from a PTY process (stdout/stderr).
- * Logs the data to the process's state.
+ * Handles incoming data chunks from a PTY shell (stdout/stderr).
+ * Logs the data to the shell's state.
  *
- * @param label The label of the process.
+ * @param label The label of the shell.
  * @param data The data chunk received (should be a single line, trimmed).
  * @param source Indicates if the data came from stdout or stderr.
  */
@@ -56,13 +56,13 @@ export function handleData(
 	data: string,
 	source: "stdout" | "stderr",
 ): void {
-	const processInfo = getShellInfo(label);
-	if (!processInfo) {
-		log.warn(label, `[handleData] Received data for unknown process: ${label}`);
-		return; // Exit if process not found
+	const shellInfo = getShellInfo(label);
+	if (!shellInfo) {
+		log.warn(label, `[handleData] Received data for unknown shell: ${label}`);
+		return; // Exit if shell not found
 	}
 
-	// Add the log entry to the managed process state
+	// Add the log entry to the managed shell state
 	// Use addLogEntry which also handles file logging
 	addLogEntry(label, data);
 
@@ -90,14 +90,14 @@ export function handleData(
 	// Common prompt endings: ': ', '? ', '> ', '): ', etc.
 	const promptLike = /([:>?] ?|\)?: ?)$/.test(data);
 	if (promptLike && data.trim().length > 0) {
-		processInfo.isProbablyAwaitingInput = true;
+		shellInfo.isProbablyAwaitingInput = true;
 	}
 
 	// DEBUG: Log every PTY data chunk and buffer state
 	log.error(label, `[OSC133 DEBUG] PTY chunk: ${JSON.stringify(data)}`);
 	log.error(
 		label,
-		`[OSC133 DEBUG] osc133Buffer: ${JSON.stringify(processInfo.osc133Buffer)}`,
+		`[OSC133 DEBUG] osc133Buffer: ${JSON.stringify(shellInfo.osc133Buffer)}`,
 	);
 
 	// TEST-ONLY: Write raw char codes and buffer to /tmp for prompt-detect-test- labels
@@ -106,8 +106,8 @@ export function handleData(
 			.map((c) => c.charCodeAt(0))
 			.join(",")}]
 BUFFER: [${
-			typeof processInfo.osc133Buffer === "string"
-				? Array.from(processInfo.osc133Buffer)
+			typeof shellInfo.osc133Buffer === "string"
+				? Array.from(shellInfo.osc133Buffer)
 						.map((c) => c.charCodeAt(0))
 						.join(",")
 				: ""
@@ -118,56 +118,56 @@ BUFFER: [${
 }
 
 /**
- * Internal function to stop a background process.
+ * Internal function to stop a background shell.
  * Handles both graceful termination (SIGTERM with fallback to SIGKILL) and forceful kill (SIGKILL).
  */
-export async function stopProcess(
+export async function stopShell(
 	label: string,
 	force = false,
 ): Promise<CallToolResult> {
-	log.info(label, `Stop requested for process "${label}". Force: ${force}`);
+	log.info(label, `Stop requested for shell "${label}". Force: ${force}`);
 	addLogEntry(label, `Stop requested. Force: ${force}`);
 
 	// Refresh status before proceeding
-	const initialProcessInfo = await checkAndUpdateProcessStatus(label);
+	const initialShellInfo = await checkAndUpdateProcessStatus(label);
 
-	if (!initialProcessInfo) {
+	if (!initialShellInfo) {
 		return fail(
-			textPayload(JSON.stringify({ error: `Process "${label}" not found.` })),
+			textPayload(JSON.stringify({ error: `Shell "${label}" not found.` })),
 		);
 	}
 
 	// If already in a terminal state, report success
 	if (
-		initialProcessInfo.status === "stopped" ||
-		initialProcessInfo.status === "crashed" ||
-		initialProcessInfo.status === "error"
+		initialShellInfo.status === "stopped" ||
+		initialShellInfo.status === "crashed" ||
+		initialShellInfo.status === "error"
 	) {
 		log.info(
 			label,
-			PROCESS_ALREADY_TERMINAL_NO_ACTION(initialProcessInfo.status),
+			PROCESS_ALREADY_TERMINAL_NO_ACTION(initialShellInfo.status),
 		);
 		const payload: z.infer<typeof schemas.StopProcessPayloadSchema> = {
 			label,
-			status: initialProcessInfo.status,
-			message: PROCESS_ALREADY_TERMINAL(initialProcessInfo.status),
-			// pid: initialProcessInfo.pid, // PID might not be in the schema, check schemas.ts
+			status: initialShellInfo.status,
+			message: PROCESS_ALREADY_TERMINAL(initialShellInfo.status),
+			// pid: initialShellInfo.pid, // PID might not be in the schema, check schemas.ts
 		};
 		return ok(textPayload(JSON.stringify(payload)));
 	}
 
-	// Check if we have a process handle and PID to work with
-	if (!initialProcessInfo.shell || typeof initialProcessInfo.pid !== "number") {
+	// Check if we have a shell handle and PID to work with
+	if (!initialShellInfo.shell || typeof initialShellInfo.pid !== "number") {
 		log.warn(
 			label,
-			`Process "${label}" found but has no active process handle or PID. Cannot send signals. Marking as error.`,
+			`Shell "${label}" found but has no active shell handle or PID. Cannot send signals. Marking as error.`,
 		);
 		updateProcessStatus(label, "error"); // Update status to error
 		const payload: z.infer<typeof schemas.StopProcessPayloadSchema> = {
 			label,
 			status: "error",
 			message: PROCESS_NO_ACTIVE_HANDLE,
-			// pid: initialProcessInfo.pid,
+			// pid: initialShellInfo.pid,
 		};
 		// Return failure as we couldn't perform the stop action
 		return fail(textPayload(JSON.stringify(payload)));
@@ -175,13 +175,13 @@ export async function stopProcess(
 
 	// Mark that we initiated the stop and update status
 	// TODO: Check if ProcessInfo type allows stopRequested property
-	// initialProcessInfo.stopRequested = true;
+	// initialShellInfo.stopRequested = true;
 	updateProcessStatus(label, "stopping");
 
 	let finalMessage = "";
-	let finalStatus: ShellStatus = initialProcessInfo.status; // Use ProcessStatus type
-	const processToKill = initialProcessInfo.shell; // Store reference
-	const pidToKill = initialProcessInfo.pid; // Store PID
+	let finalStatus: ShellStatus = initialShellInfo.status; // Use ProcessStatus type
+	const shellToKill = initialShellInfo.shell; // Store reference
+	const pidToKill = initialShellInfo.pid; // Store PID
 
 	try {
 		if (force) {
@@ -191,7 +191,7 @@ export async function stopProcess(
 				`Force stop requested. Sending SIGKILL to PID ${pidToKill}...`,
 			);
 			addLogEntry(label, "Sending SIGKILL...");
-			await killPtyProcess(processToKill, label, "SIGKILL");
+			await killPtyProcess(shellToKill, label, "SIGKILL");
 			// Note: The onExit handler will update the status.
 			finalMessage = `Force stop requested. SIGKILL sent to PID ${pidToKill}.`;
 			finalStatus = "stopping"; // Assume stopping until exit confirms
@@ -203,7 +203,7 @@ export async function stopProcess(
 				`Attempting graceful shutdown. Sending SIGTERM to PID ${pidToKill}...`,
 			);
 			addLogEntry(label, "Sending SIGTERM...");
-			await killPtyProcess(processToKill, label, "SIGTERM");
+			await killPtyProcess(shellToKill, label, "SIGTERM");
 
 			log.debug(
 				label,
@@ -226,24 +226,24 @@ export async function stopProcess(
 			) {
 				log.warn(
 					label,
-					`Process ${pidToKill} did not terminate after SIGTERM and ${cfg.stopWaitDurationMs}ms wait. Sending SIGKILL.`,
+					`Shell ${pidToKill} did not terminate after SIGTERM and ${cfg.stopWaitDurationMs}ms wait. Sending SIGKILL.`,
 				);
 				addLogEntry(label, "Graceful shutdown timed out. Sending SIGKILL...");
-				await killPtyProcess(processToKill, label, "SIGKILL");
+				await killPtyProcess(shellToKill, label, "SIGKILL");
 				finalMessage = DID_NOT_TERMINATE_GRACEFULLY_SIGKILL(pidToKill);
 				finalStatus = "stopping"; // Assume stopping until exit confirms
 			} else {
 				finalMessage = TERMINATED_GRACEFULLY_AFTER_SIGTERM(pidToKill);
 				log.info(label, finalMessage);
-				addLogEntry(label, "Process terminated gracefully.");
+				addLogEntry(label, "Shell terminated gracefully.");
 				finalStatus = infoAfterWait?.status ?? "stopped"; // Use status after wait
 			}
 		}
 	} catch (error) {
-		const errorMsg = `Error stopping process ${label} (PID: ${pidToKill}): ${error instanceof Error ? error.message : String(error)}`;
+		const errorMsg = `Error stopping shell ${label} (PID: ${pidToKill}): ${error instanceof Error ? error.message : String(error)}`;
 		log.error(label, errorMsg);
-		addLogEntry(label, `Error stopping process: ${errorMsg}`);
-		finalMessage = `Error stopping process: ${errorMsg}`;
+		addLogEntry(label, `Error stopping shell: ${errorMsg}`);
+		finalMessage = `Error stopping shell: ${errorMsg}`;
 		updateProcessStatus(label, "error"); // Ensure status is error
 		finalStatus = "error";
 
@@ -265,13 +265,15 @@ export async function stopProcess(
 	};
 	log.info(
 		label,
-		`Returning result for stop_process. Final status: ${payload.status}.`,
+		`Returning result for stop_shell. Final status: ${payload.status}.`,
 	);
 	return ok(textPayload(JSON.stringify(payload)));
 }
 
+export { stopShell as stopProcess };
+
 /**
- * Main function to start and manage a background process.
+ * Main function to start and manage a background shell.
  * Orchestrates spawning, logging, verification, and listener setup.
  */
 export async function startShell(
@@ -288,7 +290,7 @@ export async function startShell(
 
 	log.info(
 		label,
-		`Starting process... Command: "${command}", Args: [${args.join(", ")}], CWD: "${effectiveWorkingDirectory}", Host: ${host}, isRestart: ${isRestart}`,
+		`Starting shell... Command: "${command}", Args: [${args.join(", ")}], CWD: "${effectiveWorkingDirectory}", Host: ${host}, isRestart: ${isRestart}`,
 	);
 
 	// 1. Verify working directory
@@ -297,9 +299,9 @@ export async function startShell(
 		const errorMsg = WORKING_DIRECTORY_NOT_FOUND(effectiveWorkingDirectory);
 		log.error(label, errorMsg);
 		// Ensure state exists for error
-		if (!managedProcesses.has(label)) {
+		if (!managedShells.has(label)) {
 			// Create minimal error state
-			managedProcesses.set(label, {
+			managedShells.set(label, {
 				label,
 				command,
 				args,
@@ -327,12 +329,12 @@ export async function startShell(
 	}
 	log.debug(label, "Working directory verified.");
 
-	const existingProcess = managedProcesses.get(label);
+	const existingShell = managedShells.get(label);
 
 	// 2. Check for active conflict (only if not restarting)
 	if (!isRestart) {
 		// ... (conflict check logic from _startProcess) ...
-		for (const existing of managedProcesses.values()) {
+		for (const existing of managedShells.values()) {
 			if (
 				existing.label === label &&
 				existing.cwd === effectiveWorkingDirectory &&
@@ -375,8 +377,8 @@ export async function startShell(
 	} catch (error) {
 		// ... (pty spawn error handling from _startProcess) ...
 		const errorMsg = `PTY process spawn failed: ${error instanceof Error ? error.message : String(error)}`;
-		if (!managedProcesses.has(label)) {
-			managedProcesses.set(label, {
+		if (!managedShells.has(label)) {
+			managedShells.set(label, {
 				label,
 				command,
 				args,
@@ -410,8 +412,8 @@ export async function startShell(
 	else if (platform === "darwin") detectedOS = "mac";
 	else detectedOS = "linux";
 
-	// 4. Create/Update ProcessInfo State
-	const processInfo: ShellInfo = {
+	// 4. Create/Update ShellInfo State
+	const shellInfo: ShellInfo = {
 		label,
 		pid: ptyProcess.pid,
 		shell: ptyProcess,
@@ -419,12 +421,12 @@ export async function startShell(
 		args,
 		cwd: effectiveWorkingDirectory,
 		host,
-		logs: existingProcess && isRestart ? existingProcess.logs : [],
+		logs: existingShell && isRestart ? existingShell.logs : [],
 		status: "starting",
 		exitCode: null,
 		signal: null,
-		lastExitTimestamp: existingProcess?.lastExitTimestamp,
-		restartAttempts: isRestart ? (existingProcess?.restartAttempts ?? 0) : 0, // Reset on fresh start
+		lastExitTimestamp: existingShell?.lastExitTimestamp,
+		restartAttempts: isRestart ? (existingShell?.restartAttempts ?? 0) : 0, // Reset on fresh start
 		retryDelayMs: undefined,
 		maxRetries: undefined,
 		logFilePath: null,
@@ -434,26 +436,26 @@ export async function startShell(
 		partialLineBuffer: "",
 		os: detectedOS,
 	};
-	managedProcesses.set(label, processInfo);
+	managedShells.set(label, shellInfo);
 	updateProcessStatus(label, "starting");
-	log.debug(label, "ProcessInfo created/updated in state.");
+	log.debug(label, "ShellInfo created/updated in state.");
 
 	// 5. Setup Log File Streaming (call helper)
-	setupLogFileStream(processInfo); // Mutates processInfo
+	setupLogFileStream(shellInfo); // Mutates shellInfo
 	addLogEntry(
 		label,
-		`Process spawned successfully (PID: ${ptyProcess.pid}) in ${effectiveWorkingDirectory}. Status: starting.`,
+		`Shell spawned successfully (PID: ${ptyProcess.pid}) in ${effectiveWorkingDirectory}. Status: starting.`,
 	);
 
 	// 6. Attach Persistent Listeners (if not failed/exited)
-	const currentProcessState = getShellInfo(label);
+	const currentShellState = getShellInfo(label);
 	if (
-		currentProcessState?.shell &&
-		!["error", "crashed", "stopped"].includes(currentProcessState.status)
+		currentShellState?.shell &&
+		!["error", "crashed", "stopped"].includes(currentShellState.status)
 	) {
 		log.debug(
 			label,
-			`Attaching persistent listeners. Status: ${currentProcessState.status}`,
+			`Attaching persistent listeners. Status: ${currentShellState.status}`,
 		);
 
 		// Data Listener
@@ -552,7 +554,7 @@ export async function startShell(
 				);
 			}
 		};
-		processInfo.mainDataListenerDisposable = ptyProcess.onData(dataListener);
+		shellInfo.mainDataListenerDisposable = ptyProcess.onData(dataListener);
 
 		// Exit Listener (Calls retry logic)
 		const exitListener = ({
@@ -588,7 +590,7 @@ export async function startShell(
 				signal !== undefined ? String(signal) : null,
 			);
 		};
-		processInfo.mainExitListenerDisposable = ptyProcess.onExit(exitListener);
+		shellInfo.mainExitListenerDisposable = ptyProcess.onExit(exitListener);
 		log.debug(label, "Persistent listeners attached.");
 		// Immediately set status to 'running' for non-verification processes
 		updateProcessStatus(label, "running");
@@ -596,25 +598,23 @@ export async function startShell(
 	} else {
 		log.warn(
 			label,
-			`Skipping persistent listener attachment. Process state: ${currentProcessState?.status}, process exists: ${!!currentProcessState?.shell}`,
+			`Skipping persistent listener attachment. Shell state: ${currentShellState?.status}, shell exists: ${!!currentShellState?.shell}`,
 		);
 	}
 
 	// 7. Construct Final Payload
-	const finalProcessInfo = getShellInfo(label);
-	if (!finalProcessInfo) {
+	const finalShellInfo = getShellInfo(label);
+	if (!finalShellInfo) {
 		// ... (error handling from _startProcess) ...
-		log.error(label, "Process info unexpectedly missing after start.");
+		log.error(label, "Shell info unexpectedly missing after start.");
 		return fail(
-			textPayload(
-				JSON.stringify({ error: "Internal error: Process info lost" }),
-			),
+			textPayload(JSON.stringify({ error: "Internal error: Shell info lost" })),
 		);
 	}
 
-	if (finalProcessInfo.status === "error") {
+	if (finalShellInfo.status === "error") {
 		// ... (error payload construction from _startProcess) ...
-		const errorMsg = "Process failed to start. Final status: error.";
+		const errorMsg = "Shell failed to start. Final status: error.";
 		log.error(label, errorMsg);
 		const payload: z.infer<typeof schemas.StartErrorPayloadSchema> = {
 			error: errorMsg,
@@ -630,30 +630,30 @@ export async function startShell(
 		logs?: string[];
 		monitoring_hint?: string;
 	} = {
-		label: finalProcessInfo.label,
-		command: finalProcessInfo.command,
-		args: finalProcessInfo.args,
-		pid: finalProcessInfo.pid as number,
-		workingDirectory: finalProcessInfo.cwd,
-		status: finalProcessInfo.status,
-		host: finalProcessInfo.host,
-		message: `Process '${label}' started successfully. Current status: ${finalProcessInfo.status}.`,
+		label: finalShellInfo.label,
+		command: finalShellInfo.command,
+		args: finalShellInfo.args,
+		pid: finalShellInfo.pid as number,
+		workingDirectory: finalShellInfo.cwd,
+		status: finalShellInfo.status,
+		host: finalShellInfo.host,
+		message: `Shell '${label}' started successfully. Current status: ${finalShellInfo.status}.`,
 		logs: formatLogsForResponse(
-			finalProcessInfo.logs.map((l) => l.content),
+			finalShellInfo.logs.map((l) => l.content),
 			cfg.defaultReturnLogLines,
 		),
 		monitoring_hint:
 			"Use check_process_status periodically to get status updates and new logs.",
-		tail_command: getTailCommand(finalProcessInfo.logFilePath) || undefined,
+		tail_command: getTailCommand(finalShellInfo.logFilePath) || undefined,
 	};
 	log.info(label, successPayload.message);
 
 	if (host === "cursor") {
-		const logFile = finalProcessInfo.logFilePath || "<logfile>";
+		const logFile = finalShellInfo.logFilePath || "<logfile>";
 		const strongMsg = CURSOR_TAIL_INSTRUCTION(
 			logFile,
 			label,
-			finalProcessInfo.os,
+			finalShellInfo.os,
 		);
 		return ok(
 			textPayload(JSON.stringify(successPayload)),
@@ -676,7 +676,7 @@ export async function startShellWithVerification(
 	maxRetries: number | undefined,
 	isRestart = false,
 ): Promise<CallToolResult> {
-	// Start the process without verification logic
+	// Start the shell without verification logic
 	const startResult = await startShell(
 		label,
 		command,
@@ -686,32 +686,32 @@ export async function startShellWithVerification(
 		isRestart,
 	);
 
-	// If process failed to start, return immediately
+	// If shell failed to start, return immediately
 	if (startResult.isError) {
 		return startResult;
 	}
 
-	// Attach verification parameters to processInfo
-	const processInfo = getShellInfo(label);
-	if (!processInfo) {
+	// Attach verification parameters to shellInfo
+	const shellInfo = getShellInfo(label);
+	if (!shellInfo) {
 		return startResult;
 	}
-	processInfo.verificationPattern = verificationPattern;
-	processInfo.verificationTimeoutMs = verificationTimeoutMs;
-	processInfo.retryDelayMs = retryDelayMs;
-	processInfo.maxRetries = maxRetries;
+	shellInfo.verificationPattern = verificationPattern;
+	shellInfo.verificationTimeoutMs = verificationTimeoutMs;
+	shellInfo.retryDelayMs = retryDelayMs;
+	shellInfo.maxRetries = maxRetries;
 
 	// Perform verification
 	const { verificationFailed, failureReason } =
-		await verifyProcessStartup(processInfo);
+		await verifyProcessStartup(shellInfo);
 
-	const finalProcessInfo = getShellInfo(label);
-	if (!finalProcessInfo) {
+	const finalShellInfo = getShellInfo(label);
+	if (!finalShellInfo) {
 		return startResult;
 	}
 
-	if (finalProcessInfo.status === "error") {
-		const errorMsg = `Process failed to start or verify. Final status: error. ${failureReason || "Unknown reason"}`;
+	if (finalShellInfo.status === "error") {
+		const errorMsg = `Shell failed to start or verify. Final status: error. ${failureReason || "Unknown reason"}`;
 		log.error(label, errorMsg);
 		const payload: z.infer<typeof schemas.StartErrorPayloadSchema> = {
 			error: errorMsg,
@@ -730,25 +730,25 @@ export async function startShellWithVerification(
 		verificationPattern?: string;
 		verificationTimeoutMs?: number;
 	} = {
-		label: finalProcessInfo.label,
-		command: finalProcessInfo.command,
-		args: finalProcessInfo.args,
-		pid: finalProcessInfo.pid as number,
-		workingDirectory: finalProcessInfo.cwd,
-		status: finalProcessInfo.status,
-		host: finalProcessInfo.host,
-		message: `Process '${label}' started successfully. Current status: ${finalProcessInfo.status}.`,
+		label: finalShellInfo.label,
+		command: finalShellInfo.command,
+		args: finalShellInfo.args,
+		pid: finalShellInfo.pid as number,
+		workingDirectory: finalShellInfo.cwd,
+		status: finalShellInfo.status,
+		host: finalShellInfo.host,
+		message: `Shell '${label}' started successfully. Current status: ${finalShellInfo.status}.`,
 		logs: formatLogsForResponse(
-			finalProcessInfo.logs.map((l) => l.content),
+			finalShellInfo.logs.map((l) => l.content),
 			cfg.defaultReturnLogLines,
 		),
 		monitoring_hint:
 			"Use check_process_status periodically to get status updates and new logs.",
-		tail_command: getTailCommand(finalProcessInfo.logFilePath) || undefined,
-		isVerificationEnabled: !!finalProcessInfo.verificationPattern,
+		tail_command: getTailCommand(finalShellInfo.logFilePath) || undefined,
+		isVerificationEnabled: !!finalShellInfo.verificationPattern,
 		verificationPattern:
-			finalProcessInfo.verificationPattern?.source ?? undefined,
-		verificationTimeoutMs: finalProcessInfo.verificationTimeoutMs,
+			finalShellInfo.verificationPattern?.source ?? undefined,
+		verificationTimeoutMs: finalShellInfo.verificationTimeoutMs,
 	};
 	log.info(label, successPayload.message);
 	return ok(textPayload(JSON.stringify(successPayload)));

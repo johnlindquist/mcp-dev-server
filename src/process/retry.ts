@@ -6,45 +6,45 @@ import {
 	removeShell,
 	updateProcessStatus,
 } from "../state.js"; // Adjust path
-import { managedProcesses } from "../state.js"; // Need state access
+import { managedShells } from "../state.js"; // Need state access
 import { log } from "../utils.js"; // Adjust path
 import { startShellWithVerification } from "./lifecycle.js"; // Import the new startProcess
 
 /**
- * Handles the logic for retrying a crashed process.
+ * Handles the logic for retrying a crashed shell.
  *
- * @param label The label of the crashed process.
+ * @param label The label of the crashed shell.
  */
-export async function handleShellCrashAndRetry(label: string): Promise<void> {
-	const processInfo = getShellInfo(label); // Use getProcessInfo to ensure latest state
-	if (!processInfo || processInfo.status !== "crashed") {
+export async function handleCrashAndRetry(label: string): Promise<void> {
+	const shellInfo = getShellInfo(label); // Use getShellInfo to ensure latest state
+	if (!shellInfo || shellInfo.status !== "crashed") {
 		log.warn(
 			label,
-			"handleCrashAndRetry called but process not found or not in crashed state.",
+			"handleCrashAndRetry called but shell not found or not in crashed state.",
 		);
 		return;
 	}
 
 	const now = Date.now();
-	const maxRetries = processInfo.maxRetries ?? cfg.maxRetries;
-	const retryDelay = processInfo.retryDelayMs ?? cfg.defaultRetryDelayMs;
+	const maxRetries = shellInfo.maxRetries ?? cfg.maxRetries;
+	const retryDelay = shellInfo.retryDelayMs ?? cfg.defaultRetryDelayMs;
 
 	// Reset restart attempts if outside the crash loop window
 	if (
-		processInfo.lastCrashTime &&
-		now - processInfo.lastCrashTime > cfg.crashLoopDetectionWindowMs
+		shellInfo.lastCrashTime &&
+		now - shellInfo.lastCrashTime > cfg.crashLoopDetectionWindowMs
 	) {
 		log.info(label, "Resetting restart attempts, outside crash loop window.");
-		processInfo.restartAttempts = 0;
+		shellInfo.restartAttempts = 0;
 	}
 
-	processInfo.lastCrashTime = now;
-	processInfo.restartAttempts = (processInfo.restartAttempts ?? 0) + 1;
+	shellInfo.lastCrashTime = now;
+	shellInfo.restartAttempts = (shellInfo.restartAttempts ?? 0) + 1;
 
-	if (processInfo.restartAttempts > maxRetries) {
+	if (shellInfo.restartAttempts > maxRetries) {
 		log.error(
 			label,
-			`Crash detected. Process exceeded max retries (${maxRetries}). Marking as error.`,
+			`Crash detected. Shell exceeded max retries (${maxRetries}). Marking as error.`,
 		);
 		addLogEntry(
 			label,
@@ -55,11 +55,11 @@ export async function handleShellCrashAndRetry(label: string): Promise<void> {
 	} else {
 		log.warn(
 			label,
-			`Crash detected. Attempting restart ${processInfo.restartAttempts}/${maxRetries} after ${retryDelay}ms...`,
+			`Crash detected. Attempting restart ${shellInfo.restartAttempts}/${maxRetries} after ${retryDelay}ms...`,
 		);
 		addLogEntry(
 			label,
-			`Crash detected. Attempting restart ${processInfo.restartAttempts}/${maxRetries}...`,
+			`Crash detected. Attempting restart ${shellInfo.restartAttempts}/${maxRetries}...`,
 		);
 		updateProcessStatus(label, "restarting");
 
@@ -70,14 +70,14 @@ export async function handleShellCrashAndRetry(label: string): Promise<void> {
 		// Call the new startProcessWithVerification from lifecycle.ts
 		await startShellWithVerification(
 			label,
-			processInfo.command,
-			processInfo.args,
-			processInfo.cwd,
-			processInfo.host,
-			processInfo.verificationPattern,
-			processInfo.verificationTimeoutMs,
-			processInfo.retryDelayMs,
-			processInfo.maxRetries,
+			shellInfo.command,
+			shellInfo.args,
+			shellInfo.cwd,
+			shellInfo.host,
+			shellInfo.verificationPattern,
+			shellInfo.verificationTimeoutMs,
+			shellInfo.retryDelayMs,
+			shellInfo.maxRetries,
 			true, // Indicate this is a restart
 		);
 	}
@@ -96,35 +96,35 @@ export function handleShellExit(
 	code: number | null,
 	signal: string | null,
 ): void {
-	const processInfo = getShellInfo(label);
-	if (!processInfo) {
-		log.warn(label, "handleProcessExit called but process info not found.");
+	const shellInfo = getShellInfo(label);
+	if (!shellInfo) {
+		log.warn(label, "handleProcessExit called but shell info not found.");
 		return;
 	}
 
 	// Close Log Stream
-	if (processInfo.logFileStream) {
+	if (shellInfo.logFileStream) {
 		log.debug(label, `Closing log file stream for ${label} due to exit.`);
 		addLogEntry(
 			label,
 			`--- Process Exited (Code: ${code ?? "N/A"}, Signal: ${signal ?? "N/A"}) ---`,
 		);
-		processInfo.logFileStream.end(() => {
+		shellInfo.logFileStream.end(() => {
 			log.debug(
 				label,
 				`Log file stream for ${label} finished writing and closed.`,
 			);
 		});
-		processInfo.logFileStream = null;
+		shellInfo.logFileStream = null;
 	}
 
-	const status = processInfo.status;
+	const status = shellInfo.status;
 
 	// Explicitly stopped
 	if (status === "stopping") {
 		log.info(
 			label,
-			`Process was explicitly stopped. Final code: ${code}, signal: ${signal}`,
+			`Shell was explicitly stopped. Final code: ${code}, signal: ${signal}`,
 		);
 		updateProcessStatus(label, "stopped", { code, signal });
 		const updatedInfo = getShellInfo(label);
@@ -135,17 +135,17 @@ export function handleShellExit(
 			removeShell(label);
 			log.info(
 				label,
-				`Process purged from management after reaching terminal state: ${updatedInfo.status}`,
+				`Shell purged from management after reaching terminal state: ${updatedInfo.status}`,
 			);
 		}
 	}
-	// Exited cleanly during startup/verification (let startProcess handle final state)
+	// Exited cleanly during startup/verification (let startShell handle final state)
 	else if (code === 0 && (status === "starting" || status === "verifying")) {
-		log.info(label, `Process exited cleanly (code 0) during ${status} phase.`);
-		// Store exit info for startProcess to check
-		processInfo.exitCode = code;
-		processInfo.signal = signal;
-		processInfo.lastExitTimestamp = Date.now();
+		log.info(label, `Shell exited cleanly (code 0) during ${status} phase.`);
+		// Store exit info for startShell to check
+		shellInfo.exitCode = code;
+		shellInfo.signal = signal;
+		shellInfo.lastExitTimestamp = Date.now();
 	}
 	// Exited cleanly while running
 	else if (code === 0 && status === "running") {
@@ -162,7 +162,7 @@ export function handleShellExit(
 			removeShell(label);
 			log.info(
 				label,
-				`Process purged from management after reaching terminal state: ${updatedInfo.status}`,
+				`Shell purged from management after reaching terminal state: ${updatedInfo.status}`,
 			);
 		}
 	}
@@ -170,7 +170,7 @@ export function handleShellExit(
 	else if (status !== "stopped" && status !== "error" && status !== "crashed") {
 		log.warn(
 			label,
-			`Process exited unexpectedly (code: ${code}, signal: ${signal}). Marking as crashed.`,
+			`Shell exited unexpectedly (code: ${code}, signal: ${signal}). Marking as crashed.`,
 		);
 		updateProcessStatus(label, "crashed", { code, signal });
 		const updatedInfo = getShellInfo(label);
@@ -181,60 +181,60 @@ export function handleShellExit(
 			removeShell(label);
 			log.info(
 				label,
-				`Process purged from management after reaching terminal state: ${updatedInfo.status}`,
+				`Shell purged from management after reaching terminal state: ${updatedInfo.status}`,
 			);
 		}
 		// Check retry configuration
 		if (
-			processInfo.maxRetries !== undefined &&
-			processInfo.maxRetries > 0 &&
-			processInfo.retryDelayMs !== undefined
+			shellInfo.maxRetries !== undefined &&
+			shellInfo.maxRetries > 0 &&
+			shellInfo.retryDelayMs !== undefined
 		) {
-			void handleShellCrashAndRetry(label); // Fire-and-forget retry handler
+			void handleCrashAndRetry(label); // Fire-and-forget retry handler
 		} else {
-			log.info(label, "Process crashed, but no retry configured.");
-			addLogEntry(label, "Process crashed. No retry configured.");
+			log.info(label, "Shell crashed, but no retry configured.");
+			addLogEntry(label, "Shell crashed. No retry configured.");
 		}
 	} else {
 		log.info(
 			label,
-			`Process exited but was already in state ${status}. No status change.`,
+			`Shell exited but was already in state ${status}. No status change.`,
 		);
 	}
 
 	// --- Cleanup Listeners (moved from state.ts) ---
-	if (processInfo.mainDataListenerDisposable) {
+	if (shellInfo.mainDataListenerDisposable) {
 		log.debug(label, "Disposing main data listener on exit.");
-		processInfo.mainDataListenerDisposable.dispose();
-		processInfo.mainDataListenerDisposable = undefined;
+		shellInfo.mainDataListenerDisposable.dispose();
+		shellInfo.mainDataListenerDisposable = undefined;
 	}
-	if (processInfo.mainExitListenerDisposable) {
+	if (shellInfo.mainExitListenerDisposable) {
 		log.debug(label, "Disposing main exit listener on exit.");
-		processInfo.mainExitListenerDisposable.dispose();
-		processInfo.mainExitListenerDisposable = undefined;
+		shellInfo.mainExitListenerDisposable.dispose();
+		shellInfo.mainExitListenerDisposable = undefined;
 	}
-	// Set process handle to null AFTER disposing listeners
-	processInfo.shell = null;
-	processInfo.pid = undefined; // Clear PID as well
+	// Set shell handle to null AFTER disposing listeners
+	shellInfo.shell = null;
+	shellInfo.pid = undefined; // Clear PID as well
 }
 
 /**
- * Stops all managed processes, typically called on server exit.
+ * Stops all managed shells, typically called on server exit.
  */
 export function stopAllShellsOnExit(): void {
-	log.info(null, "Stopping all managed processes on exit...");
+	log.info(null, "Stopping all managed shells on exit...");
 	const stopPromises: Promise<void>[] = [];
 
-	managedProcesses.forEach((processInfo, label) => {
+	managedShells.forEach((shellInfo, label) => {
 		log.info(
 			label,
-			`Attempting to stop process ${label} (PID: ${processInfo.pid})...`,
+			`Attempting to stop shell ${label} (PID: ${shellInfo.pid})...`,
 		);
-		if (processInfo.shell && processInfo.pid) {
+		if (shellInfo.shell && shellInfo.pid) {
 			updateProcessStatus(label, "stopping");
 			const stopPromise = new Promise<void>((resolve) => {
-				if (processInfo.pid) {
-					killProcessTree(processInfo.pid)
+				if (shellInfo.pid) {
+					killProcessTree(shellInfo.pid)
 						.then(() => {
 							resolve();
 						})
@@ -260,20 +260,20 @@ export function stopAllShellsOnExit(): void {
 			});
 			stopPromises.push(stopPromise);
 		} else {
-			log.warn(label, `Process ${label} has no active process or PID to stop.`);
+			log.warn(label, `Shell ${label} has no active process or PID to stop.`);
 		}
 
 		// Close Log Stream on Shutdown
-		if (processInfo.logFileStream) {
+		if (shellInfo.logFileStream) {
 			log.info(
 				label,
 				`Closing log stream for ${label} during server shutdown.`,
 			);
-			processInfo.logFileStream.end();
-			processInfo.logFileStream = null;
+			shellInfo.logFileStream.end();
+			shellInfo.logFileStream = null;
 		}
 	});
 
-	log.info(null, "Issued stop commands for all processes.");
-	managedProcesses.clear();
+	log.info(null, "Issued stop commands for all shells.");
+	managedShells.clear();
 }

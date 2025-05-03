@@ -3,12 +3,12 @@ import type { LogEntry, ShellInfo, ShellStatus } from "./types/process.js"; // U
 import { log } from "./utils.js";
 
 // Renamed Map
-export const managedProcesses: Map<string, ShellInfo> = new Map();
+export const managedShells: Map<string, ShellInfo> = new Map();
 
 // REMOVE: const killProcessTree = promisify(treeKill); // Define killProcessTree here
 
 export function addLogEntry(label: string, content: string): void {
-	const shellInfo = managedProcesses.get(label);
+	const shellInfo = managedShells.get(label);
 	if (!shellInfo) {
 		log.warn(
 			label,
@@ -60,7 +60,7 @@ export function updateProcessStatus(
 	status: ShellStatus,
 	exitInfo?: { code: number | null; signal: string | null },
 ): ShellInfo | undefined {
-	const oldProcessInfo = managedProcesses.get(label);
+	const oldProcessInfo = managedShells.get(label);
 	if (!oldProcessInfo) {
 		log.warn(label, "Attempted to update status but process info missing.");
 		return undefined;
@@ -92,7 +92,7 @@ export function updateProcessStatus(
 	};
 
 	// REPLACE the object in the map
-	managedProcesses.set(label, newProcessInfo);
+	managedShells.set(label, newProcessInfo);
 
 	// Log AFTER the update
 	addLogEntry(label, `Status changed to ${status}`);
@@ -123,14 +123,14 @@ export function updateProcessStatus(
 }
 
 export function removeShell(label: string): void {
-	const processInfo = managedProcesses.get(label);
+	const processInfo = managedShells.get(label);
 	// The try...catch block was here, but the try was empty.
 	// If cleanup logic is needed for processInfo.process, it should go here.
-	managedProcesses.delete(label);
+	managedShells.delete(label);
 	log.debug(label, "Removed process info from management.");
 }
 
 export function getShellInfo(label: string): ShellInfo | undefined {
-	const found = managedProcesses.get(label);
+	const found = managedShells.get(label);
 	return found;
 }

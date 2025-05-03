@@ -1,26 +1,26 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { serverLogDirectory } from "../main.js"; // Adjust path
-import { addLogEntry, managedProcesses } from "../state.js"; // Adjust path
+import { addLogEntry, managedShells } from "../state.js"; // Adjust path
 import type { ShellInfo } from "../types/process.js"; // Adjust path
 import { log, sanitizeLabelForFilename } from "../utils.js"; // Adjust path
 
 /**
- * Sets up the log file stream for a given process.
- * Updates the processInfo object with the path and stream.
+ * Sets up the log file stream for a given shell.
+ * Updates the shellInfo object with the path and stream.
  *
- * @param processInfo The process information object (will be mutated).
+ * @param shellInfo The shell information object (will be mutated).
  */
-export function setupLogFileStream(processInfo: ShellInfo): void {
-	const { label } = processInfo;
+export function setupLogFileStream(shellInfo: ShellInfo): void {
+	const { label } = shellInfo;
 
 	if (!serverLogDirectory) {
 		log.warn(
 			label,
 			"Log directory not configured, persistent file logging disabled.",
 		);
-		processInfo.logFilePath = null;
-		processInfo.logFileStream = null;
+		shellInfo.logFilePath = null;
+		shellInfo.logFileStream = null;
 		return;
 	}
 
@@ -33,7 +33,7 @@ export function setupLogFileStream(processInfo: ShellInfo): void {
 
 		logFileStream.on("error", (err) => {
 			log.error(label, `Error writing to log file ${logFilePath}:`, err);
-			const currentInfo = managedProcesses.get(label); // Get potentially updated info
+			const currentInfo = managedShells.get(label); // Get potentially updated info
 			if (currentInfo) {
 				currentInfo.logFileStream?.end(); // Attempt to close
 				currentInfo.logFileStream = null; // Prevent further writes
@@ -50,13 +50,13 @@ export function setupLogFileStream(processInfo: ShellInfo): void {
 			);
 		});
 
-		// Update processInfo directly
-		processInfo.logFilePath = logFilePath;
-		processInfo.logFileStream = logFileStream;
-		log.info(label, `Logging process output to: ${logFilePath}`);
+		// Update shellInfo directly
+		shellInfo.logFilePath = logFilePath;
+		shellInfo.logFileStream = logFileStream;
+		log.info(label, `Logging shell output to: ${logFilePath}`);
 	} catch (error) {
 		log.error(label, "Failed to create or open log file stream", error);
-		processInfo.logFilePath = null; // Ensure path/stream are null if setup failed
-		processInfo.logFileStream = null;
+		shellInfo.logFilePath = null; // Ensure path/stream are null if setup failed
+		shellInfo.logFileStream = null;
 	}
 }
