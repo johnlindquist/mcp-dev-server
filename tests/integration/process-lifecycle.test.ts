@@ -627,8 +627,7 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 		const COMMAND = "node";
 		const ARGS = [SCRIPT_PATH];
 
-		// Skipped due to known PTY prompt capture limitation (see README)
-		it.skip("should capture readline prompt and set isAwaitingInput", async () => {
+		it("should capture readline prompt and set isProbablyAwaitingInput", async () => {
 			const label = LABEL_PREFIX + Date.now();
 			// Start the process
 			const startRequest = {
@@ -647,7 +646,7 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 			};
 			await sendRequest(serverProcess, startRequest);
 
-			// Poll for up to 2 seconds for the prompt and isAwaitingInput
+			// Poll for up to 2 seconds for the prompt and isProbablyAwaitingInput
 			let found = false;
 			let lastCheckResult = null;
 			for (let i = 0; i < 20; i++) {
@@ -672,7 +671,7 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 					checkResult.logs?.some((line) =>
 						line.includes("Do you want to continue? (yes/no):"),
 					) &&
-					checkResult.isAwaitingInput === true
+					checkResult.isProbablyAwaitingInput === true
 				) {
 					found = true;
 					break;
@@ -752,12 +751,7 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 
 		for (const fixture of fixtures) {
 			// Skip bash-read, python-input, and python-multiline due to PTY limitation
-			const shouldSkip = [
-				"bash-read",
-				"python-input",
-				"python-multiline",
-			].includes(fixture.label);
-			const testFn = shouldSkip ? it.skip : it;
+			const testFn = it;
 			testFn(`should capture prompt for ${fixture.label}`, async () => {
 				// NOTE: Some interactive prompts (notably bash and python) may not be captured in PTY logs
 				// due to OS-level and language-level buffering that cannot be bypassed by stdbuf, script, or env vars.

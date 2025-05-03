@@ -83,55 +83,13 @@ export function handleData(
 		log.error(label, `[TEST ALL DATA] ${JSON.stringify(data)}`);
 	}
 
-	// Printable sentinel prompt detection for test
-	if (data.includes("@@OSC133B@@")) {
-		log.info(
-			label,
-			"Detected @@OSC133B@@ sentinel. Setting isAwaitingInput=true.",
-		);
-		processInfo.isAwaitingInput = true;
-	}
-
-	// OSC 133 prompt detection
-	const PROMPT_END_SEQUENCE = "\x1b]133;B";
-	const COMMAND_START_SEQUENCE = "\x1b]133;C";
-
-	if (data.includes(PROMPT_END_SEQUENCE)) {
-		log.info(
-			label,
-			"Detected OSC 133 prompt end sequence (B). Setting isAwaitingInput=true.",
-		);
-		log.error(label, `[DEBUG] OSC 133 detected in: ${JSON.stringify(data)}`);
-		processInfo.isAwaitingInput = true;
-	}
-	if (data.includes(COMMAND_START_SEQUENCE)) {
-		log.info(
-			label,
-			"Detected OSC 133 command start sequence (C). Setting isAwaitingInput=false.",
-		);
-		processInfo.isAwaitingInput = false;
-	}
-
-	if (data.includes("133;B")) {
-		log.error(
-			label,
-			`[DEBUG] char codes for 133;B: ${Array.from(data)
-				.map((c) => c.charCodeAt(0))
-				.join(",")}`,
-		);
-		if (typeof data === "string") {
-			const hex = Array.from(data)
-				.map((c) => c.charCodeAt(0).toString(16).padStart(2, "0"))
-				.join(" ");
-			log.error(label, `[DEBUG] hex for 133;B: ${hex}`);
-		}
-	}
-
-	if (data.includes("133;")) {
-		log.error(
-			label,
-			`[DEBUG] Fallback: data with 133;: ${JSON.stringify(data)}`,
-		);
+	// Heuristic: If the line looks like a prompt, set isProbablyAwaitingInput
+	// Common prompt endings: ': ', '? ', '> ', '): ', etc.
+	const promptLike = /([:>?] ?|\)?: ?)$/.test(data);
+	if (promptLike && data.trim().length > 0) {
+		processInfo.isProbablyAwaitingInput = true;
+	} else {
+		processInfo.isProbablyAwaitingInput = false;
 	}
 }
 
@@ -478,23 +436,43 @@ export async function startProcess(
 		);
 
 		// Data Listener
+		const FLUSH_IDLE_MS = 50;
 		const dataListener = (data: string): void => {
 			const currentInfo = getProcessInfo(label);
 			if (!currentInfo) return;
-			// Buffer logic from original onData handler
+
+			// Append new data to the buffer
 			currentInfo.partialLineBuffer =
 				(currentInfo.partialLineBuffer || "") + data;
-			let newlineIndex: number;
-			newlineIndex = currentInfo.partialLineBuffer.indexOf("\n");
-			while (newlineIndex >= 0) {
-				const line = currentInfo.partialLineBuffer.substring(
-					0,
-					newlineIndex + 1,
-				);
-				currentInfo.partialLineBuffer = currentInfo.partialLineBuffer.substring(
-					newlineIndex + 1,
-				);
-				const trimmedLine = line.replace(/\r?\n$/, "");
+
+			// Helper to flush the buffer as a log line
+			const flushBuffer = () => {
+				if (
+					currentInfo?.partialLineBuffer &&
+					currentInfo.partialLineBuffer.length > 0
+				) {
+					try {
+						handleData(label, currentInfo.partialLineBuffer, "stdout");
+					} catch (e: unknown) {
+						log.error(
+							label,
+							"Error processing PTY data (idle flush)",
+							(e as Error).message,
+						);
+					}
+					currentInfo.partialLineBuffer = "";
+				}
+			};
+
+			// Split on both \n and \r
+			const buffer = currentInfo.partialLineBuffer;
+			const lineRegex = /([\r\n])/g;
+			let lastIndex = 0;
+			let match: RegExpExecArray | null = lineRegex.exec(buffer);
+			while (match !== null) {
+				const endIdx = match.index + 1;
+				const line = buffer.substring(lastIndex, endIdx);
+				const trimmedLine = line.replace(/[\r\n]+$/, "");
 				if (trimmedLine) {
 					try {
 						handleData(label, trimmedLine, "stdout");
@@ -502,8 +480,18 @@ export async function startProcess(
 						log.error(label, "Error processing PTY data", (e as Error).message);
 					}
 				}
-				newlineIndex = currentInfo.partialLineBuffer.indexOf("\n");
+				lastIndex = endIdx;
+				match = lineRegex.exec(buffer);
 			}
+			currentInfo.partialLineBuffer = buffer.substring(lastIndex);
+
+			// Reset idle flush timer
+			if (currentInfo.idleFlushTimer) {
+				clearTimeout(currentInfo.idleFlushTimer);
+			}
+			currentInfo.idleFlushTimer = setTimeout(() => {
+				flushBuffer();
+			}, FLUSH_IDLE_MS);
 		};
 		processInfo.mainDataListenerDisposable = ptyProcess.onData(dataListener);
 
@@ -512,6 +500,29 @@ export async function startProcess(
 			exitCode,
 			signal,
 		}: { exitCode: number; signal?: number }) => {
+			// On exit, flush any remaining buffer
+			const currentInfo = getProcessInfo(label);
+			if (currentInfo) {
+				if (currentInfo.idleFlushTimer) {
+					clearTimeout(currentInfo.idleFlushTimer);
+					currentInfo.idleFlushTimer = undefined;
+				}
+				if (
+					currentInfo.partialLineBuffer &&
+					currentInfo.partialLineBuffer.length > 0
+				) {
+					try {
+						handleData(label, currentInfo.partialLineBuffer, "stdout");
+					} catch (e: unknown) {
+						log.error(
+							label,
+							"Error processing PTY data (exit flush)",
+							(e as Error).message,
+						);
+					}
+					currentInfo.partialLineBuffer = "";
+				}
+			}
 			handleProcessExit(
 				label,
 				exitCode ?? null,

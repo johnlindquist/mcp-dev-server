@@ -65,6 +65,7 @@ export interface ProcessInfo {
 	mainDataListenerDisposable?: IDisposable;
 	mainExitListenerDisposable?: IDisposable;
 	partialLineBuffer?: string;
+	idleFlushTimer?: NodeJS.Timeout;
 	os: OperatingSystemEnumType;
-	isAwaitingInput?: boolean;
+	isProbablyAwaitingInput?: boolean;
 }

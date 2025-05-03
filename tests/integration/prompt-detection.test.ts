@@ -203,7 +203,7 @@ echo "OSC 133 Configured"
 		await sendRequest(serverProcess, echoRequest);
 		// Wait for shell to process config and echo
 		await new Promise((resolve) => setTimeout(resolve, 2000));
-		// Check process status and assert isAwaitingInput is true
+		// Check process status and assert isProbablyAwaitingInput is true
 		const checkRequest = {
 			jsonrpc: "2.0",
 			method: "tools/call",
@@ -221,7 +221,7 @@ echo "OSC 133 Configured"
 		// Print logs for debugging
 		// eslint-disable-next-line no-console
 		console.log("Process logs:", checkResult.logs);
-		expect(checkResult.isAwaitingInput).toBe(true);
+		expect(checkResult.isProbablyAwaitingInput).toBe(true);
 		// Cleanup
 		const stopRequest = {
 			jsonrpc: "2.0",
@@ -235,7 +235,7 @@ echo "OSC 133 Configured"
 		await sendRequest(serverProcess, stopRequest);
 	});
 
-	it("should reset isAwaitingInput after command and set it again after next prompt", async () => {
+	it("should reset isProbablyAwaitingInput after command and set it again after next prompt", async () => {
 		const label = `${LABEL_PREFIX}reset-${Date.now()}`;
 		// Start bash -i
 		const startRequest = {
@@ -276,7 +276,7 @@ echo "OSC 133 Configured"
 		};
 		await sendRequest(serverProcess, echoRequest);
 		await new Promise((r) => setTimeout(r, 1000));
-		// Check isAwaitingInput is true
+		// Check isProbablyAwaitingInput is true
 		const check1 = {
 			jsonrpc: "2.0",
 			method: "tools/call",
@@ -287,7 +287,7 @@ echo "OSC 133 Configured"
 			result: { content: { text: string }[] };
 		};
 		const result1 = JSON.parse(resp1.result.content[0].text);
-		expect(result1.isAwaitingInput).toBe(true);
+		expect(result1.isProbablyAwaitingInput).toBe(true);
 		// Send a command (should clear prompt)
 		const cmdRequest = {
 			jsonrpc: "2.0",
@@ -308,7 +308,7 @@ echo "OSC 133 Configured"
 			result: { content: { text: string }[] };
 		};
 		const result2 = JSON.parse(resp2.result.content[0].text);
-		expect(result2.isAwaitingInput).toBe(true);
+		expect(result2.isProbablyAwaitingInput).toBe(true);
 		// Cleanup
 		const stopRequest = {
 			jsonrpc: "2.0",
@@ -319,7 +319,7 @@ echo "OSC 133 Configured"
 		await sendRequest(serverProcess, stopRequest);
 	});
 
-	it("should not set isAwaitingInput if no sentinel is injected", async () => {
+	it("should not set isProbablyAwaitingInput if no sentinel is injected", async () => {
 		const label = `${LABEL_PREFIX}no-sentinel-${Date.now()}`;
 		const startRequest = {
 			jsonrpc: "2.0",
@@ -347,7 +347,7 @@ echo "OSC 133 Configured"
 			result: { content: { text: string }[] };
 		};
 		const result = JSON.parse(resp.result.content[0].text);
-		expect(result.isAwaitingInput).toBe(false);
+		expect(result.isProbablyAwaitingInput).toBe(false);
 		const stopRequest = {
 			jsonrpc: "2.0",
 			method: "tools/call",
@@ -406,7 +406,7 @@ echo "OSC 133 Configured"
 				result: { content: { text: string }[] };
 			};
 			const result = JSON.parse(resp.result.content[0].text);
-			expect(result.isAwaitingInput).toBe(true);
+			expect(result.isProbablyAwaitingInput).toBe(true);
 		}
 		const stopRequest = {
 			jsonrpc: "2.0",
@@ -417,7 +417,7 @@ echo "OSC 133 Configured"
 		await sendRequest(serverProcess, stopRequest);
 	});
 
-	it("should reset isAwaitingInput after process exit", async () => {
+	it("should reset isProbablyAwaitingInput after process exit", async () => {
 		const label = `${LABEL_PREFIX}exit-${Date.now()}`;
 		const startRequest = {
 			jsonrpc: "2.0",
@@ -473,10 +473,10 @@ echo "OSC 133 Configured"
 			result: { content: { text: string }[] };
 		};
 		const result = JSON.parse(resp.result.content[0].text);
-		expect([false, undefined]).toContain(result.isAwaitingInput);
+		expect([false, undefined]).toContain(result.isProbablyAwaitingInput);
 	});
 
-	it("should not set isAwaitingInput for partial sentinel", async () => {
+	it("should not set isProbablyAwaitingInput for partial sentinel", async () => {
 		const label = `${LABEL_PREFIX}partial-${Date.now()}`;
 		const startRequest = {
 			jsonrpc: "2.0",
@@ -524,7 +524,7 @@ echo "OSC 133 Configured"
 			result: { content: { text: string }[] };
 		};
 		const result = JSON.parse(resp.result.content[0].text);
-		expect(result.isAwaitingInput).toBe(false);
+		expect(result.isProbablyAwaitingInput).toBe(false);
 		const stopRequest = {
 			jsonrpc: "2.0",
 			method: "tools/call",
