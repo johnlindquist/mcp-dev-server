@@ -310,3 +310,12 @@ Restarts a specific managed process (stops it if running, then starts it again w
 **Returns:** (JSON)
 
 Response payload for a successful restart_process call (structure mirrors start_process success). On failure, returns an error object with `
+
+## Known Limitations: Interactive Prompt Capture
+
+Some interactive prompts (notably from bash and python scripts) may not be captured in PTY logs, even with all known workarounds (e.g., stdbuf, script, unbuffered environment variables). This is due to OS-level and language-level output buffering that cannot always be bypassed from the outside.
+
+- **Node.js-based prompts are reliably captured.**
+- **Echo/output from all languages is reliably captured.**
+- If you need to ensure prompts are visible to the process manager, prefer Node.js-based CLIs or ensure your tool flushes output explicitly.
+- This is a fundamental limitation of PTY and buffering behavior, not a bug in the process manager.
