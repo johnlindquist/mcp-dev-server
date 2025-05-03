@@ -2,7 +2,7 @@
 
 import type { IDisposable, IPty } from "node-pty";
 import { cfg } from "../constants/index.js"; // Update path
-import { getProcessInfo, updateProcessStatus } from "../state.js"; // Adjust path
+import { getShellInfo, updateProcessStatus } from "../state.js"; // Adjust path
 import { log } from "../utils.js"; // Adjust path
 import { handleData } from "./lifecycle.js"; // Assuming handleData moves to lifecycle
 
@@ -142,7 +142,7 @@ export async function verifyProcessStartup(processInfo: {
 			"No verification pattern provided, skipping verification.",
 		);
 		// Update status to running immediately if no verification needed
-		const currentStatus = getProcessInfo(label)?.status;
+		const currentStatus = getShellInfo(label)?.status;
 		if (currentStatus === "starting") {
 			updateProcessStatus(label, "running");
 			addLogEntry(label, "Status: running (no verification specified).");
@@ -154,8 +154,8 @@ export async function verifyProcessStartup(processInfo: {
 		}; // Auto-verified
 	}
 
-	const currentInfo = getProcessInfo(label);
-	if (!currentInfo || !currentInfo.process) {
+	const currentInfo = getShellInfo(label);
+	if (!currentInfo || !currentInfo.shell) {
 		log.error(label, "Cannot verify startup, process info or PTY not found.");
 		return {
 			patternMatched: false,
@@ -163,7 +163,7 @@ export async function verifyProcessStartup(processInfo: {
 			failureReason: "Process or PTY not found during verification",
 		};
 	}
-	const ptyProcess = currentInfo.process;
+	const ptyProcess = currentInfo.shell;
 
 	let verificationPromiseResolved = false;
 	let dataListenerDisposable: IDisposable | undefined;
@@ -196,7 +196,7 @@ export async function verifyProcessStartup(processInfo: {
 				handleData(label, data.replace(/\r\n?|\n$/, ""), "stdout");
 
 				if (verificationPattern.test(data)) {
-					const currentStatus = getProcessInfo(label)?.status;
+					const currentStatus = getShellInfo(label)?.status;
 					if (currentStatus === "verifying") {
 						log.info(label, "Verification pattern matched.");
 						patternMatched = true;
@@ -225,7 +225,7 @@ export async function verifyProcessStartup(processInfo: {
 			signal,
 		}: { exitCode: number; signal?: number }) => {
 			if (verificationPromiseResolved) return;
-			const currentStatus = getProcessInfo(label)?.status;
+			const currentStatus = getShellInfo(label)?.status;
 			if (currentStatus === "verifying") {
 				log.warn(
 					label,
@@ -248,7 +248,7 @@ export async function verifyProcessStartup(processInfo: {
 		if (verificationTimeoutMs !== undefined && verificationTimeoutMs >= 0) {
 			verificationTimer = setTimeout(() => {
 				if (verificationPromiseResolved) return;
-				const currentStatus = getProcessInfo(label)?.status;
+				const currentStatus = getShellInfo(label)?.status;
 				if (currentStatus === "verifying") {
 					log.warn(
 						label,
@@ -279,7 +279,7 @@ export async function verifyProcessStartup(processInfo: {
 	);
 
 	// Update status based on verification result *only if still verifying*
-	const finalInfo = getProcessInfo(label);
+	const finalInfo = getShellInfo(label);
 	if (finalInfo?.status === "verifying") {
 		if (patternMatched) {
 			addLogEntry(label, "Verification successful. Status: running.");

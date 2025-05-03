@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { cfg } from "./constants/index.js";
-import { stopAllProcessesOnExit } from "./process/retry.js";
+import { stopAllShellsOnExit } from "./process/retry.js";
 import {
 	clearZombieCheckInterval,
 	setZombieCheckInterval,
@@ -75,7 +75,7 @@ async function main() {
 	const cleanup = () => {
 		log.info(null, "Initiating graceful shutdown...");
 		clearZombieCheckInterval();
-		stopAllProcessesOnExit();
+		stopAllShellsOnExit();
 		log.info(null, "Cleanup complete. Exiting.");
 		process.exit(0);
 	};

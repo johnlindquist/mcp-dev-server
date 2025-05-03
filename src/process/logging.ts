@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { serverLogDirectory } from "../main.js"; // Adjust path
 import { addLogEntry, managedProcesses } from "../state.js"; // Adjust path
-import type { ProcessInfo } from "../types/process.js"; // Adjust path
+import type { ShellInfo } from "../types/process.js"; // Adjust path
 import { log, sanitizeLabelForFilename } from "../utils.js"; // Adjust path
 
 /**
@@ -11,7 +11,7 @@ import { log, sanitizeLabelForFilename } from "../utils.js"; // Adjust path
  *
  * @param processInfo The process information object (will be mutated).
  */
-export function setupLogFileStream(processInfo: ProcessInfo): void {
+export function setupLogFileStream(processInfo: ShellInfo): void {
 	const { label } = processInfo;
 
 	if (!serverLogDirectory) {

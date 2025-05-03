@@ -21,23 +21,23 @@ import { checkAndUpdateProcessStatus } from "../processSupervisor.js";
 import { killPtyProcess } from "../ptyManager.js";
 import {
 	addLogEntry,
-	getProcessInfo,
+	getShellInfo,
 	managedProcesses,
 	updateProcessStatus,
 } from "../state.js";
 import type {
 	HostEnumType,
 	OperatingSystemEnumType,
-	ProcessInfo,
-	ProcessStatus,
+	ShellInfo,
+	ShellStatus,
 } from "../types/process.js";
 import type * as schemas from "../types/schemas.js";
 import { formatLogsForResponse, getTailCommand, log } from "../utils.js";
 
 // Import newly created functions
 import { setupLogFileStream } from "./logging.js";
-import { handleProcessExit } from "./retry.js"; // Assuming retry logic helper is named this
-import { spawnPtyProcess } from "./spawn.js"; // <-- Import spawnPtyProcess
+import { handleShellExit } from "./retry.js"; // Assuming retry logic helper is named this
+import { spawnPtyShell } from "./spawn.js"; // <-- Import spawnPtyProcess
 import { verifyProcessStartup } from "./verify.js";
 
 // Max length for rolling OSC 133 buffer
@@ -56,7 +56,7 @@ export function handleData(
 	data: string,
 	source: "stdout" | "stderr",
 ): void {
-	const processInfo = getProcessInfo(label);
+	const processInfo = getShellInfo(label);
 	if (!processInfo) {
 		log.warn(label, `[handleData] Received data for unknown process: ${label}`);
 		return; // Exit if process not found
@@ -157,10 +157,7 @@ export async function stopProcess(
 	}
 
 	// Check if we have a process handle and PID to work with
-	if (
-		!initialProcessInfo.process ||
-		typeof initialProcessInfo.pid !== "number"
-	) {
+	if (!initialProcessInfo.shell || typeof initialProcessInfo.pid !== "number") {
 		log.warn(
 			label,
 			`Process "${label}" found but has no active process handle or PID. Cannot send signals. Marking as error.`,
@@ -182,8 +179,8 @@ export async function stopProcess(
 	updateProcessStatus(label, "stopping");
 
 	let finalMessage = "";
-	let finalStatus: ProcessStatus = initialProcessInfo.status; // Use ProcessStatus type
-	const processToKill = initialProcessInfo.process; // Store reference
+	let finalStatus: ShellStatus = initialProcessInfo.status; // Use ProcessStatus type
+	const processToKill = initialProcessInfo.shell; // Store reference
 	const pidToKill = initialProcessInfo.pid; // Store PID
 
 	try {
@@ -277,7 +274,7 @@ export async function stopProcess(
  * Main function to start and manage a background process.
  * Orchestrates spawning, logging, verification, and listener setup.
  */
-export async function startProcess(
+export async function startShell(
 	label: string,
 	command: string,
 	args: string[],
@@ -311,7 +308,7 @@ export async function startProcess(
 				status: "error",
 				logs: [],
 				pid: undefined,
-				process: null,
+				shell: null,
 				exitCode: null,
 				signal: null,
 				logFilePath: null,
@@ -366,7 +363,7 @@ export async function startProcess(
 	let ptyProcess: IPty;
 	try {
 		log.debug(label, `Attempting to spawn PTY with command: ${command}`);
-		ptyProcess = spawnPtyProcess(
+		ptyProcess = spawnPtyShell(
 			// <-- Use imported function
 			command,
 			args,
@@ -388,7 +385,7 @@ export async function startProcess(
 				status: "error",
 				logs: [],
 				pid: undefined,
-				process: null,
+				shell: null,
 				exitCode: null,
 				signal: null,
 				logFilePath: null,
@@ -414,10 +411,10 @@ export async function startProcess(
 	else detectedOS = "linux";
 
 	// 4. Create/Update ProcessInfo State
-	const processInfo: ProcessInfo = {
+	const processInfo: ShellInfo = {
 		label,
 		pid: ptyProcess.pid,
-		process: ptyProcess,
+		shell: ptyProcess,
 		command,
 		args,
 		cwd: effectiveWorkingDirectory,
@@ -449,9 +446,9 @@ export async function startProcess(
 	);
 
 	// 6. Attach Persistent Listeners (if not failed/exited)
-	const currentProcessState = getProcessInfo(label);
+	const currentProcessState = getShellInfo(label);
 	if (
-		currentProcessState?.process &&
+		currentProcessState?.shell &&
 		!["error", "crashed", "stopped"].includes(currentProcessState.status)
 	) {
 		log.debug(
@@ -462,7 +459,7 @@ export async function startProcess(
 		// Data Listener
 		const FLUSH_IDLE_MS = 50;
 		const dataListener = (data: string): void => {
-			const currentInfo = getProcessInfo(label);
+			const currentInfo = getShellInfo(label);
 			if (!currentInfo) return;
 
 			// --- OSC 133 rolling buffer detection (on every data chunk) ---
@@ -563,7 +560,7 @@ export async function startProcess(
 			signal,
 		}: { exitCode: number; signal?: number }) => {
 			// On exit, flush any remaining buffer
-			const currentInfo = getProcessInfo(label);
+			const currentInfo = getShellInfo(label);
 			if (currentInfo) {
 				if (currentInfo.idleFlushTimer) {
 					clearTimeout(currentInfo.idleFlushTimer);
@@ -585,7 +582,7 @@ export async function startProcess(
 					currentInfo.partialLineBuffer = "";
 				}
 			}
-			handleProcessExit(
+			handleShellExit(
 				label,
 				exitCode ?? null,
 				signal !== undefined ? String(signal) : null,
@@ -599,12 +596,12 @@ export async function startProcess(
 	} else {
 		log.warn(
 			label,
-			`Skipping persistent listener attachment. Process state: ${currentProcessState?.status}, process exists: ${!!currentProcessState?.process}`,
+			`Skipping persistent listener attachment. Process state: ${currentProcessState?.status}, process exists: ${!!currentProcessState?.shell}`,
 		);
 	}
 
 	// 7. Construct Final Payload
-	const finalProcessInfo = getProcessInfo(label);
+	const finalProcessInfo = getShellInfo(label);
 	if (!finalProcessInfo) {
 		// ... (error handling from _startProcess) ...
 		log.error(label, "Process info unexpectedly missing after start.");
@@ -629,7 +626,7 @@ export async function startProcess(
 
 	// Success case
 	const successPayload: z.infer<typeof schemas.StartSuccessPayloadSchema> & {
-		status: ProcessStatus;
+		status: ShellStatus;
 		logs?: string[];
 		monitoring_hint?: string;
 	} = {
@@ -667,7 +664,7 @@ export async function startProcess(
 	return ok(textPayload(JSON.stringify(successPayload)));
 }
 
-export async function startProcessWithVerification(
+export async function startShellWithVerification(
 	label: string,
 	command: string,
 	args: string[],
@@ -680,7 +677,7 @@ export async function startProcessWithVerification(
 	isRestart = false,
 ): Promise<CallToolResult> {
 	// Start the process without verification logic
-	const startResult = await startProcess(
+	const startResult = await startShell(
 		label,
 		command,
 		args,
@@ -695,7 +692,7 @@ export async function startProcessWithVerification(
 	}
 
 	// Attach verification parameters to processInfo
-	const processInfo = getProcessInfo(label);
+	const processInfo = getShellInfo(label);
 	if (!processInfo) {
 		return startResult;
 	}
@@ -708,7 +705,7 @@ export async function startProcessWithVerification(
 	const { verificationFailed, failureReason } =
 		await verifyProcessStartup(processInfo);
 
-	const finalProcessInfo = getProcessInfo(label);
+	const finalProcessInfo = getShellInfo(label);
 	if (!finalProcessInfo) {
 		return startResult;
 	}
@@ -726,7 +723,7 @@ export async function startProcessWithVerification(
 
 	// Success case (reuse the same payload as startProcess)
 	const successPayload: z.infer<typeof schemas.StartSuccessPayloadSchema> & {
-		status: ProcessStatus;
+		status: ShellStatus;
 		logs?: string[];
 		monitoring_hint?: string;
 		isVerificationEnabled?: boolean;

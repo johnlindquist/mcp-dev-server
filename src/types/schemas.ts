@@ -16,7 +16,7 @@ export const labelSchema = z
 
 // --- Parameter Schemas ---
 
-export const StartProcessParams = z.object(
+export const StartShellParams = z.object(
 	shape({
 		label: labelSchema
 			.optional()
@@ -47,10 +47,10 @@ export const StartProcessParams = z.object(
 			),
 	}),
 );
-export type StartProcessParamsType = z.infer<typeof StartProcessParams>;
+export type StartProcessParamsType = z.infer<typeof StartShellParams>;
 
 // New: StartProcessWithVerificationParams
-export const StartProcessWithVerificationParams = z.object(
+export const StartShellWithVerificationParams = z.object(
 	shape({
 		label: labelSchema
 			.optional()
@@ -113,7 +113,7 @@ export const StartProcessWithVerificationParams = z.object(
 	}),
 );
 export type StartProcessWithVerificationParamsType = z.infer<
-	typeof StartProcessWithVerificationParams
+	typeof StartShellWithVerificationParams
 >;
 
 export const CheckProcessStatusParams = z.object(
@@ -221,7 +221,7 @@ export type SendInputParamsType = z.infer<typeof SendInputParams>;
 // --- Response Payload Schemas ---
 
 // Shared schema part for status responses
-export const ProcessStatusInfoSchema = z.object({
+export const ShellStatusInfoSchema = z.object({
 	label: z.string().describe("The unique identifier for the process."),
 	status: z
 		.enum([
@@ -312,7 +312,7 @@ export const StartErrorPayloadSchema = z
 export type StartErrorPayloadType = z.infer<typeof StartErrorPayloadSchema>;
 
 // check_process_status payload
-export const CheckStatusPayloadSchema = ProcessStatusInfoSchema.extend({
+export const CheckStatusPayloadSchema = ShellStatusInfoSchema.extend({
 	logs: z
 		.array(z.string())
 		.describe(
@@ -333,7 +333,7 @@ export const CheckStatusPayloadSchema = ProcessStatusInfoSchema.extend({
 export type CheckStatusPayloadType = z.infer<typeof CheckStatusPayloadSchema>;
 
 // list_processes individual item schema
-export const ListProcessDetailSchema = ProcessStatusInfoSchema.extend({
+export const ListProcessDetailSchema = ShellStatusInfoSchema.extend({
 	logs: z
 		.array(z.string())
 		.describe(

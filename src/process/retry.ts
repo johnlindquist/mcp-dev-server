@@ -2,21 +2,21 @@ import { cfg } from "../constants/index.js"; // Update path
 import { killProcessTree } from "../processLifecycle.js";
 import {
 	addLogEntry,
-	getProcessInfo,
-	removeProcess,
+	getShellInfo,
+	removeShell,
 	updateProcessStatus,
 } from "../state.js"; // Adjust path
 import { managedProcesses } from "../state.js"; // Need state access
 import { log } from "../utils.js"; // Adjust path
-import { startProcessWithVerification } from "./lifecycle.js"; // Import the new startProcess
+import { startShellWithVerification } from "./lifecycle.js"; // Import the new startProcess
 
 /**
  * Handles the logic for retrying a crashed process.
  *
  * @param label The label of the crashed process.
  */
-export async function handleCrashAndRetry(label: string): Promise<void> {
-	const processInfo = getProcessInfo(label); // Use getProcessInfo to ensure latest state
+export async function handleShellCrashAndRetry(label: string): Promise<void> {
+	const processInfo = getShellInfo(label); // Use getProcessInfo to ensure latest state
 	if (!processInfo || processInfo.status !== "crashed") {
 		log.warn(
 			label,
@@ -68,7 +68,7 @@ export async function handleCrashAndRetry(label: string): Promise<void> {
 
 		log.info(label, "Initiating restart...");
 		// Call the new startProcessWithVerification from lifecycle.ts
-		await startProcessWithVerification(
+		await startShellWithVerification(
 			label,
 			processInfo.command,
 			processInfo.args,
@@ -91,12 +91,12 @@ export async function handleCrashAndRetry(label: string): Promise<void> {
  * @param code The exit code (null if killed by signal).
  * @param signal The signal name (null if exited normally).
  */
-export function handleProcessExit(
+export function handleShellExit(
 	label: string,
 	code: number | null,
 	signal: string | null,
 ): void {
-	const processInfo = getProcessInfo(label);
+	const processInfo = getShellInfo(label);
 	if (!processInfo) {
 		log.warn(label, "handleProcessExit called but process info not found.");
 		return;
@@ -127,12 +127,12 @@ export function handleProcessExit(
 			`Process was explicitly stopped. Final code: ${code}, signal: ${signal}`,
 		);
 		updateProcessStatus(label, "stopped", { code, signal });
-		const updatedInfo = getProcessInfo(label);
+		const updatedInfo = getShellInfo(label);
 		if (
 			updatedInfo &&
 			["stopped", "crashed", "error"].includes(updatedInfo.status)
 		) {
-			removeProcess(label);
+			removeShell(label);
 			log.info(
 				label,
 				`Process purged from management after reaching terminal state: ${updatedInfo.status}`,
@@ -154,12 +154,12 @@ export function handleProcessExit(
 			`[handleProcessExit] Condition met: code === 0 && status === \"running\". Calling updateProcessStatus('stopped').`,
 		);
 		updateProcessStatus(label, "stopped", { code, signal });
-		const updatedInfo = getProcessInfo(label);
+		const updatedInfo = getShellInfo(label);
 		if (
 			updatedInfo &&
 			["stopped", "crashed", "error"].includes(updatedInfo.status)
 		) {
-			removeProcess(label);
+			removeShell(label);
 			log.info(
 				label,
 				`Process purged from management after reaching terminal state: ${updatedInfo.status}`,
@@ -173,12 +173,12 @@ export function handleProcessExit(
 			`Process exited unexpectedly (code: ${code}, signal: ${signal}). Marking as crashed.`,
 		);
 		updateProcessStatus(label, "crashed", { code, signal });
-		const updatedInfo = getProcessInfo(label);
+		const updatedInfo = getShellInfo(label);
 		if (
 			updatedInfo &&
 			["stopped", "crashed", "error"].includes(updatedInfo.status)
 		) {
-			removeProcess(label);
+			removeShell(label);
 			log.info(
 				label,
 				`Process purged from management after reaching terminal state: ${updatedInfo.status}`,
@@ -190,7 +190,7 @@ export function handleProcessExit(
 			processInfo.maxRetries > 0 &&
 			processInfo.retryDelayMs !== undefined
 		) {
-			void handleCrashAndRetry(label); // Fire-and-forget retry handler
+			void handleShellCrashAndRetry(label); // Fire-and-forget retry handler
 		} else {
 			log.info(label, "Process crashed, but no retry configured.");
 			addLogEntry(label, "Process crashed. No retry configured.");
@@ -214,14 +214,14 @@ export function handleProcessExit(
 		processInfo.mainExitListenerDisposable = undefined;
 	}
 	// Set process handle to null AFTER disposing listeners
-	processInfo.process = null;
+	processInfo.shell = null;
 	processInfo.pid = undefined; // Clear PID as well
 }
 
 /**
  * Stops all managed processes, typically called on server exit.
  */
-export function stopAllProcessesOnExit(): void {
+export function stopAllShellsOnExit(): void {
 	log.info(null, "Stopping all managed processes on exit...");
 	const stopPromises: Promise<void>[] = [];
 
@@ -230,7 +230,7 @@ export function stopAllProcessesOnExit(): void {
 			label,
 			`Attempting to stop process ${label} (PID: ${processInfo.pid})...`,
 		);
-		if (processInfo.process && processInfo.pid) {
+		if (processInfo.shell && processInfo.pid) {
 			updateProcessStatus(label, "stopping");
 			const stopPromise = new Promise<void>((resolve) => {
 				if (processInfo.pid) {

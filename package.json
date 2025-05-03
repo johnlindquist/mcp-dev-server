@@ -1,5 +1,5 @@
 {
-	"name": "mcp-pm",
+	"name": "mcp-shell-yeah",
 	"version": "0.0.0-placeholder",
 	"description": "A Model Context Protocol server for managing background processes",
 	"private": false,

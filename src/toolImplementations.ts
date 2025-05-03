@@ -3,8 +3,8 @@ import type { z } from "zod";
 import { cfg } from "./constants/index.js";
 import { fail, getResultText, ok, textPayload } from "./mcpUtils.js";
 import {
-	startProcess,
-	startProcessWithVerification,
+	startShell,
+	startShellWithVerification,
 	stopProcess,
 } from "./process/lifecycle.js";
 import {
@@ -362,7 +362,7 @@ export async function restartProcessImpl(
 		processInfo.retryDelayMs ||
 		processInfo.maxRetries
 	) {
-		startResult = await startProcessWithVerification(
+		startResult = await startShellWithVerification(
 			label,
 			processInfo.command,
 			processInfo.args,
@@ -375,7 +375,7 @@ export async function restartProcessImpl(
 			true,
 		);
 	} else {
-		startResult = await startProcess(
+		startResult = await startShell(
 			label,
 			processInfo.command,
 			processInfo.args,
@@ -541,7 +541,7 @@ export async function sendInputImpl(
 	log.info(label, "Tool invoked: send_input");
 	const processInfo = await checkAndUpdateProcessStatus(label);
 
-	if (!processInfo || !processInfo.process) {
+	if (!processInfo || !processInfo.shell) {
 		const status = processInfo?.status ?? "not_found";
 		const message = `Process "${label}" not running or not found (status: ${status}). Cannot send input.`;
 		log.warn(label, message);
@@ -560,7 +560,7 @@ export async function sendInputImpl(
 			label,
 			`Sending input to PTY: "${stripAnsiAndControlChars(inputToSend)}"`,
 		);
-		await writeToPty(processInfo.process, inputToSend, label);
+		await writeToPty(processInfo.shell, inputToSend, label);
 		addLogEntry(label, `[MCP_INPUT] ${input}`);
 
 		const message = `Input sent successfully to process "${label}".`;

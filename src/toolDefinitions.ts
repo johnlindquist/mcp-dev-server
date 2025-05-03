@@ -1,8 +1,8 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ZodRawShape, z } from "zod";
 import {
-	startProcess,
-	startProcessWithVerification,
+	startShell,
+	startShellWithVerification,
 	stopProcess,
 } from "./process/lifecycle.js";
 import { handleToolCall } from "./toolHandler.js";
@@ -23,7 +23,7 @@ import { log } from "./utils.js";
 
 const shape = <T extends ZodRawShape>(shape: T): T => shape;
 
-export type StartProcessParamsType = z.infer<typeof schemas.StartProcessParams>;
+export type StartProcessParamsType = z.infer<typeof schemas.StartShellParams>;
 export type CheckProcessStatusParamsType = z.infer<
 	typeof schemas.CheckProcessStatusParams
 >;
@@ -46,7 +46,7 @@ export function registerToolDefinitions(server: McpServer): void {
 	server.tool(
 		"start_process",
 		"Starts a background process (like a dev server or script) and manages it.",
-		shape(schemas.StartProcessParams.shape),
+		shape(schemas.StartShellParams.shape),
 		(params: StartProcessParamsType) => {
 			const cwdForLabel = params.workingDirectory;
 			const effectiveLabel = params.label || `${cwdForLabel}:${params.command}`;
@@ -62,7 +62,7 @@ export function registerToolDefinitions(server: McpServer): void {
 				"start_process",
 				params,
 				async () => {
-					return await startProcess(
+					return await startShell(
 						effectiveLabel,
 						params.command,
 						params.args,
@@ -78,7 +78,7 @@ export function registerToolDefinitions(server: McpServer): void {
 	server.tool(
 		"start_process_with_verification",
 		"Starts a background process with verification (pattern, timeout, retries).",
-		shape(schemas.StartProcessWithVerificationParams.shape),
+		shape(schemas.StartShellWithVerificationParams.shape),
 		(params: schemas.StartProcessWithVerificationParamsType) => {
 			const cwdForLabel = params.workingDirectory;
 			const effectiveLabel = params.label || `${cwdForLabel}:${params.command}`;
@@ -97,7 +97,7 @@ export function registerToolDefinitions(server: McpServer): void {
 					const verificationPattern = params.verification_pattern
 						? new RegExp(params.verification_pattern)
 						: undefined;
-					return await startProcessWithVerification(
+					return await startShellWithVerification(
 						effectiveLabel,
 						params.command,
 						params.args,

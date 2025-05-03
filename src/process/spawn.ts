@@ -13,7 +13,7 @@ import { log } from "../utils.js"; // Adjust path
  * @returns The IPty object representing the spawned process.
  * @throws Error if PTY process fails to spawn.
  */
-export function spawnPtyProcess(
+export function spawnPtyShell(
 	command: string,
 	args: string[],
 	cwd: string,

@@ -18,7 +18,7 @@ export const OperatingSystemEnum = z.enum(["windows", "linux", "mac"]);
 export type OperatingSystemEnumType = z.infer<typeof OperatingSystemEnum>;
 
 /** Represents the current state of a managed process. */
-export type ProcessStatus =
+export type ShellStatus =
 	| "starting"
 	| "running"
 	| "verifying"
@@ -35,16 +35,16 @@ export interface LogEntry {
 }
 
 /** Detailed information about a managed process. */
-export interface ProcessInfo {
+export interface ShellInfo {
 	label: string;
 	command: string;
 	args: string[];
 	cwd: string;
 	host: HostEnumType;
-	status: ProcessStatus;
+	status: ShellStatus;
 	logs: LogEntry[];
 	pid: number | undefined;
-	process: IPty | null;
+	shell: IPty | null;
 	dataListener?: IDisposable;
 	onExitListener?: IDisposable;
 	exitCode: number | null;
