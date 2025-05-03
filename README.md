@@ -50,9 +50,9 @@ It allows MCP-compatible clients to start, monitor, retrieve logs from, and stop
 
 This server exposes the following tools for MCP clients:
 
-*   `start_shell`: Starts a new background process. (Label is optional) If any URLs are detected in the shell output (such as dev server links), the response will include them as markdown-formatted links for easy access in a browser.
+*   `start_shell`: Starts a new background process. (Label is optional) If any URLs are found in logs, the AI should extract and return them as markdown links.
 *   `start_shell_with_verification`: Starts a new background process with verification, timeout, and retry options. (Label is optional)
-*   `check_shell`: Checks the status and logs of a specific process. (Requires label) If any URLs are detected in the shell output, the response will include them as markdown-formatted links for easy access in a browser.
+*   `check_shell`: Checks the status and logs of a specific process. (Requires label) If any URLs are found in logs, the AI should extract and return them as markdown links.
 *   `stop_shell`: Stops a specific process. (Requires label)
 *   `list_shelles`: Lists all currently managed processes and their basic status.
 *   `stop_all_shelles`: Attempts to stop all managed processes.
@@ -165,7 +165,7 @@ Starts a background process (like a dev server or script) and manages it.
 
 **Returns:** (JSON)
 
-Response payload for a successful start_shell call. Contains fields like `label`, `status`, `pid`, `command`, `args`, `cwd`, `exitCode`, `signal`, `log_file_path`, `tail_command`, `message`, `logs`, `monitoring_hint`, `info_message`, and `detected_urls` (if any URLs are found in the shell output, they will be included as markdown-formatted links).
+Response payload for a successful start_shell call. Contains fields like `label`, `status`, `pid`, `command`, `args`, `cwd`, `exitCode`, `signal`, `log_file_path`, `tail_command`, `message`, `logs`, `monitoring_hint`, `info_message`, and `detected_urls` (if any URLs are found in logs, the AI should extract and return them as markdown links).
 *   `instructions` (string, optional): If the `host` was specified as `"cursor"` and file logging is enabled, this field will contain a suggested instruction for the Cursor IDE, like starting a background terminal to run the `tail_command`.
 On failure, returns an error object, potentially including `error`, `status`, `cwd`, `error_type`.
 

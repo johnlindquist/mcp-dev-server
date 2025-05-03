@@ -298,11 +298,11 @@ export const StartSuccessPayloadSchema = z
 			.array(z.string())
 			.optional()
 			.describe(
-				"Any URLs detected in the shell output, formatted as markdown links for easy browser access.",
+				"If any URLs are found in logs, the AI should extract and return them as markdown links.",
 			),
 	})
 	.describe(
-		"Response payload for a successful start_shell call. If any URLs are detected in the shell output, they will be included in the 'detected_urls' array as markdown-formatted links.",
+		"Response payload for a successful start_shell call. If any URLs are found in logs, the AI should extract and return them as markdown links.",
 	);
 export type StartSuccessPayloadType = z.infer<typeof StartSuccessPayloadSchema>; // & { status: ProcessStatus, logs?: string[], monitoring_hint?: string }; // Add complex type if needed
 
