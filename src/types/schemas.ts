@@ -294,8 +294,16 @@ export const StartSuccessPayloadSchema = z
 		isVerificationEnabled: z.boolean().optional(),
 		verificationPattern: z.string().optional(),
 		verificationTimeoutMs: z.number().optional(),
+		detected_urls: z
+			.array(z.string())
+			.optional()
+			.describe(
+				"Any URLs detected in the shell output, formatted as markdown links for easy browser access.",
+			),
 	})
-	.describe("Response payload for a successful start_shell call.");
+	.describe(
+		"Response payload for a successful start_shell call. If any URLs are detected in the shell output, they will be included in the 'detected_urls' array as markdown-formatted links.",
+	);
 export type StartSuccessPayloadType = z.infer<typeof StartSuccessPayloadSchema>; // & { status: ProcessStatus, logs?: string[], monitoring_hint?: string }; // Add complex type if needed
 
 // start_shell error payload

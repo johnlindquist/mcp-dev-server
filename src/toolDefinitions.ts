@@ -45,7 +45,7 @@ export type SendInputParamsType = z.infer<typeof schemas.SendInputParams>;
 export function registerToolDefinitions(server: McpServer): void {
 	server.tool(
 		"start_shell",
-		"Starts a shell (such as a dev server, test runner, or background script) in a managed environment. Returns commands to monitor the shell, and provides access to all output lines printed to the shell for inspection. Enables ongoing monitoring and interaction with the running shell.",
+		"Starts a shell (such as a dev server, test runner, or background script) in a managed environment. Returns commands to monitor the shell, and provides access to all output lines printed to the shell for inspection. If any URLs are detected in the shell output (such as dev server links), the response will include them as markdown-formatted links for easy access in a browser. Enables ongoing monitoring and interaction with the running shell.",
 		shape(schemas.StartShellParams.shape),
 		(params: StartProcessParamsType) => {
 			const cwdForLabel = params.workingDirectory;
@@ -111,7 +111,7 @@ export function registerToolDefinitions(server: McpServer): void {
 
 	server.tool(
 		"check_shell",
-		"Checks the status of a managed shell and retrieves recent output lines. Use this to monitor the shell's state and inspect its latest output.",
+		"Checks the status of a managed shell and retrieves recent output lines. If any URLs are detected in the shell output, the response will include them as markdown-formatted links for easy access in a browser. Use this to monitor the shell's state and inspect its latest output.",
 		shape(schemas.CheckProcessStatusParams.shape),
 		(params: CheckProcessStatusParamsType) => {
 			return handleToolCall(
