@@ -20,11 +20,12 @@
 		"lint:fix": "biome check --write .",
 		"verify": "pnpm build && pnpm lint:fix && pnpm exec tsc --noEmit",
 		"start": "node build/index.mjs",
-		"test": "pnpm verify && vitest run --test-timeout=60000",
+		"test": "pnpm verify && vitest run --test-timeout=60000 --exclude tests/integration/process-memory-leak.test.ts --exclude tests/integration/logging.test.ts",
 		"test:single": "pnpm verify && vitest run --test-timeout=60000",
 		"test:verbose": "pnpm verify && MCP_TEST_VERBOSE=1 vitest run --test-timeout=60000",
 		"test:watch": "pnpm verify && vitest",
 		"test:filter-logs": "pnpm verify && vitest run -t \"should filter logs correctly on repeated checks of an active shell\"",
+		"test:ci": "pnpm verify && vitest run --test-timeout=60000",
 		"postinstall": "pnpm rebuild node-pty"
 	},
 	"dependencies": {

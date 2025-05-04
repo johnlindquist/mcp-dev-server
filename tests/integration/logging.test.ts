@@ -254,7 +254,7 @@ describe("Tool Features: Logging and Summaries", () => {
 			logVerbose("[TEST][checkLogsFilter] Waiting 4000ms for more logs...");
 			await new Promise((resolve) => setTimeout(resolve, secondWaitMs));
 			logVerbose("[TEST][checkLogsFilter] Second wait complete.");
-			await new Promise((resolve) => setTimeout(resolve, 100));
+			await new Promise((resolve) => setTimeout(resolve, 50));
 
 			logVerbose(
 				`[TEST][checkLogsFilter] Sending second check_shell for ${label}...`,
@@ -362,7 +362,7 @@ describe("Tool Features: Logging and Summaries", () => {
 			);
 			await new Promise((resolve) => setTimeout(resolve, initialWaitMs));
 			logVerbose("[TEST][checkSummary] Initial wait complete.");
-			await new Promise((resolve) => setTimeout(resolve, 200));
+			await new Promise((resolve) => setTimeout(resolve, 500));
 
 			logVerbose(
 				`[TEST][checkSummary] Sending first check_shell for ${label}...`,
@@ -472,7 +472,7 @@ describe("Tool Features: Logging and Summaries", () => {
 						command: "node",
 						args: [
 							"-e",
-							"console.log('Initial log'); process.stdin.once('data', () => { console.error('Error after input'); console.log('URL: http://localhost:1234/after'); setTimeout(() => { console.log('Flushing and exiting...'); process.exit(0); }, 2000); });",
+							"console.log('Initial log'); process.stdin.once('data', () => { console.error('Error after input'); console.log('URL: http://localhost:1234/after'); setTimeout(() => { console.log('Flushing and exiting...'); process.exit(0); }, 500); });",
 						],
 						workingDirectory: path.join(__dirname),
 						label: label,
@@ -527,7 +527,7 @@ describe("Tool Features: Logging and Summaries", () => {
 			await sendRequest(serverProcess, sendInputRequest);
 
 			// Wait a bit for logs to be generated
-			await new Promise((resolve) => setTimeout(resolve, 1000));
+			await new Promise((resolve) => setTimeout(resolve, 500));
 
 			// Second check_shell: should see new logs
 			const checkRequest2 = {
@@ -560,7 +560,7 @@ describe("Tool Features: Logging and Summaries", () => {
 			);
 
 			// Third check_shell: after a delay, see if logs appear
-			await new Promise((resolve) => setTimeout(resolve, 1000));
+			await new Promise((resolve) => setTimeout(resolve, 200));
 			const checkRequest3 = {
 				jsonrpc: "2.0",
 				method: "tools/call",
