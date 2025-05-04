@@ -1,6 +1,10 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ZodRawShape, z } from "zod";
 import {
+	AI_TAIL_COMMAND_INSTRUCTION,
+	MARKDOWN_LINK_EXTRACTION_MSG,
+} from "./constants/messages.js";
+import {
 	startShell,
 	startShellWithVerification,
 	stopProcess,
@@ -45,7 +49,7 @@ export type SendInputParamsType = z.infer<typeof schemas.SendInputParams>;
 export function registerToolDefinitions(server: McpServer): void {
 	server.tool(
 		"start_shell",
-		"Starts a shell (e.g. dev server, test runner) in a managed environment. If any URLs are found in logs, extract and return them as markdown links for the user.",
+		`Starts a shell (e.g. dev server, test runner) in a managed environment. ${MARKDOWN_LINK_EXTRACTION_MSG} ${AI_TAIL_COMMAND_INSTRUCTION}`,
 		shape(schemas.StartShellParams.shape),
 		(params: StartProcessParamsType) => {
 			const cwdForLabel = params.workingDirectory;
@@ -111,7 +115,7 @@ export function registerToolDefinitions(server: McpServer): void {
 
 	server.tool(
 		"check_shell",
-		"Checks the status and recent logs of a managed shell. If any URLs are found in logs, extract and return them as markdown links for the user.",
+		`Checks the status and recent logs of a managed shell. ${MARKDOWN_LINK_EXTRACTION_MSG}`,
 		shape(schemas.CheckProcessStatusParams.shape),
 		(params: CheckProcessStatusParamsType) => {
 			return handleToolCall(
