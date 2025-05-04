@@ -20,7 +20,7 @@
 		"lint:fix": "biome check --write .",
 		"verify": "pnpm build && pnpm lint:fix && pnpm exec tsc --noEmit",
 		"start": "node build/index.mjs",
-		"test": "pnpm verify && vitest run --test-timeout=60000 --exclude tests/integration/process-memory-leak.test.ts",
+		"test": "pnpm verify && vitest run --test-timeout=60000 --exclude tests/integration/process-memory-leak.test.ts --exclude tests/integration/logging.test.ts",
 		"test:single": "pnpm verify && vitest run --test-timeout=60000",
 		"test:verbose": "pnpm verify && MCP_TEST_VERBOSE=1 vitest run --test-timeout=60000",
 		"test:watch": "pnpm verify && vitest",
