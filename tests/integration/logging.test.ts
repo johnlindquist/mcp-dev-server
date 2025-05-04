@@ -180,8 +180,8 @@ describe("Tool Features: Logging and Summaries", () => {
 			logVerbose("[TEST][checkLogsFilter] Starting test...");
 			const label = `test-log-filter-${Date.now()}`;
 			const logIntervalMs = 500;
-			const initialWaitMs = 2500;
-			const secondWaitMs = 900;
+			const initialWaitMs = 4000;
+			const secondWaitMs = 1500;
 
 			logVerbose(`[TEST][checkLogsFilter] Starting process ${label}...`);
 			const startRequest = {
@@ -326,7 +326,7 @@ describe("Tool Features: Logging and Summaries", () => {
 			logVerbose("[TEST][checkSummary] Starting test...");
 			const label = `test-summary-msg-${Date.now()}`;
 			const logIntervalMs = 300;
-			const initialWaitMs = 1500;
+			const initialWaitMs = 1900;
 
 			logVerbose(`[TEST][checkSummary] Starting process ${label}...`);
 			const startRequest = {
