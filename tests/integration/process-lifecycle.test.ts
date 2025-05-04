@@ -247,6 +247,12 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 			if (startResult) {
 				expect(startResult.label).toBe(uniqueLabel);
 				expect(["running", "stopped"]).toContain(startResult.status);
+				expect(Array.isArray(startResult.shellLogs)).toBe(true);
+				expect(startResult.shellLogs.length).toBeGreaterThan(0);
+				expect(typeof startResult.shellLogs[0]).toBe("string");
+				expect(Array.isArray(startResult.toolLogs)).toBe(true);
+				expect(startResult.toolLogs.length).toBeGreaterThan(0);
+				expect(typeof startResult.toolLogs[0]).toBe("string");
 			}
 			console.log("[TEST][startProcess] Assertions passed.");
 
@@ -617,6 +623,61 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 				JSON.stringify(stopResponse),
 			);
 			logVerbose("[TEST][startProcessWithVerification] Test finished.");
+		},
+		TEST_TIMEOUT,
+	);
+
+	it(
+		"should return shellLogs and toolLogs after restart",
+		async () => {
+			const uniqueLabel = `test-restart-logs-${Date.now()}`;
+			const command = "node";
+			const args = [
+				"-e",
+				"console.log('Restart log test'); setInterval(() => {}, 1000);",
+			];
+			const workingDirectory = path.resolve(__dirname);
+			const startRequest = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "start_shell",
+					arguments: { command, args, workingDirectory, label: uniqueLabel },
+				},
+				id: `req-start-for-restart-logs-${uniqueLabel}`,
+			};
+			const startResponse = (await sendRequest(
+				serverProcess,
+				startRequest,
+			)) as MCPResponse;
+			const startResult = JSON.parse(
+				(startResponse.result as CallToolResult).content[0].text,
+			);
+			expect(Array.isArray(startResult.shellLogs)).toBe(true);
+			expect(startResult.shellLogs.length).toBeGreaterThan(0);
+			expect(Array.isArray(startResult.toolLogs)).toBe(true);
+			expect(startResult.toolLogs.length).toBeGreaterThan(0);
+
+			const restartRequest = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "restart_shell",
+					arguments: { label: uniqueLabel },
+				},
+				id: `req-restart-logs-${uniqueLabel}`,
+			};
+			const restartResponse = (await sendRequest(
+				serverProcess,
+				restartRequest,
+			)) as MCPResponse;
+			const restartResult = JSON.parse(
+				(restartResponse.result as CallToolResult).content[0].text,
+			);
+			expect(Array.isArray(restartResult.shellLogs)).toBe(true);
+			expect(restartResult.shellLogs.length).toBeGreaterThan(0);
+			expect(Array.isArray(restartResult.toolLogs)).toBe(true);
+			expect(restartResult.toolLogs.length).toBeGreaterThan(0);
 		},
 		TEST_TIMEOUT,
 	);

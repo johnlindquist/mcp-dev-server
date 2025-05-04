@@ -44,4 +44,10 @@ export const DID_NOT_TERMINATE_GRACEFULLY_SIGKILL = (pid: number) =>
 
 export const NO_NOTABLE_EVENTS_MSG = "No notable events since last check.";
 
+export const MARKDOWN_LINK_EXTRACTION_MSG =
+	"If any URLs are found in logs, extract and return them as markdown links for the user.";
+
+export const AI_TAIL_COMMAND_INSTRUCTION =
+	"Immediately run the tail_command using your run_terminal_cmd tool to monitor this shell's output.";
+
 // Add more messages here as needed

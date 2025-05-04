@@ -1,5 +1,9 @@
 import { z } from "zod";
 import { cfg } from "../constants/index.js"; // Update path
+import {
+	AI_TAIL_COMMAND_INSTRUCTION,
+	MARKDOWN_LINK_EXTRACTION_MSG,
+} from "../constants/messages.js";
 import { HostEnum } from "./process.js"; // Import HostEnum and OperatingSystemEnum from process types
 
 // Helper to keep shape definition clean
@@ -307,14 +311,44 @@ export const StartSuccessPayloadSchema = z
 		detected_urls: z
 			.array(z.string())
 			.optional()
+			.describe(MARKDOWN_LINK_EXTRACTION_MSG),
+		ai_instructions: z
+			.string()
 			.describe(
-				"If any URLs are found in logs, the AI should extract and return them as markdown links.",
+				"Direct imperative instructions for the AI to follow after starting the shell. Should not be shown to the user.",
+			),
+		user_hint: z
+			.string()
+			.optional()
+			.describe(
+				"Optional hint or guidance for the end user about what to do next.",
+			),
+		actions: z
+			.array(
+				z.object({
+					action: z.literal("run_terminal_cmd"),
+					command: z.string(),
+				}),
+			)
+			.optional()
+			.describe(
+				"List of actions the AI should take, such as running a terminal command. Each action has an 'action' and a 'command' property.",
+			),
+		shellLogs: z
+			.array(z.string())
+			.describe(
+				"Recent log lines from the shell output (stdout/stderr), ordered oldest to newest.",
+			),
+		toolLogs: z
+			.array(z.string())
+			.describe(
+				"Recent log lines from tool/system events, ordered oldest to newest.",
 			),
 	})
 	.describe(
-		"Response payload for a successful start_shell call. If any URLs are found in logs, the AI should extract and return them as markdown links.",
+		`Response payload for a successful start_shell call. ${MARKDOWN_LINK_EXTRACTION_MSG} ${AI_TAIL_COMMAND_INSTRUCTION}`,
 	);
-export type StartSuccessPayloadType = z.infer<typeof StartSuccessPayloadSchema>; // & { status: ProcessStatus, logs?: string[], monitoring_hint?: string }; // Add complex type if needed
+export type StartSuccessPayloadType = z.infer<typeof StartSuccessPayloadSchema>;
 
 // start_shell error payload
 export const StartErrorPayloadSchema = z

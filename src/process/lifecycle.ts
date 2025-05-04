@@ -7,6 +7,7 @@ import type { z } from "zod";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { cfg } from "../constants/index.js";
 import {
+	AI_TAIL_COMMAND_INSTRUCTION,
 	COMPOSITE_LABEL_CONFLICT,
 	CURSOR_TAIL_INSTRUCTION,
 	DID_NOT_TERMINATE_GRACEFULLY_SIGKILL,
@@ -32,7 +33,7 @@ import type {
 	ShellStatus,
 } from "../types/process.js";
 import type * as schemas from "../types/schemas.js";
-import { formatLogsForResponse, getTailCommand, log } from "../utils.js";
+import { getTailCommand, log } from "../utils.js";
 
 // Import newly created functions
 import { setupLogFileStream } from "./logging.js";
@@ -656,17 +657,21 @@ export async function startShell(
 		return fail(textPayload(JSON.stringify(payload)));
 	}
 
+	// Add shellLogs and toolLogs for the AI
+	const shellLogs = finalShellInfo.logs
+		? finalShellInfo.logs
+				.filter((l) => l.source === "shell")
+				.map((l) => l.content)
+		: [];
+	const toolLogs = finalShellInfo.logs
+		? finalShellInfo.logs
+				.filter((l) => l.source === "tool")
+				.map((l) => l.content)
+		: [];
+
 	// Success case
-	const successPayload: z.infer<typeof schemas.StartSuccessPayloadSchema> & {
-		status: ShellStatus;
-		toolLogs: string[];
-		shellLogs: string[];
-		settleStatus: "settled" | "timeout";
-		settleWaitMs: number;
-		timeoutMs: number;
-		monitoring_hint?: string;
-		workingDirectory: string;
-	} = {
+	const tail_command = getTailCommand(finalShellInfo.logFilePath) || undefined;
+	const successPayload: z.infer<typeof schemas.StartSuccessPayloadSchema> = {
 		label: finalShellInfo.label,
 		command: finalShellInfo.command,
 		args: finalShellInfo.args,
@@ -675,22 +680,21 @@ export async function startShell(
 		status: finalShellInfo.status,
 		host: finalShellInfo.host,
 		message: `Shell '${label}' started successfully. Current status: ${finalShellInfo.status}.`,
-		toolLogs: formatLogsForResponse(
-			finalShellInfo.logs,
-			cfg.defaultReturnLogLines,
-			"tool",
-		),
-		shellLogs: formatLogsForResponse(
-			finalShellInfo.logs,
-			cfg.defaultReturnLogLines,
-			"shell",
-		),
-		settleStatus,
-		settleWaitMs,
-		timeoutMs: cfg.overallLogWaitTimeoutMs,
-		monitoring_hint:
-			"Use check_shell periodically to get status updates and new logs.",
-		tail_command: getTailCommand(finalShellInfo.logFilePath) || undefined,
+		tail_command,
+		ai_instructions: AI_TAIL_COMMAND_INSTRUCTION,
+		user_hint: tail_command
+			? `You can monitor the shell output by running: ${tail_command}`
+			: undefined,
+		actions: tail_command
+			? [
+					{
+						action: "run_terminal_cmd",
+						command: tail_command,
+					},
+				]
+			: undefined,
+		shellLogs,
+		toolLogs,
 	};
 	log.info(label, successPayload.message, "tool");
 
@@ -791,18 +795,21 @@ export async function startShellWithVerification(
 		return fail(textPayload(JSON.stringify(payload)));
 	}
 
+	// Add shellLogs and toolLogs for the AI
+	const shellLogs = finalShellInfo.logs
+		? finalShellInfo.logs
+				.filter((l) => l.source === "shell")
+				.map((l) => l.content)
+		: [];
+	const toolLogs = finalShellInfo.logs
+		? finalShellInfo.logs
+				.filter((l) => l.source === "tool")
+				.map((l) => l.content)
+		: [];
+
 	// Success case (reuse the same payload as startProcess)
-	const successPayload: z.infer<typeof schemas.StartSuccessPayloadSchema> & {
-		toolLogs: string[];
-		shellLogs: string[];
-		settleStatus: "settled" | "timeout";
-		settleWaitMs: number;
-		timeoutMs: number;
-		monitoring_hint?: string;
-		isVerificationEnabled?: boolean;
-		verificationPattern?: string;
-		verificationTimeoutMs?: number;
-	} = {
+	const tail_command = getTailCommand(finalShellInfo.logFilePath) || undefined;
+	const successPayload: z.infer<typeof schemas.StartSuccessPayloadSchema> = {
 		label: finalShellInfo.label,
 		command: finalShellInfo.command,
 		args: finalShellInfo.args,
@@ -811,27 +818,26 @@ export async function startShellWithVerification(
 		status: finalShellInfo.status,
 		message: `Shell '${label}' started successfully. Current status: ${finalShellInfo.status}.`,
 		host: finalShellInfo.host,
-		tail_command: getTailCommand(finalShellInfo.logFilePath) || undefined,
-		toolLogs: formatLogsForResponse(
-			finalShellInfo.logs,
-			cfg.defaultReturnLogLines,
-			"tool",
-		),
-		shellLogs: formatLogsForResponse(
-			finalShellInfo.logs,
-			cfg.defaultReturnLogLines,
-			"shell",
-		),
-		settleStatus,
-		settleWaitMs,
-		timeoutMs: cfg.overallLogWaitTimeoutMs,
-		monitoring_hint:
-			"Use check_shell periodically to get status updates and new logs.",
+		tail_command,
+		ai_instructions: AI_TAIL_COMMAND_INSTRUCTION,
+		user_hint: tail_command
+			? `You can monitor the shell output by running: ${tail_command}`
+			: undefined,
+		actions: tail_command
+			? [
+					{
+						action: "run_terminal_cmd",
+						command: tail_command,
+					},
+				]
+			: undefined,
 		isVerificationEnabled: verificationPattern !== undefined,
 		verificationPattern: verificationPattern
 			? verificationPattern.source
 			: undefined,
 		verificationTimeoutMs: verificationTimeoutMs,
+		shellLogs,
+		toolLogs,
 	};
 	log.info(label, successPayload.message, "tool");
 	return ok(textPayload(JSON.stringify(successPayload)));
