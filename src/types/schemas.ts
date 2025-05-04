@@ -323,17 +323,6 @@ export const StartSuccessPayloadSchema = z
 			.describe(
 				"Optional hint or guidance for the end user about what to do next.",
 			),
-		actions: z
-			.array(
-				z.object({
-					action: z.literal("run_terminal_cmd"),
-					command: z.string(),
-				}),
-			)
-			.optional()
-			.describe(
-				"MANDATORY: The AI MUST run every action in this array, starting with the tail_command in a BACKGROUND terminal (the command may be blocking). Do not skip or delay.",
-			),
 		shellLogs: z
 			.array(z.string())
 			.describe(
