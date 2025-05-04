@@ -1,12 +1,12 @@
-import { managedProcesses, updateProcessStatus } from "./state.js";
-import type { ProcessInfo } from "./types/process.js"; // Update path
+import { managedShells, updateProcessStatus } from "./state.js";
+import type { ShellInfo } from "./types/process.js"; // Update path
 import { log } from "./utils.js";
 
 // Keep zombieCheckIntervalId managed via exported functions
 let zombieCheckIntervalIdInternal: NodeJS.Timeout | null = null;
 
 // --- doesProcessExist function --- (Copied from state.ts)
-export function doesProcessExist(pid: number): boolean {
+export function doesShellExist(pid: number): boolean {
 	try {
 		process.kill(pid, 0);
 		return true;
@@ -23,8 +23,8 @@ export function doesProcessExist(pid: number): boolean {
 // This function now calls handleCrashAndRetry if correction leads to 'crashed' state
 export async function checkAndUpdateProcessStatus(
 	label: string,
-): Promise<ProcessInfo | undefined> {
-	const initialProcessInfo = managedProcesses.get(label);
+): Promise<ShellInfo | undefined> {
+	const initialProcessInfo = managedShells.get(label);
 	// ---> ADDED LOG: Log status at start
 	log.debug(
 		label,
@@ -99,7 +99,7 @@ export async function checkAndUpdateProcessStatus(
 	}
 
 	// Re-fetch the potentially updated info from state
-	const finalProcessInfo = managedProcesses.get(label);
+	const finalProcessInfo = managedShells.get(label);
 	return finalProcessInfo;
 }
 
@@ -107,7 +107,7 @@ export async function checkAndUpdateProcessStatus(
 export async function reapZombies(): Promise<void> {
 	log.debug(null, "Running zombie process check...");
 	let correctedCount = 0;
-	for (const [label, processInfo] of managedProcesses.entries()) {
+	for (const [label, processInfo] of managedShells.entries()) {
 		if (
 			processInfo.pid &&
 			(processInfo.status === "running" ||
@@ -115,7 +115,7 @@ export async function reapZombies(): Promise<void> {
 				processInfo.status === "verifying" ||
 				processInfo.status === "restarting")
 		) {
-			if (!doesProcessExist(processInfo.pid)) {
+			if (!doesShellExist(processInfo.pid)) {
 				// Call the local checkAndUpdateProcessStatus which handles logging, status update, and retry trigger
 				await checkAndUpdateProcessStatus(label);
 				correctedCount++; // Increment count if a correction was triggered

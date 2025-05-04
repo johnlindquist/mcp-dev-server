@@ -1,5 +1,9 @@
 import { z } from "zod";
 import { cfg } from "../constants/index.js"; // Update path
+import {
+	AI_TAIL_COMMAND_INSTRUCTION,
+	MARKDOWN_LINK_EXTRACTION_MSG,
+} from "../constants/messages.js";
 import { HostEnum } from "./process.js"; // Import HostEnum and OperatingSystemEnum from process types
 
 // Helper to keep shape definition clean
@@ -16,74 +20,78 @@ export const labelSchema = z
 
 // --- Parameter Schemas ---
 
-export const StartProcessParams = z.object(
+export const StartShellParams = z.object(
 	shape({
 		label: labelSchema
 			.optional()
 			.describe(
-				"Optional human-readable identifier (e.g. 'dev-server'). Leave blank to let the server generate one based on CWD and command.",
+				"Optional human-readable identifier for the shell (e.g. 'dev-server'). Leave blank to let the server generate one based on working directory and command.",
 			),
 		command: z
 			.string()
 			.min(1)
-			.describe("The command to execute. e.g., 'npm' or some other runner"),
+			.describe(
+				"The command to execute in the shell. For example, 'npm', 'python', or any executable.",
+			),
 		args: z
 			.array(z.string())
 			.optional()
 			.default([])
 			.describe(
-				"Optional arguments for the command, e.g. 'npm run dev' would be ['run', 'dev']",
+				"Optional arguments for the shell command, e.g. 'npm run dev' would be ['run', 'dev'].",
 			),
 		workingDirectory: z
 			.string()
 			.min(1)
 			.describe(
-				"The absolute working directory to run the command from. This setting is required. Do not use relative paths like '.' or '../'. Provide the full path (e.g., /Users/me/myproject).",
+				"The absolute working directory to launch the shell from. Required. Do not use relative paths like '.' or '../'. Provide the full path (e.g., /Users/me/myproject).",
 			),
 		host: HostEnum.optional()
 			.default("unknown")
 			.describe(
-				"Identifier for the client initiating the process (e.g., 'cursor', 'claude', 'vscode'). Defaults to 'unknown'.",
+				"Identifier for the client initiating the shell (e.g., 'cursor', 'claude', 'vscode'). Defaults to 'unknown'.",
 			),
 	}),
 );
-export type StartProcessParamsType = z.infer<typeof StartProcessParams>;
+export type StartProcessParamsType = z.infer<typeof StartShellParams>;
 
 // New: StartProcessWithVerificationParams
-export const StartProcessWithVerificationParams = z.object(
+export const StartShellWithVerificationParams = z.object(
 	shape({
 		label: labelSchema
 			.optional()
 			.describe(
-				"Optional human-readable identifier (e.g. 'dev-server'). Leave blank to let the server generate one based on CWD and command.",
+				"Optional human-readable identifier for the shell (e.g. 'dev-server'). Leave blank to let the server generate one based on working directory and command.",
 			),
 		command: z
 			.string()
 			.min(1)
-			.describe("The command to execute. e.g., 'npm' or some other runner"),
+			.describe(
+				"The command to execute in the shell. For example, 'npm', 'python', or any executable.",
+			),
 		args: z
 			.array(z.string())
 			.optional()
 			.default([])
 			.describe(
-				"Optional arguments for the command, e.g. 'npm run dev' would be ['run', 'dev']",
+				"Optional arguments for the shell command, e.g. 'npm run dev' would be ['run', 'dev'].",
 			),
 		workingDirectory: z
 			.string()
 			.min(1)
 			.describe(
-				"The absolute working directory to run the command from. This setting is required. Do not use relative paths like '.' or '../'. Provide the full path (e.g., /Users/me/myproject).",
+				"The absolute working directory to launch the shell from. Required. Do not use relative paths like '.' or '../'. Provide the full path (e.g., /Users/me/myproject).",
 			),
 		host: HostEnum.optional()
 			.default("unknown")
 			.describe(
-				"Identifier for the client initiating the process (e.g., 'cursor', 'claude', 'vscode'). Defaults to 'unknown'.",
+				"Identifier for the client initiating the shell (e.g., 'cursor', 'claude', 'vscode'). Defaults to 'unknown'.",
 			),
 		verification_pattern: z
 			.string()
 			.optional()
 			.describe(
-				"Optional regex pattern to match in stdout/stderr to verify successful startup. e.g., 'running on port 3000' or 'localhost'",
+				"Optional regex pattern to match in shell output to verify successful startup. For example, 'running on port 3000' or 'localhost'.",
 			),
 		verification_timeout_ms: z
 			.number()
@@ -92,7 +100,7 @@ export const StartProcessWithVerificationParams = z.object(
 			.optional()
 			.default(cfg.defaultVerificationTimeoutMs)
 			.describe(
-				"Milliseconds to wait for the verification pattern. -1 disables the timer (default).",
+				"Milliseconds to wait for the verification pattern in shell output. -1 disables the timer (default).",
 			),
 		retry_delay_ms: z
 			.number()
@@ -100,7 +108,7 @@ export const StartProcessWithVerificationParams = z.object(
 			.positive()
 			.optional()
 			.describe(
-				`Optional delay before restarting a crashed process in milliseconds (default: ${cfg.defaultRetryDelayMs}ms).`,
+				`Optional delay before restarting a crashed shell in milliseconds (default: ${cfg.defaultRetryDelayMs}ms).`,
 			),
 		max_retries: z
 			.number()
@@ -108,12 +116,12 @@ export const StartProcessWithVerificationParams = z.object(
 			.min(0)
 			.optional()
 			.describe(
-				`Optional maximum number of restart attempts for a crashed process (default: ${cfg.maxRetries}). 0 disables restarts.`,
+				`Optional maximum number of restart attempts for a crashed shell (default: ${cfg.maxRetries}). 0 disables restarts.`,
 			),
 	}),
 );
 export type StartProcessWithVerificationParamsType = z.infer<
-	typeof StartProcessWithVerificationParams
+	typeof StartShellWithVerificationParams
 >;
 
 export const CheckProcessStatusParams = z.object(
@@ -126,7 +134,7 @@ export const CheckProcessStatusParams = z.object(
 			.optional()
 			.default(cfg.defaultCheckStatusLogLines)
 			.describe(
-				`Number of recent log lines to request. Default: ${cfg.defaultCheckStatusLogLines}. Max stored: ${cfg.maxStoredLogLines}. Use 'getAllLoglines' for the full stored history (up to ${cfg.maxStoredLogLines} lines).`,
+				`Number of recent output lines to request from the shell. Default: ${cfg.defaultCheckStatusLogLines}. Max stored: ${cfg.maxStoredLogLines}. Use 'getAllLoglines' for the full stored history (up to ${cfg.maxStoredLogLines} lines).`,
 			),
 	}),
 );
@@ -142,7 +150,7 @@ export const StopProcessParams = z.object(
 			.optional()
 			.default(false)
 			.describe(
-				"Use SIGKILL to force kill the process instead of SIGTERM for graceful termination. Defaults to false.",
+				"Use SIGKILL to force kill the shell instead of SIGTERM for graceful termination. Defaults to false.",
 			),
 	}),
 );
@@ -157,7 +165,7 @@ export const ListProcessesParams = z.object(
 			.optional()
 			.default(0)
 			.describe(
-				"Number of recent log lines to include for each process (default: 0 for none).",
+				"Number of recent output lines to include for each shell (default: 0 for none).",
 			),
 	}),
 );
@@ -178,7 +186,7 @@ export const WaitForProcessParams = z.object(
 			.optional()
 			.default("running")
 			.describe(
-				"The target status to wait for (e.g., 'running', 'stopped'). Defaults to 'running'.",
+				"The target status to wait for (e.g., 'running', 'stopped') for the shell. Defaults to 'running'.",
 			),
 		timeout_seconds: z
 			.number()
@@ -191,7 +199,9 @@ export const WaitForProcessParams = z.object(
 			.positive()
 			.optional()
 			.default(2)
-			.describe("Interval between status checks in seconds. Defaults to 2."),
+			.describe(
+				"Interval between shell status checks in seconds. Defaults to 2.",
+			),
 	}),
 );
 export type WaitForProcessParamsType = z.infer<typeof WaitForProcessParams>;
@@ -205,14 +215,14 @@ export type GetAllLoglinesParamsType = z.infer<typeof GetAllLoglinesParams>;
 
 export const SendInputParams = z.object(
 	shape({
-		label: labelSchema.describe("The label of the target process."),
-		input: z.string().describe("The text input to send to the process stdin."),
+		label: labelSchema.describe("The label of the target shell."),
+		input: z.string().describe("The text input to send to the shell's stdin."),
 		append_newline: z
 			.boolean()
 			.optional()
 			.default(true)
 			.describe(
-				"Whether to automatically append a carriage return character ('\r') after the input, simulating pressing Enter. Defaults to true.",
+				"Whether to automatically append a carriage return character ('\\r') after the input, simulating pressing Enter in the shell. Defaults to true.",
 			),
 	}),
 );
@@ -221,7 +231,7 @@ export type SendInputParamsType = z.infer<typeof SendInputParams>;
 // --- Response Payload Schemas ---
 
 // Shared schema part for status responses
-export const ProcessStatusInfoSchema = z.object({
+export const ShellStatusInfoSchema = z.object({
 	label: z.string().describe("The unique identifier for the process."),
 	status: z
 		.enum([
@@ -273,7 +283,7 @@ export const ProcessStatusInfoSchema = z.object({
 		),
 });
 
-// start_process success payload
+// start_shell success payload
 export const StartSuccessPayloadSchema = z
 	.object({
 		label: z.string(),
@@ -281,6 +291,16 @@ export const StartSuccessPayloadSchema = z
 		args: z.array(z.string()),
 		pid: z.number(),
 		workingDirectory: z.string(),
+		status: z.enum([
+			"starting",
+			"running",
+			"verifying",
+			"stopped",
+			"crashed",
+			"error",
+			"restarting",
+			"stopping",
+		]),
 		message: z.string(),
 		host: HostEnum.optional(),
 		tail_command: z.string().optional(),
@@ -288,11 +308,49 @@ export const StartSuccessPayloadSchema = z
 		isVerificationEnabled: z.boolean().optional(),
 		verificationPattern: z.string().optional(),
 		verificationTimeoutMs: z.number().optional(),
+		detected_urls: z
+			.array(z.string())
+			.optional()
+			.describe(MARKDOWN_LINK_EXTRACTION_MSG),
+		ai_instructions: z
+			.string()
+			.describe(
+				"Direct imperative instructions for the AI to follow after starting the shell. Should not be shown to the user.",
+			),
+		user_hint: z
+			.string()
+			.optional()
+			.describe(
+				"Optional hint or guidance for the end user about what to do next.",
+			),
+		actions: z
+			.array(
+				z.object({
+					action: z.literal("run_terminal_cmd"),
+					command: z.string(),
+				}),
+			)
+			.optional()
+			.describe(
+				"List of actions the AI should take, such as running a terminal command. Each action has an 'action' and a 'command' property.",
+			),
+		shellLogs: z
+			.array(z.string())
+			.describe(
+				"Recent log lines from the shell output (stdout/stderr), ordered oldest to newest.",
+			),
+		toolLogs: z
+			.array(z.string())
+			.describe(
+				"Recent log lines from tool/system events, ordered oldest to newest.",
+			),
 	})
-	.describe("Response payload for a successful start_process call.");
-export type StartSuccessPayloadType = z.infer<typeof StartSuccessPayloadSchema>; // & { status: ProcessStatus, logs?: string[], monitoring_hint?: string }; // Add complex type if needed
+	.describe(
+		`Response payload for a successful start_shell call. ${MARKDOWN_LINK_EXTRACTION_MSG} ${AI_TAIL_COMMAND_INSTRUCTION}`,
+	);
+export type StartSuccessPayloadType = z.infer<typeof StartSuccessPayloadSchema>;
 
-// start_process error payload
+// start_shell error payload
 export const StartErrorPayloadSchema = z
 	.object({
 		error: z.string().describe("Description of the error."),
@@ -308,11 +366,11 @@ export const StartErrorPayloadSchema = z
 				"Categorical type of error (e.g., 'working_directory_not_found').",
 			),
 	})
-	.describe("Response payload for a failed start_process call.");
+	.describe("Response payload for a failed start_shell call.");
 export type StartErrorPayloadType = z.infer<typeof StartErrorPayloadSchema>;
 
-// check_process_status payload
-export const CheckStatusPayloadSchema = ProcessStatusInfoSchema.extend({
+// check_shell payload
+export const CheckStatusPayloadSchema = ShellStatusInfoSchema.extend({
 	logs: z
 		.array(z.string())
 		.describe(
@@ -329,11 +387,11 @@ export const CheckStatusPayloadSchema = ProcessStatusInfoSchema.extend({
 		.describe(
 			"Natural-language summary of everything notable since the last check.",
 		),
-}).describe("Response payload for a check_process_status call.");
+}).describe("Response payload for a check_shell call.");
 export type CheckStatusPayloadType = z.infer<typeof CheckStatusPayloadSchema>;
 
-// list_processes individual item schema
-export const ListProcessDetailSchema = ProcessStatusInfoSchema.extend({
+// list_shelles individual item schema
+export const ListProcessDetailSchema = ShellStatusInfoSchema.extend({
 	logs: z
 		.array(z.string())
 		.describe(
@@ -345,29 +403,29 @@ export const ListProcessDetailSchema = ProcessStatusInfoSchema.extend({
 		.optional()
 		.describe("Hint about the logs shown (e.g., number stored vs shown)."),
 }).describe(
-	"Detailed information for a single process in the list_processes response.",
+	"Detailed information for a single process in the list_shelles response.",
 );
 export type ListProcessDetailType = z.infer<typeof ListProcessDetailSchema>;
 
-// list_processes payload (array of details)
+// list_shelles payload (array of details)
 export const ListProcessesPayloadSchema = z
 	.array(ListProcessDetailSchema)
-	.describe("Response payload for a list_processes call.");
+	.describe("Response payload for a list_shelles call.");
 export type ListProcessesPayloadType = z.infer<
 	typeof ListProcessesPayloadSchema
 >;
 
-// stop_process payload
+// stop_shell payload
 export const StopProcessPayloadSchema = z
 	.object({
 		label: z.string(),
 		status: z.string(), // Could refine this enum later
 		message: z.string(),
 	})
-	.describe("Response payload for a stop_process call.");
+	.describe("Response payload for a stop_shell call.");
 export type StopProcessPayloadType = z.infer<typeof StopProcessPayloadSchema>;
 
-// stop_all_processes payload
+// stop_all_shelles payload
 export const StopAllProcessesPayloadSchema = z
 	.object({
 		stopped_count: z.number().int(),
@@ -382,21 +440,21 @@ export const StopAllProcessesPayloadSchema = z
 			}),
 		),
 	})
-	.describe("Response payload for a stop_all_processes call.");
+	.describe("Response payload for a stop_all_shelles call.");
 export type StopAllProcessesPayloadType = z.infer<
 	typeof StopAllProcessesPayloadSchema
 >;
 
-// restart_process error payload
+// restart_shell error payload
 export const RestartErrorPayloadSchema = z
 	.object({
 		error: z.string(),
 		label: z.string().optional(),
 	})
-	.describe("Error payload for a failed restart_process call.");
+	.describe("Error payload for a failed restart_shell call.");
 export type RestartErrorPayloadType = z.infer<typeof RestartErrorPayloadSchema>;
 
-// wait_for_process payload
+// wait_for_shell payload
 export const WaitForProcessPayloadSchema = z
 	.object({
 		label: z.string(),
@@ -404,7 +462,7 @@ export const WaitForProcessPayloadSchema = z
 		message: z.string(),
 		timed_out: z.boolean().optional(),
 	})
-	.describe("Response payload for a wait_for_process call.");
+	.describe("Response payload for a wait_for_shell call.");
 export type WaitForProcessPayloadType = z.infer<
 	typeof WaitForProcessPayloadSchema
 >;
@@ -431,7 +489,7 @@ export const HealthCheckPayloadSchema = z
 			.describe("Overall health status (e.g., 'OK', 'WARNING')."),
 		server_name: z.string().describe("Name of the MCP-PM server."),
 		server_version: z.string().describe("Version of the MCP-PM server."),
-		active_processes: z
+		active_shelles: z
 			.number()
 			.int()
 			.describe("Number of currently managed processes."),

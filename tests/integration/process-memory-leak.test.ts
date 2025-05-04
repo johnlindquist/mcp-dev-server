@@ -131,7 +131,7 @@ describe("Process Management: Memory and Resource Leak Checks", () => {
 					jsonrpc: "2.0",
 					method: "tools/call",
 					params: {
-						name: "start_process",
+						name: "start_shell",
 						arguments: {
 							command: "node",
 							args: ["-e", "setTimeout(() => {}, 100);"],
@@ -147,7 +147,7 @@ describe("Process Management: Memory and Resource Leak Checks", () => {
 					jsonrpc: "2.0",
 					method: "tools/call",
 					params: {
-						name: "stop_process",
+						name: "stop_shell",
 						arguments: { label },
 					},
 					id: `req-stop-memleak-${label}`,
@@ -160,7 +160,7 @@ describe("Process Management: Memory and Resource Leak Checks", () => {
 			const listRequest = {
 				jsonrpc: "2.0",
 				method: "tools/call",
-				params: { name: "list_processes", arguments: {} },
+				params: { name: "list_shelles", arguments: {} },
 				id: "req-list-memleak-final",
 			};
 			const listResponse = (await sendRequest(

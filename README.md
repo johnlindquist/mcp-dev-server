@@ -50,14 +50,14 @@ It allows MCP-compatible clients to start, monitor, retrieve logs from, and stop
 
 This server exposes the following tools for MCP clients:
 
-*   `start_process`: Starts a new background process. (Label is optional)
-*   `start_process_with_verification`: Starts a new background process with verification, timeout, and retry options. (Label is optional)
-*   `check_process_status`: Checks the status and logs of a specific process. (Requires label)
-*   `stop_process`: Stops a specific process. (Requires label)
-*   `list_processes`: Lists all currently managed processes and their basic status.
-*   `stop_all_processes`: Attempts to stop all managed processes.
-*   `restart_process`: Restarts a specific process. (Requires label)
-*   `wait_for_process`: Waits for a specific process to reach a target status. (Requires label)
+*   `start_shell`: Starts a new background process. (Label is optional) If any URLs are found in logs, the AI should extract and return them as markdown links.
+*   `start_shell_with_verification`: Starts a new background process with verification, timeout, and retry options. (Label is optional)
+*   `check_shell`: Checks the status and logs of a specific process. (Requires label) If any URLs are found in logs, the AI should extract and return them as markdown links.
+*   `stop_shell`: Stops a specific process. (Requires label)
+*   `list_shelles`: Lists all currently managed processes and their basic status.
+*   `stop_all_shelles`: Attempts to stop all managed processes.
+*   `restart_shell`: Restarts a specific process. (Requires label)
+*   `wait_for_shell`: Waits for a specific process to reach a target status. (Requires label)
 *   `get_all_loglines`: Retrieves the complete stored log history for a specific managed process. (Requires label)
 *   `send_input`: Sends text input to the stdin of a running process. (Requires label)
 *   `health_check`: Provides a status summary of the process manager itself.
@@ -151,7 +151,7 @@ See [`src/mcpUtils.ts`], [`src/toolImplementations.ts`], and [`tests/integration
 
 This section describes the tools provided by `mcp-pm`.
 
-### `start_process`
+### `start_shell`
 
 Starts a background process (like a dev server or script) and manages it.
 
@@ -165,7 +165,7 @@ Starts a background process (like a dev server or script) and manages it.
 
 **Returns:** (JSON)
 
-Response payload for a successful start_process call. Contains fields like `label`, `status`, `pid`, `command`, `args`, `cwd`, `exitCode`, `signal`, `log_file_path`, `tail_command`, `message`, `logs`, `monitoring_hint`, `info_message`.
+Response payload for a successful start_shell call. Contains fields like `label`, `status`, `pid`, `command`, `args`, `cwd`, `exitCode`, `signal`, `log_file_path`, `tail_command`, `message`, `logs`, `monitoring_hint`, `info_message`, and `detected_urls` (if any URLs are found in logs, the AI should extract and return them as markdown links).
 *   `instructions` (string, optional): If the `host` was specified as `"cursor"` and file logging is enabled, this field will contain a suggested instruction for the Cursor IDE, like starting a background terminal to run the `tail_command`.
 On failure, returns an error object, potentially including `error`, `status`, `cwd`, `error_type`.
 
@@ -181,7 +181,7 @@ On failure, returns an error object, potentially including `error`, `status`, `c
 }
 ```
 
-### `start_process_with_verification`
+### `start_shell_with_verification`
 
 Starts a background process with verification (pattern, timeout, retries).
 
@@ -199,7 +199,7 @@ Starts a background process with verification (pattern, timeout, retries).
 
 **Returns:** (JSON)
 
-Response payload for a successful start_process_with_verification call. Contains fields like `label`, `status`, `pid`, `command`, `args`, `cwd`, `exitCode`, `signal`, `log_file_path`, `tail_command`, `message`, `logs`, `monitoring_hint`, `info_message`.
+Response payload for a successful start_shell_with_verification call. Contains fields like `label`, `status`, `pid`, `command`, `args`, `cwd`, `exitCode`, `signal`, `log_file_path`, `tail_command`, `message`, `logs`, `monitoring_hint`, `info_message`.
 *   `instructions` (string, optional): If the `host` was specified as `"cursor"` and file logging is enabled, this field will contain a suggested instruction for the Cursor IDE, like starting a background terminal to run the `tail_command`.
 On failure, returns an error object, potentially including `error`, `status`, `cwd`, `error_type`.
 
@@ -219,7 +219,7 @@ On failure, returns an error object, potentially including `error`, `status`, `c
 }
 ```
 
-### `check_process_status`
+### `check_shell`
 
 Checks the current status of a managed process, including recent logs.
 
@@ -230,7 +230,7 @@ Checks the current status of a managed process, including recent logs.
 
 **Returns:** (JSON)
 
-Response payload for check_process_status. Contains fields like `label`, `status`, `pid`, `command`, `args`, `cwd`, `exitCode`, `signal`, `log_file_path`, `tail_command`, `logs`, `hint`.
+Response payload for check_shell. Contains fields like `label`, `status`, `pid`, `command`, `args`, `cwd`, `exitCode`, `signal`, `log_file_path`, `tail_command`, `logs`, `hint`.
 
 **Example Usage:**
 
@@ -241,7 +241,7 @@ Response payload for check_process_status. Contains fields like `label`, `status
 }
 ```
 
-### `list_processes`
+### `list_shelles`
 
 Lists all currently managed processes and their status.
 
@@ -251,7 +251,7 @@ Lists all currently managed processes and their status.
 
 **Returns:** (JSON)
 
-Response payload for list_processes, containing an array of process details. Each detail object includes fields like `label`, `status`, `pid`, `command`, `args`, `cwd`, `exitCode`, `signal`, `log_file_path`, `tail_command`, `logs`, `log_hint`.
+Response payload for list_shelles, containing an array of process details. Each detail object includes fields like `label`, `status`, `pid`, `command`, `args`, `cwd`, `exitCode`, `signal`, `log_file_path`, `tail_command`, `logs`, `log_hint`.
 
 **Example Usage:**
 
@@ -261,7 +261,7 @@ Response payload for list_processes, containing an array of process details. Eac
 }
 ```
 
-### `stop_process`
+### `stop_shell`
 
 Stops a specific managed process.
 
@@ -272,7 +272,7 @@ Stops a specific managed process.
 
 **Returns:** (JSON)
 
-Response payload for stop_process. Contains fields like `label`, `status`, `message`, `pid`.
+Response payload for stop_shell. Contains fields like `label`, `status`, `message`, `pid`.
 
 **Example Usage:**
 
@@ -283,7 +283,7 @@ Response payload for stop_process. Contains fields like `label`, `status`, `mess
 }
 ```
 
-### `stop_all_processes`
+### `stop_all_shelles`
 
 Attempts to gracefully stop all managed processes.
 
@@ -291,7 +291,7 @@ Attempts to gracefully stop all managed processes.
 
 **Returns:** (JSON)
 
-Response payload for stop_all_processes. Contains a `summary` string and a `details` array. Each detail object includes `label`, `result` (e.g., SignalSent, Skipped, Failed), `status`, `pid`.
+Response payload for stop_all_shelles. Contains a `summary` string and a `details` array. Each detail object includes `label`, `result` (e.g., SignalSent, Skipped, Failed), `status`, `pid`.
 
 **Example Usage:**
 
@@ -299,7 +299,7 @@ Response payload for stop_all_processes. Contains a `summary` string and a `deta
 {}
 ```
 
-### `restart_process`
+### `restart_shell`
 
 Restarts a specific managed process (stops it if running, then starts it again with its original configuration).
 
@@ -309,7 +309,7 @@ Restarts a specific managed process (stops it if running, then starts it again w
 
 **Returns:** (JSON)
 
-Response payload for a successful restart_process call (structure mirrors start_process success). On failure, returns an error object with `
+Response payload for a successful restart_shell call (structure mirrors start_shell success). On failure, returns an error object with `
 
 ## Known Limitations: Interactive Prompt Capture
 

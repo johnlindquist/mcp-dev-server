@@ -1,43 +1,47 @@
 import { cfg } from "./constants/index.js";
-import type { LogEntry, ProcessInfo, ProcessStatus } from "./types/process.js"; // Update path
+import type { LogEntry, ShellInfo, ShellStatus } from "./types/process.js"; // Update path
 import { log } from "./utils.js";
 
 // Renamed Map
-export const managedProcesses: Map<string, ProcessInfo> = new Map();
+export const managedShells: Map<string, ShellInfo> = new Map();
 
 // REMOVE: const killProcessTree = promisify(treeKill); // Define killProcessTree here
 
-export function addLogEntry(label: string, content: string): void {
-	const processInfo = managedProcesses.get(label);
-	if (!processInfo) {
+export function addLogEntry(
+	label: string,
+	content: string,
+	source: "tool" | "shell" = "tool",
+): void {
+	const shellInfo = managedShells.get(label);
+	if (!shellInfo) {
 		log.warn(
 			label,
 			`[addLogEntry] Attempted to add log entry for unknown process: ${label}`,
 		);
 		return;
 	}
-	const entry: LogEntry = { timestamp: Date.now(), content };
+	const entry: LogEntry = { timestamp: Date.now(), content, source };
 	log.debug(
 		label,
 		`[state.addLogEntry] Pushing log entry (ts: ${entry.timestamp}): ${content.substring(0, 100)}`,
 	);
-	processInfo.logs.push(entry);
+	shellInfo.logs.push(entry);
 	log.debug(
 		label,
-		`[state.addLogEntry] Pushed entry. New log count: ${processInfo.logs.length}`,
+		`[state.addLogEntry] Pushed entry. New log count: ${shellInfo.logs.length}`,
 	);
 
 	// Enforce the maximum in-memory log line limit
-	if (processInfo.logs.length > cfg.maxStoredLogLines) {
-		processInfo.logs.shift();
+	if (shellInfo.logs.length > cfg.maxStoredLogLines) {
+		shellInfo.logs.shift();
 	}
 
 	// --- Write to file stream ---
 	// Use optional chaining where appropriate, but keep explicit check for write logic
-	if (processInfo.logFileStream?.writable) {
+	if (shellInfo.logFileStream?.writable) {
 		try {
 			// Write the raw content + newline. Error handled by stream 'error' listener.
-			processInfo.logFileStream.write(`${content}\n`); // Use template literal
+			shellInfo.logFileStream.write(`${content}\n`); // Use template literal
 		} catch (writeError) {
 			// This catch might not be strictly necessary due to the async nature
 			// and the 'error' listener, but added for robustness.
@@ -46,9 +50,9 @@ export function addLogEntry(label: string, content: string): void {
 				`Direct error writing to log stream for ${label}`,
 				writeError,
 			);
-			processInfo.logFileStream?.end(); // Attempt to close on direct error (optional chain)
-			processInfo.logFileStream = null;
-			processInfo.logFilePath = null; // Mark as unusable
+			shellInfo.logFileStream?.end(); // Attempt to close on direct error (optional chain)
+			shellInfo.logFileStream = null;
+			shellInfo.logFilePath = null; // Mark as unusable
 		}
 	}
 	// --- End write to file stream ---
@@ -57,10 +61,10 @@ export function addLogEntry(label: string, content: string): void {
 // Renamed function
 export function updateProcessStatus(
 	label: string,
-	status: ProcessStatus,
+	status: ShellStatus,
 	exitInfo?: { code: number | null; signal: string | null },
-): ProcessInfo | undefined {
-	const oldProcessInfo = managedProcesses.get(label);
+): ShellInfo | undefined {
+	const oldProcessInfo = managedShells.get(label);
 	if (!oldProcessInfo) {
 		log.warn(label, "Attempted to update status but process info missing.");
 		return undefined;
@@ -75,7 +79,7 @@ export function updateProcessStatus(
 	log.info(label, `Status changing from ${oldStatus} to ${status}`);
 
 	// Create a NEW object with the updated status and other info
-	const newProcessInfo: ProcessInfo = {
+	const newProcessInfo: ShellInfo = {
 		...oldProcessInfo, // Copy existing properties
 		status: status, // Set the new status
 		// Update exit code/signal/timestamp if applicable
@@ -92,7 +96,7 @@ export function updateProcessStatus(
 	};
 
 	// REPLACE the object in the map
-	managedProcesses.set(label, newProcessInfo);
+	managedShells.set(label, newProcessInfo);
 
 	// Log AFTER the update
 	addLogEntry(label, `Status changed to ${status}`);
@@ -122,15 +126,15 @@ export function updateProcessStatus(
 	return newProcessInfo; // Return the NEW object reference
 }
 
-export function removeProcess(label: string): void {
-	const processInfo = managedProcesses.get(label);
+export function removeShell(label: string): void {
+	const processInfo = managedShells.get(label);
 	// The try...catch block was here, but the try was empty.
 	// If cleanup logic is needed for processInfo.process, it should go here.
-	managedProcesses.delete(label);
+	managedShells.delete(label);
 	log.debug(label, "Removed process info from management.");
 }
 
-export function getProcessInfo(label: string): ProcessInfo | undefined {
-	const found = managedProcesses.get(label);
+export function getShellInfo(label: string): ShellInfo | undefined {
+	const found = managedShells.get(label);
 	return found;
 }

@@ -3,8 +3,8 @@ import type { z } from "zod";
 import { cfg } from "./constants/index.js";
 import { fail, getResultText, ok, textPayload } from "./mcpUtils.js";
 import {
-	startProcess,
-	startProcessWithVerification,
+	startShell,
+	startShellWithVerification,
 	stopProcess,
 } from "./process/lifecycle.js";
 import {
@@ -12,7 +12,7 @@ import {
 	isZombieCheckActive,
 } from "./processSupervisor.js";
 import { writeToPty } from "./ptyManager.js";
-import { addLogEntry, managedProcesses } from "./state.js";
+import { addLogEntry, managedShells } from "./state.js";
 import type { LogEntry } from "./types/process.js";
 import type {
 	CheckProcessStatusParamsType as CheckProcessStatusParams,
@@ -36,7 +36,7 @@ export async function checkProcessStatusImpl(
 	params: CheckProcessStatusParams,
 ): Promise<CallToolResult> {
 	const { label, log_lines } = params;
-	log.debug(label, "Tool invoked: check_process_status", { params });
+	log.debug(label, "Tool invoked: check_shell", { params });
 
 	const initialProcessInfo = await checkAndUpdateProcessStatus(label);
 
@@ -70,6 +70,15 @@ export async function checkProcessStatusImpl(
 	const finalProcessInfo = initialProcessInfo;
 
 	const allLogs: LogEntry[] = finalProcessInfo.logs || [];
+	console.log("[DEBUG][checkProcessStatusImpl] allLogs:", allLogs);
+	console.log(
+		"[DEBUG][checkProcessStatusImpl] previousLastLogTimestampReturned:",
+		previousLastLogTimestampReturned,
+	);
+	console.log(
+		"[DEBUG][checkProcessStatusImpl] allLogs timestamps:",
+		allLogs.map((l) => l.timestamp),
+	);
 	log.debug(
 		label,
 		`Filtering logs. Total logs available: ${allLogs.length}. Filtering for timestamp > ${previousLastLogTimestampReturned}`,
@@ -136,6 +145,10 @@ export async function checkProcessStatusImpl(
 		label,
 		`Analysing ${newLogsForSummary.length} logs for summary since timestamp ${previousLastLogTimestampReturned}`,
 	);
+	console.log(
+		"[DEBUG][checkProcessStatusImpl] Logs for summary:",
+		newLogsForSummary.map((l) => l.content),
+	);
 	const { message: summaryMessage } = analyseLogs(
 		newLogsForSummary.map((l) => l.content),
 	);
@@ -170,7 +183,7 @@ export async function checkProcessStatusImpl(
 
 	log.info(
 		label,
-		`check_process_status returning final status: ${payload.status}. New logs returned: ${returnedLogs.length}. New lastLogTimestamp: ${newLastLogTimestamp}`,
+		`check_shell returning final status: ${payload.status}. New logs returned: ${returnedLogs.length}. New lastLogTimestamp: ${newLastLogTimestamp}`,
 	);
 
 	return ok(textPayload(JSON.stringify(payload)));
@@ -182,7 +195,7 @@ export async function listProcessesImpl(
 	const { log_lines } = params;
 	const processList: z.infer<typeof schemas.ListProcessesPayloadSchema> = [];
 
-	for (const label of managedProcesses.keys()) {
+	for (const label of managedShells.keys()) {
 		const processInfo = await checkAndUpdateProcessStatus(label);
 		if (processInfo) {
 			const requestedLines = log_lines ?? 0;
@@ -244,7 +257,7 @@ export async function stopAllProcessesImpl(): Promise<CallToolResult> {
 	let skippedCount = 0;
 	let errorCount = 0;
 
-	const labels = Array.from(managedProcesses.keys());
+	const labels = Array.from(managedShells.keys());
 
 	for (const label of labels) {
 		const processInfo = await checkAndUpdateProcessStatus(label);
@@ -322,7 +335,7 @@ export async function restartProcessImpl(
 	params: RestartProcessParams,
 ): Promise<CallToolResult> {
 	const { label } = params;
-	log.info(label, "Tool invoked: restart_process");
+	log.info(label, "Tool invoked: restart_shell");
 
 	const processInfo = await checkAndUpdateProcessStatus(label);
 
@@ -362,7 +375,7 @@ export async function restartProcessImpl(
 		processInfo.retryDelayMs ||
 		processInfo.maxRetries
 	) {
-		startResult = await startProcessWithVerification(
+		startResult = await startShellWithVerification(
 			label,
 			processInfo.command,
 			processInfo.args,
@@ -375,7 +388,7 @@ export async function restartProcessImpl(
 			true,
 		);
 	} else {
-		startResult = await startProcess(
+		startResult = await startShell(
 			label,
 			processInfo.command,
 			processInfo.args,
@@ -541,7 +554,7 @@ export async function sendInputImpl(
 	log.info(label, "Tool invoked: send_input");
 	const processInfo = await checkAndUpdateProcessStatus(label);
 
-	if (!processInfo || !processInfo.process) {
+	if (!processInfo || !processInfo.shell) {
 		const status = processInfo?.status ?? "not_found";
 		const message = `Process "${label}" not running or not found (status: ${status}). Cannot send input.`;
 		log.warn(label, message);
@@ -560,7 +573,7 @@ export async function sendInputImpl(
 			label,
 			`Sending input to PTY: "${stripAnsiAndControlChars(inputToSend)}"`,
 		);
-		await writeToPty(processInfo.process, inputToSend, label);
+		await writeToPty(processInfo.shell, inputToSend, label);
 		addLogEntry(label, `[MCP_INPUT] ${input}`);
 
 		const message = `Input sent successfully to process "${label}".`;
@@ -582,7 +595,7 @@ export async function healthCheckImpl(): Promise<CallToolResult> {
 		status: "ok",
 		server_name: cfg.serverName,
 		server_version: cfg.serverVersion,
-		active_processes: managedProcesses.size,
+		active_shelles: managedShells.size,
 		is_zombie_check_active: isZombieCheckActive(),
 	};
 	return ok(textPayload(JSON.stringify(payload)));

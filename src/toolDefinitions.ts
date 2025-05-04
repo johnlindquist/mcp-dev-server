@@ -1,8 +1,12 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ZodRawShape, z } from "zod";
 import {
-	startProcess,
-	startProcessWithVerification,
+	AI_TAIL_COMMAND_INSTRUCTION,
+	MARKDOWN_LINK_EXTRACTION_MSG,
+} from "./constants/messages.js";
+import {
+	startShell,
+	startShellWithVerification,
 	stopProcess,
 } from "./process/lifecycle.js";
 import { handleToolCall } from "./toolHandler.js";
@@ -23,7 +27,7 @@ import { log } from "./utils.js";
 
 const shape = <T extends ZodRawShape>(shape: T): T => shape;
 
-export type StartProcessParamsType = z.infer<typeof schemas.StartProcessParams>;
+export type StartProcessParamsType = z.infer<typeof schemas.StartShellParams>;
 export type CheckProcessStatusParamsType = z.infer<
 	typeof schemas.CheckProcessStatusParams
 >;
@@ -44,9 +48,9 @@ export type SendInputParamsType = z.infer<typeof schemas.SendInputParams>;
 
 export function registerToolDefinitions(server: McpServer): void {
 	server.tool(
-		"start_process",
-		"Starts a background process (like a dev server or script) and manages it.",
-		shape(schemas.StartProcessParams.shape),
+		"start_shell",
+		`Starts a shell (e.g. dev server, test runner) in a managed environment. ${MARKDOWN_LINK_EXTRACTION_MSG} ${AI_TAIL_COMMAND_INSTRUCTION}`,
+		shape(schemas.StartShellParams.shape),
 		(params: StartProcessParamsType) => {
 			const cwdForLabel = params.workingDirectory;
 			const effectiveLabel = params.label || `${cwdForLabel}:${params.command}`;
@@ -54,31 +58,26 @@ export function registerToolDefinitions(server: McpServer): void {
 
 			log.info(
 				effectiveLabel,
-				`Determined label for start_process: ${effectiveLabel}`,
+				`Determined label for start_shell: ${effectiveLabel}`,
 			);
 
-			return handleToolCall(
-				effectiveLabel,
-				"start_process",
-				params,
-				async () => {
-					return await startProcess(
-						effectiveLabel,
-						params.command,
-						params.args,
-						params.workingDirectory,
-						hostValue,
-						false,
-					);
-				},
-			);
+			return handleToolCall(effectiveLabel, "start_shell", params, async () => {
+				return await startShell(
+					effectiveLabel,
+					params.command,
+					params.args,
+					params.workingDirectory,
+					hostValue,
+					false,
+				);
+			});
 		},
 	);
 
 	server.tool(
-		"start_process_with_verification",
-		"Starts a background process with verification (pattern, timeout, retries).",
-		shape(schemas.StartProcessWithVerificationParams.shape),
+		"start_shell_with_verification",
+		"Starts a shell with verification (pattern, timeout, retries). Useful for dev servers, tests, or scripts that print a specific line when ready. Returns monitoring commands and all shell output for inspection.",
+		shape(schemas.StartShellWithVerificationParams.shape),
 		(params: schemas.StartProcessWithVerificationParamsType) => {
 			const cwdForLabel = params.workingDirectory;
 			const effectiveLabel = params.label || `${cwdForLabel}:${params.command}`;
@@ -86,18 +85,18 @@ export function registerToolDefinitions(server: McpServer): void {
 
 			log.info(
 				effectiveLabel,
-				`Determined label for start_process_with_verification: ${effectiveLabel}`,
+				`Determined label for start_shell_with_verification: ${effectiveLabel}`,
 			);
 
 			return handleToolCall(
 				effectiveLabel,
-				"start_process_with_verification",
+				"start_shell_with_verification",
 				params,
 				async () => {
 					const verificationPattern = params.verification_pattern
 						? new RegExp(params.verification_pattern)
 						: undefined;
-					return await startProcessWithVerification(
+					return await startShellWithVerification(
 						effectiveLabel,
 						params.command,
 						params.args,
@@ -115,13 +114,13 @@ export function registerToolDefinitions(server: McpServer): void {
 	);
 
 	server.tool(
-		"check_process_status",
-		"Checks the status and retrieves recent logs of a managed background process.",
+		"check_shell",
+		`Checks the status and recent logs of a managed shell. ${MARKDOWN_LINK_EXTRACTION_MSG}`,
 		shape(schemas.CheckProcessStatusParams.shape),
 		(params: CheckProcessStatusParamsType) => {
 			return handleToolCall(
 				params.label,
-				"check_process_status",
+				"check_shell",
 				params,
 				async () => await checkProcessStatusImpl(params),
 			);
@@ -129,13 +128,13 @@ export function registerToolDefinitions(server: McpServer): void {
 	);
 
 	server.tool(
-		"stop_process",
-		"Stops a specific background process.",
+		"stop_shell",
+		"Stops a specific managed shell. Can forcefully terminate or gracefully stop the shell.",
 		shape(schemas.StopProcessParams.shape),
 		(params: StopProcessParamsType) => {
 			return handleToolCall(
 				params.label,
-				"stop_process",
+				"stop_shell",
 				params,
 				async () => await stopProcess(params.label, params.force),
 			);
@@ -143,13 +142,13 @@ export function registerToolDefinitions(server: McpServer): void {
 	);
 
 	server.tool(
-		"stop_all_processes",
-		"Attempts to gracefully stop all active background processes.",
+		"stop_all_shelles",
+		"Attempts to gracefully stop all active managed shells.",
 		{},
 		(params: Record<string, unknown>) => {
 			return handleToolCall(
 				null,
-				"stop_all_processes",
+				"stop_all_shelles",
 				{},
 				async () => await stopAllProcessesImpl(),
 			);
@@ -157,13 +156,13 @@ export function registerToolDefinitions(server: McpServer): void {
 	);
 
 	server.tool(
-		"list_processes",
-		"Lists all managed background processes and their statuses.",
+		"list_shelles",
+		"Lists all managed shells and their statuses, including recent output lines for each shell.",
 		shape(schemas.ListProcessesParams.shape),
 		(params: ListProcessesParamsType) => {
 			return handleToolCall(
 				null,
-				"list_processes",
+				"list_shelles",
 				params,
 				async () => await listProcessesImpl(params),
 			);
@@ -171,13 +170,13 @@ export function registerToolDefinitions(server: McpServer): void {
 	);
 
 	server.tool(
-		"restart_process",
-		"Restarts a specific background process by stopping and then starting it again.",
+		"restart_shell",
+		"Restarts a specific managed shell by stopping and then starting it again. Useful for refreshing dev servers or test shells.",
 		shape(schemas.RestartProcessParams.shape),
 		(params: RestartProcessParamsType) => {
 			return handleToolCall(
 				params.label,
-				"restart_process",
+				"restart_shell",
 				params,
 				async () => await restartProcessImpl(params),
 			);
@@ -185,13 +184,13 @@ export function registerToolDefinitions(server: McpServer): void {
 	);
 
 	server.tool(
-		"wait_for_process",
-		"Waits for a specific background process to reach a target status (e.g., running).",
+		"wait_for_shell",
+		"Waits for a specific managed shell to reach a target status (e.g., running). Use this to synchronize with shell readiness.",
 		shape(schemas.WaitForProcessParams.shape),
 		(params: WaitForProcessParamsType) => {
 			return handleToolCall(
 				params.label,
-				"wait_for_process",
+				"wait_for_shell",
 				params,
 				async () => await waitForProcessImpl(params),
 			);
@@ -200,7 +199,7 @@ export function registerToolDefinitions(server: McpServer): void {
 
 	server.tool(
 		"get_all_loglines",
-		"Retrieves the complete remaining log history for a specific managed process.",
+		"Retrieves the complete log/output history for a specific managed shell. Useful for debugging or reviewing all shell output.",
 		shape(schemas.GetAllLoglinesParams.shape),
 		(params: GetAllLoglinesParamsType) => {
 			return handleToolCall(
@@ -214,7 +213,7 @@ export function registerToolDefinitions(server: McpServer): void {
 
 	server.tool(
 		"send_input",
-		"Sends input to a specific managed process.",
+		"Sends input to a specific managed shell, simulating user interaction (e.g., responding to prompts in the shell).",
 		shape(schemas.SendInputParams.shape),
 		(params: SendInputParamsType) => {
 			return handleToolCall(
@@ -233,7 +232,7 @@ export function registerToolDefinitions(server: McpServer): void {
 
 	server.tool(
 		"health_check",
-		"Provides a health status summary of the MCP Process Manager itself.",
+		"Provides a health status summary of the MCP Shell Manager itself.",
 		{},
 		(params: Record<string, unknown>) => {
 			return handleToolCall(

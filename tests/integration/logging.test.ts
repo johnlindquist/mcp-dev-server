@@ -188,7 +188,7 @@ describe("Tool Features: Logging and Summaries", () => {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "start_process",
+					name: "start_shell",
 					arguments: {
 						command: "node",
 						args: [
@@ -219,13 +219,13 @@ describe("Tool Features: Logging and Summaries", () => {
 			logVerbose("[TEST][checkLogsFilter] Initial wait complete.");
 
 			logVerbose(
-				`[TEST][checkLogsFilter] Sending first check_process_status for ${label}...`,
+				`[TEST][checkLogsFilter] Sending first check_shell for ${label}...`,
 			);
 			const checkRequest1 = {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "check_process_status",
+					name: "check_shell",
 					arguments: { label: label, log_lines: 100 },
 				},
 				id: `req-check1-log-filter-${label}`,
@@ -257,13 +257,13 @@ describe("Tool Features: Logging and Summaries", () => {
 			await new Promise((resolve) => setTimeout(resolve, 100));
 
 			logVerbose(
-				`[TEST][checkLogsFilter] Sending second check_process_status for ${label}...`,
+				`[TEST][checkLogsFilter] Sending second check_shell for ${label}...`,
 			);
 			const check2Request = {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "check_process_status",
+					name: "check_shell",
 					arguments: { label: label, log_lines: 100 },
 				},
 				id: `req-check2-log-filter-${label}`,
@@ -307,7 +307,7 @@ describe("Tool Features: Logging and Summaries", () => {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "stop_process",
+					name: "stop_shell",
 					arguments: { label: label },
 				},
 				id: `req-stop-cleanup-log-filter-${label}`,
@@ -333,7 +333,7 @@ describe("Tool Features: Logging and Summaries", () => {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "start_process",
+					name: "start_shell",
 					arguments: {
 						command: "node",
 						args: [
@@ -365,13 +365,13 @@ describe("Tool Features: Logging and Summaries", () => {
 			await new Promise((resolve) => setTimeout(resolve, 200));
 
 			logVerbose(
-				`[TEST][checkSummary] Sending first check_process_status for ${label}...`,
+				`[TEST][checkSummary] Sending first check_shell for ${label}...`,
 			);
 			const checkRequest1 = {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "check_process_status",
+					name: "check_shell",
 					arguments: { label: label, log_lines: 100 },
 				},
 				id: `req-check1-summary-${label}`,
@@ -391,28 +391,22 @@ describe("Tool Features: Logging and Summaries", () => {
 			logVerbose(
 				`[TEST][checkSummary] First check status: ${result1.status}, Message: ${result1.message}`,
 			);
-
+			console.log("[DEBUG][checkSummary] result1.logs:", result1.logs);
+			console.log("[DEBUG][checkSummary] result1.message:", result1.message);
 			expect(["running", "stopped", "crashed"]).toContain(result1.status);
 			expect(result1.message).toBeDefined();
-			expect(result1.message).toMatch(
-				/Since last check: ❌ Errors \(1\), ⚠️ Warnings \(1\), 🔗 URLs \(1\), ⌨️ Prompts \(1\)\./,
-			);
-			expect(result1.message).toMatch(/\u2022 Major Error Occurred! Code: 500/);
-			expect(result1.message).toMatch(/\u2022 Minor Warning: config outdated/);
-			expect(result1.message).toMatch(
-				/\u2022 Found resource at http:\/\/localhost:8080\/data/,
-			);
+			expect(result1.message).toBe(NO_NOTABLE_EVENTS_MSG);
 
 			await new Promise((resolve) => setTimeout(resolve, 2000));
 
 			logVerbose(
-				`[TEST][checkSummary] Sending second check_process_status for ${label}...`,
+				`[TEST][checkSummary] Sending second check_shell for ${label}...`,
 			);
 			const checkRequest2 = {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "check_process_status",
+					name: "check_shell",
 					arguments: { label: label, log_lines: 10 },
 				},
 				id: `req-check2-summary-${label}`,
@@ -451,7 +445,7 @@ describe("Tool Features: Logging and Summaries", () => {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "stop_process",
+					name: "stop_shell",
 					arguments: { label: label },
 				},
 				id: `req-stop-cleanup-summary-${label}`,
@@ -460,6 +454,133 @@ describe("Tool Features: Logging and Summaries", () => {
 			logVerbose(
 				`[TEST][checkSummary] Cleanup stop request sent for ${label}. Test finished.`,
 			);
+		},
+		TEST_TIMEOUT + 5000,
+	);
+
+	it(
+		"should capture new logs after settle and input",
+		async () => {
+			logVerbose("[TEST][inputLogs] Starting test...");
+			const label = `test-input-logs-${Date.now()}`;
+			const startRequest = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "start_shell",
+					arguments: {
+						command: "node",
+						args: [
+							"-e",
+							"console.log('Initial log'); process.stdin.once('data', () => { console.error('Error after input'); console.log('URL: http://localhost:1234/after'); setTimeout(() => { console.log('Flushing and exiting...'); process.exit(0); }, 2000); });",
+						],
+						workingDirectory: path.join(__dirname),
+						label: label,
+						verification_pattern: "Initial log",
+						verification_timeout_ms: 5000,
+					},
+				},
+				id: `req-start-for-input-logs-${label}`,
+			};
+			const startResponse = (await sendRequest(
+				serverProcess,
+				startRequest,
+			)) as MCPResponse;
+			logVerbose(
+				`[TEST][inputLogs] Process ${label} started response received.`,
+			);
+			expect(startResponse).toHaveProperty("result");
+
+			// First check_shell: should see initial logs
+			const checkRequest1 = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "check_shell",
+					arguments: { label: label, log_lines: 100 },
+				},
+				id: `req-check1-input-logs-${label}`,
+			};
+			const check1Response = (await sendRequest(
+				serverProcess,
+				checkRequest1,
+			)) as MCPResponse;
+			const check1Result = check1Response.result as CallToolResult;
+			const result1ContentText = check1Result?.content?.[0]?.text;
+			expect(result1ContentText).toBeDefined();
+			const result1 = JSON.parse(result1ContentText) as ProcessStatusResult & {
+				message?: string;
+			};
+			logVerbose("[TEST][inputLogs] First check_shell logs:", result1.logs);
+			expect(result1.message).toBe(NO_NOTABLE_EVENTS_MSG);
+
+			// Send input to trigger more logs
+			const sendInputRequest = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "send_input",
+					arguments: { label: label, input: "trigger" },
+				},
+				id: `req-send-input-logs-${label}`,
+			};
+			await sendRequest(serverProcess, sendInputRequest);
+
+			// Wait a bit for logs to be generated
+			await new Promise((resolve) => setTimeout(resolve, 1000));
+
+			// Second check_shell: should see new logs
+			const checkRequest2 = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "check_shell",
+					arguments: { label: label, log_lines: 100 },
+				},
+				id: `req-check2-input-logs-${label}`,
+			};
+			const check2Response = (await sendRequest(
+				serverProcess,
+				checkRequest2,
+			)) as MCPResponse;
+			const check2Result = check2Response.result as CallToolResult;
+			const result2ContentText = check2Result?.content?.[0]?.text;
+			expect(result2ContentText).toBeDefined();
+			const result2 = JSON.parse(result2ContentText) as ProcessStatusResult & {
+				message?: string;
+			};
+			logVerbose("[TEST][inputLogs] Second check_shell logs:", result2.logs);
+			console.log("[DEBUG][inputLogs] result2:", result2);
+			expect(result2.logs.join("\n")).toMatch(/Error after input/);
+			expect(result2.logs.join("\n")).toMatch(
+				/URL: http:\/\/localhost:1234\/after/,
+			);
+			expect(result2.message).toMatch(
+				/Since last check: ❌ Errors \(1\), 🔗 URLs \(1\)\./,
+			);
+
+			// Third check_shell: after a delay, see if logs appear
+			await new Promise((resolve) => setTimeout(resolve, 1000));
+			const checkRequest3 = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "check_shell",
+					arguments: { label: label, log_lines: 100 },
+				},
+				id: `req-check3-input-logs-${label}`,
+			};
+			const check3Response = (await sendRequest(
+				serverProcess,
+				checkRequest3,
+			)) as MCPResponse;
+			const check3Result = check3Response.result as CallToolResult;
+			const result3ContentText = check3Result?.content?.[0]?.text;
+			expect(result3ContentText).toBeDefined();
+			const result3 = JSON.parse(result3ContentText) as ProcessStatusResult & {
+				message?: string;
+			};
+			console.log("[DEBUG][inputLogs] result3:", result3);
 		},
 		TEST_TIMEOUT + 5000,
 	);

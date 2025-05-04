@@ -217,7 +217,7 @@ describe("Tool: health_check", () => {
 				expect(parsedContent.status).toBe("ok");
 				expect(parsedContent.server_name).toBe("mcp-pm");
 				expect(parsedContent.server_version).toBeDefined();
-				expect(parsedContent.active_processes).toBe(0);
+				expect(parsedContent.active_shelles).toBe(0);
 				expect(parsedContent.is_zombie_check_active).toBe(false);
 				console.log("[TEST][healthCheck] Assertions passed.");
 				logVerbose("[TEST][healthCheck] Test finished.");

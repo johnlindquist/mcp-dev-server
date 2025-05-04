@@ -165,7 +165,7 @@ echo "OSC 133 Configured"
 			jsonrpc: "2.0",
 			method: "tools/call",
 			params: {
-				name: "start_process",
+				name: "start_shell",
 				arguments: {
 					label,
 					command: COMMAND,
@@ -211,7 +211,7 @@ echo "OSC 133 Configured"
 			jsonrpc: "2.0",
 			method: "tools/call",
 			params: {
-				name: "check_process_status",
+				name: "check_shell",
 				arguments: { label, log_lines: 100 },
 			},
 			id: `req-check-${label}`,
@@ -230,7 +230,7 @@ echo "OSC 133 Configured"
 			jsonrpc: "2.0",
 			method: "tools/call",
 			params: {
-				name: "stop_process",
+				name: "stop_shell",
 				arguments: { label },
 			},
 			id: `req-stop-${label}`,
@@ -246,7 +246,7 @@ echo "OSC 133 Configured"
 			jsonrpc: "2.0",
 			method: "tools/call",
 			params: {
-				name: "start_process",
+				name: "start_shell",
 				arguments: {
 					label,
 					command: COMMAND,
@@ -284,7 +284,7 @@ echo "OSC 133 Configured"
 		const check1 = {
 			jsonrpc: "2.0",
 			method: "tools/call",
-			params: { name: "check_process_status", arguments: { label } },
+			params: { name: "check_shell", arguments: { label } },
 			id: `req-check1-${label}`,
 		};
 		const resp1 = (await sendRequest(serverProcess, check1)) as {
@@ -305,7 +305,7 @@ echo "OSC 133 Configured"
 		const check2 = {
 			jsonrpc: "2.0",
 			method: "tools/call",
-			params: { name: "check_process_status", arguments: { label } },
+			params: { name: "check_shell", arguments: { label } },
 			id: `req-check2-${label}`,
 		};
 		const resp2 = (await sendRequest(serverProcess, check2)) as {
@@ -317,7 +317,7 @@ echo "OSC 133 Configured"
 		const stopRequest = {
 			jsonrpc: "2.0",
 			method: "tools/call",
-			params: { name: "stop_process", arguments: { label } },
+			params: { name: "stop_shell", arguments: { label } },
 			id: `req-stop-${label}`,
 		};
 		await sendRequest(serverProcess, stopRequest);
@@ -329,7 +329,7 @@ echo "OSC 133 Configured"
 			jsonrpc: "2.0",
 			method: "tools/call",
 			params: {
-				name: "start_process",
+				name: "start_shell",
 				arguments: {
 					label,
 					command: COMMAND,
@@ -344,7 +344,7 @@ echo "OSC 133 Configured"
 		const check = {
 			jsonrpc: "2.0",
 			method: "tools/call",
-			params: { name: "check_process_status", arguments: { label } },
+			params: { name: "check_shell", arguments: { label } },
 			id: `req-check-${label}`,
 		};
 		const resp = (await sendRequest(serverProcess, check)) as {
@@ -355,7 +355,7 @@ echo "OSC 133 Configured"
 		const stopRequest = {
 			jsonrpc: "2.0",
 			method: "tools/call",
-			params: { name: "stop_process", arguments: { label } },
+			params: { name: "stop_shell", arguments: { label } },
 			id: `req-stop-${label}`,
 		};
 		await sendRequest(serverProcess, stopRequest);
@@ -368,7 +368,7 @@ echo "OSC 133 Configured"
 			jsonrpc: "2.0",
 			method: "tools/call",
 			params: {
-				name: "start_process",
+				name: "start_shell",
 				arguments: {
 					label,
 					command: COMMAND,
@@ -404,7 +404,7 @@ echo "OSC 133 Configured"
 			const check = {
 				jsonrpc: "2.0",
 				method: "tools/call",
-				params: { name: "check_process_status", arguments: { label } },
+				params: { name: "check_shell", arguments: { label } },
 				id: `req-check-${label}-${i}`,
 			};
 			const resp = (await sendRequest(serverProcess, check)) as {
@@ -416,7 +416,7 @@ echo "OSC 133 Configured"
 		const stopRequest = {
 			jsonrpc: "2.0",
 			method: "tools/call",
-			params: { name: "stop_process", arguments: { label } },
+			params: { name: "stop_shell", arguments: { label } },
 			id: `req-stop-${label}`,
 		};
 		await sendRequest(serverProcess, stopRequest);
@@ -428,7 +428,7 @@ echo "OSC 133 Configured"
 			jsonrpc: "2.0",
 			method: "tools/call",
 			params: {
-				name: "start_process",
+				name: "start_shell",
 				arguments: {
 					label,
 					command: COMMAND,
@@ -463,7 +463,7 @@ echo "OSC 133 Configured"
 		const stopRequest = {
 			jsonrpc: "2.0",
 			method: "tools/call",
-			params: { name: "stop_process", arguments: { label } },
+			params: { name: "stop_shell", arguments: { label } },
 			id: `req-stop-${label}`,
 		};
 		await sendRequest(serverProcess, stopRequest);
@@ -471,7 +471,7 @@ echo "OSC 133 Configured"
 		const check = {
 			jsonrpc: "2.0",
 			method: "tools/call",
-			params: { name: "check_process_status", arguments: { label } },
+			params: { name: "check_shell", arguments: { label } },
 			id: `req-check-${label}`,
 		};
 		const resp = (await sendRequest(serverProcess, check)) as {
@@ -487,7 +487,7 @@ echo "OSC 133 Configured"
 			jsonrpc: "2.0",
 			method: "tools/call",
 			params: {
-				name: "start_process",
+				name: "start_shell",
 				arguments: {
 					label,
 					command: COMMAND,
@@ -522,7 +522,7 @@ echo "OSC 133 Configured"
 		const check = {
 			jsonrpc: "2.0",
 			method: "tools/call",
-			params: { name: "check_process_status", arguments: { label } },
+			params: { name: "check_shell", arguments: { label } },
 			id: `req-check-${label}`,
 		};
 		const resp = (await sendRequest(serverProcess, check)) as {
@@ -533,7 +533,7 @@ echo "OSC 133 Configured"
 		const stopRequest = {
 			jsonrpc: "2.0",
 			method: "tools/call",
-			params: { name: "stop_process", arguments: { label } },
+			params: { name: "stop_shell", arguments: { label } },
 			id: `req-stop-${label}`,
 		};
 		await sendRequest(serverProcess, stopRequest);
@@ -547,7 +547,7 @@ echo "OSC 133 Configured"
 			jsonrpc: "2.0",
 			method: "tools/call",
 			params: {
-				name: "start_process",
+				name: "start_shell",
 				arguments: {
 					label,
 					command: COMMAND,
@@ -574,7 +574,7 @@ echo "OSC 133 Configured"
 		const checkRequest = {
 			jsonrpc: "2.0",
 			method: "tools/call",
-			params: { name: "check_process_status", arguments: { label } },
+			params: { name: "check_shell", arguments: { label } },
 			id: `req-check-${label}`,
 		};
 		const resp = (await sendRequest(serverProcess, checkRequest)) as {
@@ -586,7 +586,7 @@ echo "OSC 133 Configured"
 		const stopRequest = {
 			jsonrpc: "2.0",
 			method: "tools/call",
-			params: { name: "stop_process", arguments: { label } },
+			params: { name: "stop_shell", arguments: { label } },
 			id: `req-stop-${label}`,
 		};
 		await sendRequest(serverProcess, stopRequest);
