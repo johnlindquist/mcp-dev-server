@@ -257,7 +257,7 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 			console.log("[TEST][startProcess] Assertions passed.");
 
 			logVerbose("[TEST][startProcess] Waiting briefly...");
-			await new Promise((resolve) => setTimeout(resolve, 500));
+			await new Promise((resolve) => setTimeout(resolve, 200));
 
 			const stopRequest = {
 				jsonrpc: "2.0",
@@ -305,8 +305,8 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 			};
 			await sendRequest(serverProcess, startRequest);
 			logVerbose(`[TEST][checkStatus] Process ${uniqueLabel} started.`);
-			await new Promise((resolve) => setTimeout(resolve, 500));
-			logVerbose("[TEST][checkStatus] Added 500ms delay after start.");
+			await new Promise((resolve) => setTimeout(resolve, 200));
+			logVerbose("[TEST][checkStatus] Added 200ms delay after start.");
 
 			const checkRequest = {
 				jsonrpc: "2.0",
@@ -417,8 +417,8 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 			expect(initialPid).toBeGreaterThan(0);
 			logVerbose(`[TEST][restart] Initial PID: ${initialPid}`);
 
-			await new Promise((resolve) => setTimeout(resolve, 500));
-			logVerbose("[TEST][restart] Added 500ms delay before restart.");
+			await new Promise((resolve) => setTimeout(resolve, 200));
+			logVerbose("[TEST][restart] Added 200ms delay before restart.");
 
 			const restartRequest = {
 				jsonrpc: "2.0",
@@ -602,7 +602,7 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 			console.log("[TEST][startProcessWithVerification] Assertions passed.");
 
 			logVerbose("[TEST][startProcessWithVerification] Waiting briefly...");
-			await new Promise((resolve) => setTimeout(resolve, 500));
+			await new Promise((resolve) => setTimeout(resolve, 200));
 
 			const stopRequest = {
 				jsonrpc: "2.0",
