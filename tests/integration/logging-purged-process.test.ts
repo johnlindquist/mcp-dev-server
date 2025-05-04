@@ -138,7 +138,7 @@ describe("Process: Purged Process Status", () => {
 				id: `req-start-purged-${uniqueLabel}`,
 			};
 			await sendRequest(serverProcess, startRequest);
-			await new Promise((resolve) => setTimeout(resolve, 500));
+			await new Promise((resolve) => setTimeout(resolve, 200));
 
 			// Stop the process
 			const stopRequest = {
@@ -151,7 +151,7 @@ describe("Process: Purged Process Status", () => {
 				id: `req-stop-purged-${uniqueLabel}`,
 			};
 			await sendRequest(serverProcess, stopRequest);
-			await new Promise((resolve) => setTimeout(resolve, 500));
+			await new Promise((resolve) => setTimeout(resolve, 200));
 
 			// Check process status after purge
 			const checkRequest = {
