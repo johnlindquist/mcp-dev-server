@@ -5,5 +5,7 @@ export default defineConfig({
 		include: ["src/**/*.test.ts", "tests/**/*.test.ts"],
 		testTimeout: 40000,
 		globals: true,
+		threads: true,
+		isolate: true,
 	},
 });
