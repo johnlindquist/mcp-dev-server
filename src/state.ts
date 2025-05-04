@@ -21,7 +21,6 @@ export function addLogEntry(
 		return;
 	}
 	const entry: LogEntry = { timestamp: Date.now(), content, source };
-	console.log("[DEBUG][addLogEntry] Added log:", entry);
 	log.debug(
 		label,
 		`[state.addLogEntry] Pushing log entry (ts: ${entry.timestamp}): ${content.substring(0, 100)}`,
