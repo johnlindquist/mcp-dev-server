@@ -315,7 +315,7 @@ export const StartSuccessPayloadSchema = z
 		ai_instructions: z
 			.string()
 			.describe(
-				"MANDATORY: Immediately run the tail_command using your run_terminal_cmd tool to monitor this shell's output. You MUST also display every detected_urls entry as a clickable markdown link to the user. Do not skip these steps.",
+				"MANDATORY: Immediately run the tail_command using your run_terminal_cmd tool in a BACKGROUND terminal to monitor this shell's output (the command may be blocking). You MUST also display every detected_urls entry as a clickable markdown link to the user. Do not skip these steps.",
 			),
 		user_hint: z
 			.string()
@@ -332,7 +332,7 @@ export const StartSuccessPayloadSchema = z
 			)
 			.optional()
 			.describe(
-				"MANDATORY: The AI MUST run every action in this array, starting with the tail_command. Do not skip or delay.",
+				"MANDATORY: The AI MUST run every action in this array, starting with the tail_command in a BACKGROUND terminal (the command may be blocking). Do not skip or delay.",
 			),
 		shellLogs: z
 			.array(z.string())

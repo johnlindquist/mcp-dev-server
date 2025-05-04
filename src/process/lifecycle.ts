@@ -689,9 +689,9 @@ export async function startShell(
 	// Success case
 	const aiInstructions =
 		tail_command && detectedUrls.length > 0
-			? `MANDATORY: Immediately run the tail_command using your run_terminal_cmd tool to monitor this shell's output. You MUST also display every detected_urls entry as a clickable markdown link to the user. Do not skip these steps.`
+			? "MANDATORY: Immediately run the tail_command using your run_terminal_cmd tool in a BACKGROUND terminal to monitor this shell's output (the command may be blocking). You MUST also display every detected_urls entry as a clickable markdown link to the user. Do not skip these steps."
 			: tail_command
-				? `MANDATORY: Immediately run the tail_command using your run_terminal_cmd tool to monitor this shell's output. Do not skip this step.`
+				? "MANDATORY: Immediately run the tail_command using your run_terminal_cmd tool in a BACKGROUND terminal to monitor this shell's output (the command may be blocking). Do not skip this step."
 				: detectedUrls.length > 0
 					? "MANDATORY: You MUST display every detected_urls entry as a clickable markdown link to the user. Do not skip this step."
 					: "";
@@ -835,9 +835,9 @@ export async function startShellWithVerification(
 	// Success case (reuse the same payload as startProcess)
 	const aiInstructions =
 		tail_command && detectedUrls.length > 0
-			? `MANDATORY: Immediately run the tail_command using your run_terminal_cmd tool to monitor this shell's output. You MUST also display every detected_urls entry as a clickable markdown link to the user. Do not skip these steps.`
+			? "MANDATORY: Immediately run the tail_command using your run_terminal_cmd tool in a BACKGROUND terminal to monitor this shell's output (the command may be blocking). You MUST also display every detected_urls entry as a clickable markdown link to the user. Do not skip these steps."
 			: tail_command
-				? `MANDATORY: Immediately run the tail_command using your run_terminal_cmd tool to monitor this shell's output. Do not skip this step.`
+				? "MANDATORY: Immediately run the tail_command using your run_terminal_cmd tool in a BACKGROUND terminal to monitor this shell's output (the command may be blocking). Do not skip this step."
 				: detectedUrls.length > 0
 					? "MANDATORY: You MUST display every detected_urls entry as a clickable markdown link to the user. Do not skip this step."
 					: "";
