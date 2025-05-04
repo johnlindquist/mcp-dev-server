@@ -7,7 +7,6 @@ import type { z } from "zod";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { cfg } from "../constants/index.js";
 import {
-	AI_TAIL_COMMAND_INSTRUCTION,
 	COMPOSITE_LABEL_CONFLICT,
 	DID_NOT_TERMINATE_GRACEFULLY_SIGKILL,
 	PROCESS_ALREADY_TERMINAL,
@@ -688,6 +687,15 @@ export async function startShell(
 	// Only run_terminal_cmd actions are allowed by schema
 
 	// Success case
+	const aiInstructions =
+		tail_command && detectedUrls.length > 0
+			? `MANDATORY: Immediately run the tail_command using your run_terminal_cmd tool to monitor this shell's output. You MUST also display every detected_urls entry as a clickable markdown link to the user. Do not skip these steps.`
+			: tail_command
+				? `MANDATORY: Immediately run the tail_command using your run_terminal_cmd tool to monitor this shell's output. Do not skip this step.`
+				: detectedUrls.length > 0
+					? "MANDATORY: You MUST display every detected_urls entry as a clickable markdown link to the user. Do not skip this step."
+					: "";
+
 	const successPayload: z.infer<typeof schemas.StartSuccessPayloadSchema> = {
 		label: finalShellInfo.label,
 		command: finalShellInfo.command,
@@ -698,7 +706,7 @@ export async function startShell(
 		host: finalShellInfo.host,
 		message: `Shell '${label}' started successfully. Current status: ${finalShellInfo.status}.`,
 		tail_command,
-		ai_instructions: AI_TAIL_COMMAND_INSTRUCTION,
+		ai_instructions: aiInstructions,
 		user_hint: tail_command
 			? `You can monitor the shell output by running: ${tail_command}`
 			: undefined,
@@ -825,6 +833,15 @@ export async function startShellWithVerification(
 	// Only run_terminal_cmd actions are allowed by schema
 
 	// Success case (reuse the same payload as startProcess)
+	const aiInstructions =
+		tail_command && detectedUrls.length > 0
+			? `MANDATORY: Immediately run the tail_command using your run_terminal_cmd tool to monitor this shell's output. You MUST also display every detected_urls entry as a clickable markdown link to the user. Do not skip these steps.`
+			: tail_command
+				? `MANDATORY: Immediately run the tail_command using your run_terminal_cmd tool to monitor this shell's output. Do not skip this step.`
+				: detectedUrls.length > 0
+					? "MANDATORY: You MUST display every detected_urls entry as a clickable markdown link to the user. Do not skip this step."
+					: "";
+
 	const successPayload: z.infer<typeof schemas.StartSuccessPayloadSchema> = {
 		label: finalShellInfo.label,
 		command: finalShellInfo.command,
@@ -835,7 +852,7 @@ export async function startShellWithVerification(
 		message: `Shell '${label}' started successfully. Current status: ${finalShellInfo.status}.`,
 		host: finalShellInfo.host,
 		tail_command,
-		ai_instructions: AI_TAIL_COMMAND_INSTRUCTION,
+		ai_instructions: aiInstructions,
 		user_hint: tail_command
 			? `You can monitor the shell output by running: ${tail_command}`
 			: undefined,
