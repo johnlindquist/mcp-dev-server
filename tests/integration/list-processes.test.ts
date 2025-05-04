@@ -277,7 +277,7 @@ describe("Tool: list_shelles", () => {
 			logVerbose("[TEST][purgeStopped] Process started.");
 
 			// Wait briefly to ensure process is running
-			await new Promise((resolve) => setTimeout(resolve, 500));
+			await new Promise((resolve) => setTimeout(resolve, 200));
 
 			// Stop the process
 			const stopRequest = {
@@ -294,7 +294,7 @@ describe("Tool: list_shelles", () => {
 			logVerbose("[TEST][purgeStopped] Process stopped.");
 
 			// Wait briefly to allow process manager to update
-			await new Promise((resolve) => setTimeout(resolve, 500));
+			await new Promise((resolve) => setTimeout(resolve, 200));
 
 			// List processes and ensure the stopped process is not present
 			const listRequest = {
