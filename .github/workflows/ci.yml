@@ -47,7 +47,7 @@ jobs:
           path: build/
 
       - name: Run tests
-        run: pnpm test
+        run: pnpm test:ci
 
   smoke-test:
     needs: build
