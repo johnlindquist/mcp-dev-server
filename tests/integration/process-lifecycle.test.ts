@@ -574,7 +574,12 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 			expect(result?.content?.[0]?.text).toBeDefined();
 			let startResult: ProcessStatusResult | null = null;
 			try {
+				console.log(
+					"DEBUG: Raw result.content[0].text:",
+					result.content[0].text,
+				);
 				startResult = JSON.parse(result.content[0].text);
+				console.log("DEBUG: Parsed startResult:", startResult);
 			} catch (e) {
 				throw new Error(
 					`Failed to parse start_shell_with_verification result content: ${e}`,

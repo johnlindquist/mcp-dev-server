@@ -7,7 +7,11 @@ export const managedShells: Map<string, ShellInfo> = new Map();
 
 // REMOVE: const killProcessTree = promisify(treeKill); // Define killProcessTree here
 
-export function addLogEntry(label: string, content: string): void {
+export function addLogEntry(
+	label: string,
+	content: string,
+	source: "tool" | "shell" = "tool",
+): void {
 	const shellInfo = managedShells.get(label);
 	if (!shellInfo) {
 		log.warn(
@@ -16,7 +20,8 @@ export function addLogEntry(label: string, content: string): void {
 		);
 		return;
 	}
-	const entry: LogEntry = { timestamp: Date.now(), content };
+	const entry: LogEntry = { timestamp: Date.now(), content, source };
+	console.log("[DEBUG][addLogEntry] Added log:", entry);
 	log.debug(
 		label,
 		`[state.addLogEntry] Pushing log entry (ts: ${entry.timestamp}): ${content.substring(0, 100)}`,

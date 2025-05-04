@@ -103,21 +103,37 @@ const BACKSPACE_REGEX = /.\x08/g; // Match any character followed by ASCII backs
 const OTHER_CONTROL_CHARS_REGEX = /[\r\x07]/g;
 
 export function formatLogsForResponse(
-	logs: string[],
+	logs: { content: string; source: "tool" | "shell" }[] | string[],
 	lineCount: number,
+	source?: "tool" | "shell",
 ): string[] {
 	if (lineCount <= 0) {
 		return []; // Return empty if 0 or negative lines requested
 	}
 
-	// Get the requested number of most recent raw log lines
-	const recentRawLogs = logs.slice(-lineCount);
+	let filteredLogs: string[];
+	if (
+		Array.isArray(logs) &&
+		logs.length > 0 &&
+		typeof logs[0] === "object" &&
+		"source" in logs[0]
+	) {
+		// logs is LogEntry[]
+		const entries = logs as { content: string; source: "tool" | "shell" }[];
+		filteredLogs = source
+			? entries.filter((l) => l.source === source).map((l) => l.content)
+			: entries.map((l) => l.content);
+	} else {
+		// logs is string[]
+		filteredLogs = logs as string[];
+	}
 
-	// Process logs: strip, trim, filter
+	const recentRawLogs = filteredLogs.slice(-lineCount);
+
 	const cleanedLogs = recentRawLogs
-		.map(stripAnsiAndControlChars) // Apply the enhanced stripping function
-		.map((line) => line.trim()) // Trim leading/trailing whitespace from each line
-		.filter((line) => line.length > 0); // Remove lines that are now empty after stripping/trimming
+		.map(stripAnsiAndControlChars)
+		.map((line) => line.trim())
+		.filter((line) => line.length > 0);
 
 	return cleanedLogs;
 }

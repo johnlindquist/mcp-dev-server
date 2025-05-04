@@ -38,7 +38,7 @@ import { formatLogsForResponse, getTailCommand, log } from "../utils.js";
 import { setupLogFileStream } from "./logging.js";
 import { handleShellExit } from "./retry.js"; // Assuming retry logic helper is named this
 import { spawnPtyShell } from "./spawn.js"; // <-- Import spawnPtyProcess
-import { verifyProcessStartup } from "./verify.js";
+import { verifyProcessStartup, waitForLogSettleOrTimeout } from "./verify.js";
 
 // Max length for rolling OSC 133 buffer
 const OSC133_BUFFER_MAXLEN = 40;
@@ -64,7 +64,7 @@ export function handleData(
 
 	// Add the log entry to the managed shell state
 	// Use addLogEntry which also handles file logging
-	addLogEntry(label, data);
+	addLogEntry(label, data, "shell");
 
 	log.info(label, `[DEBUG] handleData received: ${JSON.stringify(data)}`);
 	log.error(
@@ -126,7 +126,7 @@ export async function stopShell(
 	force = false,
 ): Promise<CallToolResult> {
 	log.info(label, `Stop requested for shell "${label}". Force: ${force}`);
-	addLogEntry(label, `Stop requested. Force: ${force}`);
+	addLogEntry(label, `Stop requested. Force: ${force}`, "tool");
 
 	// Refresh status before proceeding
 	const initialShellInfo = await checkAndUpdateProcessStatus(label);
@@ -190,7 +190,7 @@ export async function stopShell(
 				label,
 				`Force stop requested. Sending SIGKILL to PID ${pidToKill}...`,
 			);
-			addLogEntry(label, "Sending SIGKILL...");
+			addLogEntry(label, "Sending SIGKILL...", "tool");
 			await killPtyProcess(shellToKill, label, "SIGKILL");
 			// Note: The onExit handler will update the status.
 			finalMessage = `Force stop requested. SIGKILL sent to PID ${pidToKill}.`;
@@ -202,7 +202,7 @@ export async function stopShell(
 				label,
 				`Attempting graceful shutdown. Sending SIGTERM to PID ${pidToKill}...`,
 			);
-			addLogEntry(label, "Sending SIGTERM...");
+			addLogEntry(label, "Sending SIGTERM...", "tool");
 			await killPtyProcess(shellToKill, label, "SIGTERM");
 
 			log.debug(
@@ -228,21 +228,25 @@ export async function stopShell(
 					label,
 					`Shell ${pidToKill} did not terminate after SIGTERM and ${cfg.stopWaitDurationMs}ms wait. Sending SIGKILL.`,
 				);
-				addLogEntry(label, "Graceful shutdown timed out. Sending SIGKILL...");
+				addLogEntry(
+					label,
+					"Graceful shutdown timed out. Sending SIGKILL...",
+					"tool",
+				);
 				await killPtyProcess(shellToKill, label, "SIGKILL");
 				finalMessage = DID_NOT_TERMINATE_GRACEFULLY_SIGKILL(pidToKill);
 				finalStatus = "stopping"; // Assume stopping until exit confirms
 			} else {
 				finalMessage = TERMINATED_GRACEFULLY_AFTER_SIGTERM(pidToKill);
 				log.info(label, finalMessage);
-				addLogEntry(label, "Shell terminated gracefully.");
+				addLogEntry(label, "Shell terminated gracefully.", "tool");
 				finalStatus = infoAfterWait?.status ?? "stopped"; // Use status after wait
 			}
 		}
 	} catch (error) {
 		const errorMsg = `Error stopping shell ${label} (PID: ${pidToKill}): ${error instanceof Error ? error.message : String(error)}`;
-		log.error(label, errorMsg);
-		addLogEntry(label, `Error stopping shell: ${errorMsg}`);
+		log.error(label, errorMsg, "tool");
+		addLogEntry(label, `Error stopping shell: ${errorMsg}`, "tool");
 		finalMessage = `Error stopping shell: ${errorMsg}`;
 		updateProcessStatus(label, "error"); // Ensure status is error
 		finalStatus = "error";
@@ -266,6 +270,7 @@ export async function stopShell(
 	log.info(
 		label,
 		`Returning result for stop_shell. Final status: ${payload.status}.`,
+		"tool",
 	);
 	return ok(textPayload(JSON.stringify(payload)));
 }
@@ -291,13 +296,14 @@ export async function startShell(
 	log.info(
 		label,
 		`Starting shell... Command: "${command}", Args: [${args.join(", ")}], CWD: "${effectiveWorkingDirectory}", Host: ${host}, isRestart: ${isRestart}`,
+		"tool",
 	);
 
 	// 1. Verify working directory
 	log.debug(label, `Verifying working directory: ${effectiveWorkingDirectory}`);
 	if (!fs.existsSync(effectiveWorkingDirectory)) {
 		const errorMsg = WORKING_DIRECTORY_NOT_FOUND(effectiveWorkingDirectory);
-		log.error(label, errorMsg);
+		log.error(label, errorMsg, "tool");
 		// Ensure state exists for error
 		if (!managedShells.has(label)) {
 			// Create minimal error state
@@ -327,7 +333,7 @@ export async function startShell(
 		};
 		return fail(textPayload(JSON.stringify(payload)));
 	}
-	log.debug(label, "Working directory verified.");
+	log.debug(label, "Working directory verified.", "tool");
 
 	const existingShell = managedShells.get(label);
 
@@ -350,7 +356,7 @@ export async function startShell(
 					existing.status,
 					existing.pid,
 				);
-				log.error(label, errorMsg);
+				log.error(label, errorMsg, "tool");
 				const payload: z.infer<typeof schemas.StartErrorPayloadSchema> = {
 					error: errorMsg,
 					status: existing.status,
@@ -396,7 +402,7 @@ export async function startShell(
 			});
 		}
 		updateProcessStatus(label, "error");
-		addLogEntry(label, `Error: ${errorMsg}`);
+		addLogEntry(label, `Error: ${errorMsg}`, "tool");
 		const payload: z.infer<typeof schemas.StartErrorPayloadSchema> = {
 			error: errorMsg,
 			status: "error",
@@ -435,16 +441,18 @@ export async function startShell(
 		mainExitListenerDisposable: undefined,
 		partialLineBuffer: "",
 		os: detectedOS,
+		lastLogTimestampReturned: 0,
 	};
 	managedShells.set(label, shellInfo);
 	updateProcessStatus(label, "starting");
-	log.debug(label, "ShellInfo created/updated in state.");
+	log.debug(label, "ShellInfo created/updated in state.", "tool");
 
 	// 5. Setup Log File Streaming (call helper)
 	setupLogFileStream(shellInfo); // Mutates shellInfo
 	addLogEntry(
 		label,
 		`Shell spawned successfully (PID: ${ptyProcess.pid}) in ${effectiveWorkingDirectory}. Status: starting.`,
+		"tool",
 	);
 
 	// 6. Attach Persistent Listeners (if not failed/exited)
@@ -456,6 +464,7 @@ export async function startShell(
 		log.debug(
 			label,
 			`Attaching persistent listeners. Status: ${currentShellState.status}`,
+			"tool",
 		);
 
 		// Data Listener
@@ -564,6 +573,10 @@ export async function startShell(
 			// On exit, flush any remaining buffer
 			const currentInfo = getShellInfo(label);
 			if (currentInfo) {
+				console.log(
+					"[DEBUG][exitListener] lastLogTimestampReturned before flush:",
+					currentInfo.lastLogTimestampReturned,
+				);
 				if (currentInfo.idleFlushTimer) {
 					clearTimeout(currentInfo.idleFlushTimer);
 					currentInfo.idleFlushTimer = undefined;
@@ -574,6 +587,10 @@ export async function startShell(
 				) {
 					try {
 						handleData(label, currentInfo.partialLineBuffer, "stdout");
+						console.log(
+							"[DEBUG][exitListener] Flushed log on exit:",
+							currentInfo.partialLineBuffer,
+						);
 					} catch (e: unknown) {
 						log.error(
 							label,
@@ -583,6 +600,10 @@ export async function startShell(
 					}
 					currentInfo.partialLineBuffer = "";
 				}
+				console.log(
+					"[DEBUG][exitListener] lastLogTimestampReturned after flush:",
+					currentInfo.lastLogTimestampReturned,
+				);
 			}
 			handleShellExit(
 				label,
@@ -591,22 +612,33 @@ export async function startShell(
 			);
 		};
 		shellInfo.mainExitListenerDisposable = ptyProcess.onExit(exitListener);
-		log.debug(label, "Persistent listeners attached.");
+		log.debug(label, "Persistent listeners attached.", "tool");
 		// Immediately set status to 'running' for non-verification processes
 		updateProcessStatus(label, "running");
-		addLogEntry(label, "Status: running (no verification specified).");
+		addLogEntry(label, "Status: running (no verification specified).", "tool");
 	} else {
 		log.warn(
 			label,
 			`Skipping persistent listener attachment. Shell state: ${currentShellState?.status}, shell exists: ${!!currentShellState?.shell}`,
+			"tool",
 		);
+	}
+
+	// 6.5. Wait for logs to settle or timeout
+	let settleStatus: "settled" | "timeout" = "timeout";
+	let settleWaitMs = 0;
+	const settleStart = Date.now();
+	if (ptyProcess) {
+		const settleResult = await waitForLogSettleOrTimeout(label, ptyProcess);
+		settleStatus = settleResult.settled ? "settled" : "timeout";
+		settleWaitMs = Date.now() - settleStart;
 	}
 
 	// 7. Construct Final Payload
 	const finalShellInfo = getShellInfo(label);
 	if (!finalShellInfo) {
 		// ... (error handling from _startProcess) ...
-		log.error(label, "Shell info unexpectedly missing after start.");
+		log.error(label, "Shell info unexpectedly missing after start.", "tool");
 		return fail(
 			textPayload(JSON.stringify({ error: "Internal error: Shell info lost" })),
 		);
@@ -615,7 +647,7 @@ export async function startShell(
 	if (finalShellInfo.status === "error") {
 		// ... (error payload construction from _startProcess) ...
 		const errorMsg = "Shell failed to start. Final status: error.";
-		log.error(label, errorMsg);
+		log.error(label, errorMsg, "tool");
 		const payload: z.infer<typeof schemas.StartErrorPayloadSchema> = {
 			error: errorMsg,
 			status: "error",
@@ -627,8 +659,13 @@ export async function startShell(
 	// Success case
 	const successPayload: z.infer<typeof schemas.StartSuccessPayloadSchema> & {
 		status: ShellStatus;
-		logs?: string[];
+		toolLogs: string[];
+		shellLogs: string[];
+		settleStatus: "settled" | "timeout";
+		settleWaitMs: number;
+		timeoutMs: number;
 		monitoring_hint?: string;
+		workingDirectory: string;
 	} = {
 		label: finalShellInfo.label,
 		command: finalShellInfo.command,
@@ -638,15 +675,24 @@ export async function startShell(
 		status: finalShellInfo.status,
 		host: finalShellInfo.host,
 		message: `Shell '${label}' started successfully. Current status: ${finalShellInfo.status}.`,
-		logs: formatLogsForResponse(
-			finalShellInfo.logs.map((l) => l.content),
+		toolLogs: formatLogsForResponse(
+			finalShellInfo.logs,
 			cfg.defaultReturnLogLines,
+			"tool",
 		),
+		shellLogs: formatLogsForResponse(
+			finalShellInfo.logs,
+			cfg.defaultReturnLogLines,
+			"shell",
+		),
+		settleStatus,
+		settleWaitMs,
+		timeoutMs: cfg.overallLogWaitTimeoutMs,
 		monitoring_hint:
 			"Use check_shell periodically to get status updates and new logs.",
 		tail_command: getTailCommand(finalShellInfo.logFilePath) || undefined,
 	};
-	log.info(label, successPayload.message);
+	log.info(label, successPayload.message, "tool");
 
 	if (host === "cursor") {
 		const logFile = finalShellInfo.logFilePath || "<logfile>";
@@ -705,14 +751,38 @@ export async function startShellWithVerification(
 	const { verificationFailed, failureReason } =
 		await verifyProcessStartup(shellInfo);
 
+	// After verification, wait for logs to settle or timeout
+	let settleStatus: "settled" | "timeout" = "timeout";
+	let settleWaitMs = 0;
+	const settleStart = Date.now();
+	if (shellInfo.shell) {
+		const settleResult = await waitForLogSettleOrTimeout(
+			label,
+			shellInfo.shell,
+		);
+		settleStatus = settleResult.settled ? "settled" : "timeout";
+		settleWaitMs = Date.now() - settleStart;
+	}
+
+	// 7. Construct Final Payload
 	const finalShellInfo = getShellInfo(label);
 	if (!finalShellInfo) {
-		return startResult;
+		log.error(
+			label,
+			"Shell info unexpectedly missing after verification.",
+			"tool",
+		);
+		const payload: z.infer<typeof schemas.StartErrorPayloadSchema> = {
+			error: "Internal error: Shell info lost after verification",
+			status: "error",
+			error_type: "internal_error_after_verification",
+		};
+		return fail(textPayload(JSON.stringify(payload)));
 	}
 
 	if (finalShellInfo.status === "error") {
 		const errorMsg = `Shell failed to start or verify. Final status: error. ${failureReason || "Unknown reason"}`;
-		log.error(label, errorMsg);
+		log.error(label, errorMsg, "tool");
 		const payload: z.infer<typeof schemas.StartErrorPayloadSchema> = {
 			error: errorMsg,
 			status: "error",
@@ -723,8 +793,11 @@ export async function startShellWithVerification(
 
 	// Success case (reuse the same payload as startProcess)
 	const successPayload: z.infer<typeof schemas.StartSuccessPayloadSchema> & {
-		status: ShellStatus;
-		logs?: string[];
+		toolLogs: string[];
+		shellLogs: string[];
+		settleStatus: "settled" | "timeout";
+		settleWaitMs: number;
+		timeoutMs: number;
 		monitoring_hint?: string;
 		isVerificationEnabled?: boolean;
 		verificationPattern?: string;
@@ -736,21 +809,31 @@ export async function startShellWithVerification(
 		pid: finalShellInfo.pid as number,
 		workingDirectory: finalShellInfo.cwd,
 		status: finalShellInfo.status,
-		host: finalShellInfo.host,
 		message: `Shell '${label}' started successfully. Current status: ${finalShellInfo.status}.`,
-		logs: formatLogsForResponse(
-			finalShellInfo.logs.map((l) => l.content),
+		host: finalShellInfo.host,
+		tail_command: getTailCommand(finalShellInfo.logFilePath) || undefined,
+		toolLogs: formatLogsForResponse(
+			finalShellInfo.logs,
 			cfg.defaultReturnLogLines,
+			"tool",
 		),
+		shellLogs: formatLogsForResponse(
+			finalShellInfo.logs,
+			cfg.defaultReturnLogLines,
+			"shell",
+		),
+		settleStatus,
+		settleWaitMs,
+		timeoutMs: cfg.overallLogWaitTimeoutMs,
 		monitoring_hint:
 			"Use check_shell periodically to get status updates and new logs.",
-		tail_command: getTailCommand(finalShellInfo.logFilePath) || undefined,
-		isVerificationEnabled: !!finalShellInfo.verificationPattern,
-		verificationPattern:
-			finalShellInfo.verificationPattern?.source ?? undefined,
-		verificationTimeoutMs: finalShellInfo.verificationTimeoutMs,
+		isVerificationEnabled: verificationPattern !== undefined,
+		verificationPattern: verificationPattern
+			? verificationPattern.source
+			: undefined,
+		verificationTimeoutMs: verificationTimeoutMs,
 	};
-	log.info(label, successPayload.message);
+	log.info(label, successPayload.message, "tool");
 	return ok(textPayload(JSON.stringify(successPayload)));
 }
 

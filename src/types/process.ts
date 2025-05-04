@@ -32,6 +32,7 @@ export type ShellStatus =
 export interface LogEntry {
 	timestamp: number;
 	content: string;
+	source: "tool" | "shell";
 }
 
 /** Detailed information about a managed process. */

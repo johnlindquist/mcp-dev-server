@@ -93,10 +93,13 @@ export async function waitForLogSettleOrTimeout(
 		};
 
 		// Attach temporary listeners
-		// dataListenerDisposable = ptyShell.onData(() => { // <-- Intentionally commented out as per original
-		// 	log.debug(label, "[waitForLogSettleOrTimeout.onData] Received data during settle wait.");
-		// 	resetSettleTimer(); // Reset settle timer on any data
-		// });
+		dataListenerDisposable = ptyShell.onData(() => {
+			log.debug(
+				label,
+				"[waitForLogSettleOrTimeout.onData] Received data during settle wait.",
+			);
+			resetSettleTimer(); // Reset settle timer on any data
+		});
 		exitListenerDisposable = ptyShell.onExit(onProcessExit); // Handle exit during wait
 
 		// Start timers
@@ -185,6 +188,7 @@ export async function verifyProcessStartup(shellInfo: {
 				if (verificationTimer) clearTimeout(verificationTimer);
 				dataListenerDisposable?.dispose();
 				exitListenerDisposable?.dispose();
+				log.info(label, "[VERIFICATION] resolveOnce called.");
 				resolve();
 			}
 		};
@@ -192,11 +196,19 @@ export async function verifyProcessStartup(shellInfo: {
 		const dataListener = (data: string): void => {
 			if (verificationPromiseResolved) return;
 			try {
+				log.info(
+					label,
+					`[VERIFICATION] Data received: ${JSON.stringify(data)}`,
+				);
 				// Log raw data first for debugging
 				handleData(label, data.replace(/\r\n?|\n$/, ""), "stdout");
 
 				if (verificationPattern.test(data)) {
 					const currentStatus = getShellInfo(label)?.status;
+					log.info(
+						label,
+						`[VERIFICATION] Pattern matched. Status: ${currentStatus}`,
+					);
 					if (currentStatus === "verifying") {
 						log.info(label, "Verification pattern matched.");
 						patternMatched = true;
@@ -226,7 +238,22 @@ export async function verifyProcessStartup(shellInfo: {
 		}: { exitCode: number; signal?: number }) => {
 			if (verificationPromiseResolved) return;
 			const currentStatus = getShellInfo(label)?.status;
+			log.warn(
+				label,
+				`[VERIFICATION] Shell exited (code: ${exitCode}, signal: ${signal}) during status: ${currentStatus}`,
+			);
 			if (currentStatus === "verifying") {
+				if (exitCode === 0) {
+					log.info(
+						label,
+						"[VERIFICATION] Process exited cleanly (code 0) during verification. Treating as success.",
+					);
+					patternMatched = true;
+					verificationFailed = false;
+					failureReason = "";
+					resolveOnce();
+					return;
+				}
 				log.warn(
 					label,
 					`Shell exited (code: ${exitCode}, signal: ${signal}) during verification phase.`,
@@ -249,6 +276,10 @@ export async function verifyProcessStartup(shellInfo: {
 			verificationTimer = setTimeout(() => {
 				if (verificationPromiseResolved) return;
 				const currentStatus = getShellInfo(label)?.status;
+				log.warn(
+					label,
+					`[VERIFICATION] Verification timer fired. Status: ${currentStatus}`,
+				);
 				if (currentStatus === "verifying") {
 					log.warn(
 						label,
