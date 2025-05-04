@@ -9,7 +9,6 @@ import { cfg } from "../constants/index.js";
 import {
 	AI_TAIL_COMMAND_INSTRUCTION,
 	COMPOSITE_LABEL_CONFLICT,
-	CURSOR_TAIL_INSTRUCTION,
 	DID_NOT_TERMINATE_GRACEFULLY_SIGKILL,
 	PROCESS_ALREADY_TERMINAL,
 	PROCESS_ALREADY_TERMINAL_NO_ACTION,
@@ -669,8 +668,26 @@ export async function startShell(
 				.map((l) => l.content)
 		: [];
 
-	// Success case
+	// --- Extract URLs from shellLogs ---
+	const urlRegex = /(https?:\/\/[^\s]+)/gi;
+	const detectedUrls = Array.from(
+		new Set(
+			shellLogs.flatMap((line) => {
+				const matches = line.match(urlRegex);
+				return matches ? matches : [];
+			}),
+		),
+	);
+
+	// --- Build actions array ---
 	const tail_command = getTailCommand(finalShellInfo.logFilePath) || undefined;
+	const actions: { action: "run_terminal_cmd"; command: string }[] = [];
+	if (tail_command) {
+		actions.push({ action: "run_terminal_cmd", command: tail_command });
+	}
+	// Only run_terminal_cmd actions are allowed by schema
+
+	// Success case
 	const successPayload: z.infer<typeof schemas.StartSuccessPayloadSchema> = {
 		label: finalShellInfo.label,
 		command: finalShellInfo.command,
@@ -685,31 +702,12 @@ export async function startShell(
 		user_hint: tail_command
 			? `You can monitor the shell output by running: ${tail_command}`
 			: undefined,
-		actions: tail_command
-			? [
-					{
-						action: "run_terminal_cmd",
-						command: tail_command,
-					},
-				]
-			: undefined,
+		actions: actions.length > 0 ? actions : undefined,
+		detected_urls: detectedUrls.length > 0 ? detectedUrls : undefined,
 		shellLogs,
 		toolLogs,
 	};
 	log.info(label, successPayload.message, "tool");
-
-	if (host === "cursor") {
-		const logFile = finalShellInfo.logFilePath || "<logfile>";
-		const strongMsg = CURSOR_TAIL_INSTRUCTION(
-			logFile,
-			label,
-			finalShellInfo.os,
-		);
-		return ok(
-			textPayload(JSON.stringify(successPayload)),
-			textPayload(strongMsg),
-		);
-	}
 
 	return ok(textPayload(JSON.stringify(successPayload)));
 }
@@ -807,8 +805,26 @@ export async function startShellWithVerification(
 				.map((l) => l.content)
 		: [];
 
-	// Success case (reuse the same payload as startProcess)
+	// --- Extract URLs from shellLogs ---
+	const urlRegex = /(https?:\/\/[^\s]+)/gi;
+	const detectedUrls = Array.from(
+		new Set(
+			shellLogs.flatMap((line) => {
+				const matches = line.match(urlRegex);
+				return matches ? matches : [];
+			}),
+		),
+	);
+
+	// --- Build actions array ---
 	const tail_command = getTailCommand(finalShellInfo.logFilePath) || undefined;
+	const actions: { action: "run_terminal_cmd"; command: string }[] = [];
+	if (tail_command) {
+		actions.push({ action: "run_terminal_cmd", command: tail_command });
+	}
+	// Only run_terminal_cmd actions are allowed by schema
+
+	// Success case (reuse the same payload as startProcess)
 	const successPayload: z.infer<typeof schemas.StartSuccessPayloadSchema> = {
 		label: finalShellInfo.label,
 		command: finalShellInfo.command,
@@ -823,14 +839,7 @@ export async function startShellWithVerification(
 		user_hint: tail_command
 			? `You can monitor the shell output by running: ${tail_command}`
 			: undefined,
-		actions: tail_command
-			? [
-					{
-						action: "run_terminal_cmd",
-						command: tail_command,
-					},
-				]
-			: undefined,
+		actions: actions.length > 0 ? actions : undefined,
 		isVerificationEnabled: verificationPattern !== undefined,
 		verificationPattern: verificationPattern
 			? verificationPattern.source

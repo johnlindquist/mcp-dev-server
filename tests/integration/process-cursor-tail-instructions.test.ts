@@ -170,14 +170,9 @@ describe("Process: Cursor Tail Instructions", () => {
 				startRequest,
 			)) as MCPResponse;
 			const result = response.result as CallToolResult;
-			expect(result.content.length).toBeGreaterThanOrEqual(2);
+			expect(result.content.length).toBe(1);
 			const mainPayload = result.content[0].text;
-			const tailMsg = result.content[1].text;
-			const parsed = JSON.parse(mainPayload);
-			expect(parsed.label).toBe(uniqueLabel);
-			expect(["running", "stopped"]).toContain(parsed.status);
-			expect(tailMsg).toMatch(/tail -f/);
-			expect(tailMsg).toMatch(/background terminal/);
+			expect(mainPayload).toMatch(/tail_command/);
 			await sendRequest(serverProcess, {
 				jsonrpc: "2.0",
 				method: "tools/call",
