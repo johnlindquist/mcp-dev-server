@@ -22,8 +22,13 @@
 			"recommended": true,
 			"correctness": {
 				"noUnusedImports": "error"
+			},
+			"style": {},
+			"suspicious": {
+				"noConsole": "error"
 			}
-		}
+		},
+		"ignore": ["src/utils.ts", "tests/**"]
 	},
 	"javascript": {
 		"formatter": {
