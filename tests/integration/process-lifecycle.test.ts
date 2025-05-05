@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, lint/suspicious/noExplicitAny */
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, fail, it } from "vitest";
 import {
 	type CallToolResult,
 	type MCPResponse,
@@ -1140,4 +1140,53 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 			}
 		});
 	});
+
+	it(
+		"should not fail to start a shell for mkdir (Claude scenario)",
+		async () => {
+			logVerbose("[TEST][shellInfoLost] Starting test...");
+			const startRequest = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "start_shell",
+					arguments: {
+						command: "mkdir",
+						args: ["-p", "/tmp/chrome_monitor"],
+						workingDirectory: "/tmp",
+						label: "setup_dir",
+					},
+				},
+				id: "req-shell-info-lost",
+			};
+
+			const response = (await sendRequest(
+				serverProcess,
+				startRequest,
+			)) as MCPResponse;
+			logVerbose(
+				"[TEST][shellInfoLost] Received response:",
+				JSON.stringify(response),
+			);
+
+			if (response.error) {
+				throw new Error(`Unexpected error: ${JSON.stringify(response.error)}`);
+			} else if (response.result) {
+				const result = response.result as CallToolResult;
+				if (result.isError) {
+					throw new Error(`Unexpected isError: ${JSON.stringify(result)}`);
+				}
+				// Optionally, check that the directory was created, or that the result is as expected
+				// For now, just log the result
+				logVerbose(
+					"[TEST][shellInfoLost] Success result:",
+					JSON.stringify(result),
+				);
+			} else {
+				throw new Error("Expected result or error in response");
+			}
+			logVerbose("[TEST][shellInfoLost] Test finished.");
+		},
+		TEST_TIMEOUT,
+	);
 });
