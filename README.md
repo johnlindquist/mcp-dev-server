@@ -15,6 +15,24 @@ It allows MCP-compatible clients to start, monitor, retrieve logs from, and stop
 }
 ```
 
+
+---
+
+<blockquote style="border-left: 6px solid #222; background: #fff3cd; color: #222; padding: 28px 32px; margin: 32px 0; border-radius: 10px; text-align: center;">
+  <div style="font-size: 1.5em; font-weight: bold; margin-bottom: 8px; color: #222;">
+    🚀 Want to Become a <span style="color:#0d6efd;">Cursor Pro</span>? 🏆
+  </div>
+  <div style="font-size: 1.1em; margin-bottom: 10px; color: #222;">
+    Unlock advanced workflows, tips, and real-world AI dev strategies in Cursor.<br>
+    <strong>I teach semi-weekly workshops live on Thursdays.</strong>
+  </div>
+  <a href="https://egghead.io/workshop/cursor" style="display: inline-block; background: #0d6efd; color: #fff; font-weight: bold; font-size: 1.15em; padding: 14px 28px; border-radius: 6px; text-decoration: none; margin-top: 8px; box-shadow: 0 2px 8px rgba(13,110,253,0.10);">
+    👉 egghead.io/workshop/cursor
+  </a>
+</blockquote>
+
+---
+
 ## Features
 
 *   **Start Processes:** Launch new background processes using shell commands within specified working directories.
@@ -28,23 +46,6 @@ It allows MCP-compatible clients to start, monitor, retrieve logs from, and stop
 *   **Automatic Cleanup:** Includes basic zombie process detection and attempts to terminate managed processes on shutdown.
 *   **Stronger Cursor-tail instructions:** Enhanced instructions for Cursor IDE users when starting background processes.
 *   **Automatic Purging:** Stopped processes are automatically purged from the process list; querying a purged process returns a stopped status and empty logs.
-
----
-
-<blockquote style="border-left: 6px solid #222; background: #fff3cd; color: #222; padding: 28px 32px; margin: 32px 0; border-radius: 10px; text-align: center;">
-  <div style="font-size: 1.5em; font-weight: bold; margin-bottom: 8px; color: #222;">
-    🚀 Want to Become a <span style="color:#0d6efd;">Cursor Pro</span>? 🏆
-  </div>
-  <div style="font-size: 1.1em; margin-bottom: 10px; color: #222;">
-    Unlock advanced workflows, tips, and real-world AI dev strategies in Cursor.<br>
-    <strong>I teach semi-weekly workshops live on Thursdays.</strong>
-  </div>
-  <a href="https://egghead.io/workshop/cursor" style="display: inline-block; background: #0d6efd; color: #fff; font-weight: bold; font-size: 1.15em; padding: 14px 28px; border-radius: 6px; text-decoration: none; margin-top: 8px; box-shadow: 0 2px 8px rgba(13,110,253,0.10);">
-    👉 Click here to learn more!
-  </a>
-</blockquote>
-
----
 
 ## Available Tools
 
@@ -147,6 +148,12 @@ This project strictly follows the official Model Context Protocol (MCP) standard
 
 See [`src/mcpUtils.ts`], [`src/toolImplementations.ts`], and [`tests/integration/test-helpers.ts`] for examples.
 
+## Key Concepts (2024)
+
+- **Imperative AI Instructions:** The `ai_instructions` field in the response is now the single source of truth for what the AI must do next. It is always present and uses strong, explicit language (e.g., "MANDATORY: Immediately run the tail_command using your run_terminal_cmd tool in a BACKGROUND terminal to monitor this shell's output (the command may be blocking). You MUST also display every detected_urls entry as a clickable markdown link to the user. Do not skip these steps.").
+- **Background Terminal Required:** The AI must always run the `tail_command` in a background terminal, as it may be blocking. Never run it in the foreground.
+- **URL Extraction:** Any URLs found in logs are returned in the `detected_urls` array. The AI must always display these as clickable markdown links to the user.
+
 ## Tool Catalogue
 
 This section describes the tools provided by `mcp-pm`.
@@ -166,7 +173,9 @@ Starts a background process (like a dev server or script) and manages it.
 **Returns:** (JSON)
 
 Response payload for a successful start_shell call. Contains fields like `label`, `status`, `pid`, `command`, `args`, `cwd`, `exitCode`, `signal`, `log_file_path`, `tail_command`, `message`, `logs`, `monitoring_hint`, `info_message`, and `detected_urls` (if any URLs are found in logs, the AI should extract and return them as markdown links).
-*   `instructions` (string, optional): If the `host` was specified as `"cursor"` and file logging is enabled, this field will contain a suggested instruction for the Cursor IDE, like starting a background terminal to run the `tail_command`.
+*   `ai_instructions` (string, mandatory): The AI MUST always follow the instructions in this field. It will always tell the AI to run the `tail_command` in a BACKGROUND terminal (never in the foreground, as it may be blocking) and to display all `detected_urls` as clickable markdown links. The AI must never skip or delay these steps.
+*   `user_hint` (string, optional): A user-facing hint about what to do next.
+
 On failure, returns an error object, potentially including `error`, `status`, `cwd`, `error_type`.
 
 **Example Usage:**
@@ -230,7 +239,8 @@ Checks the current status of a managed process, including recent logs.
 
 **Returns:** (JSON)
 
-Response payload for check_shell. Contains fields like `label`, `status`, `pid`, `command`, `args`, `cwd`, `exitCode`, `signal`, `log_file_path`, `tail_command`, `logs`, `hint`.
+Response payload for check_shell. Contains fields like `label`, `status`, `pid`, `command`, `args`, `cwd`, `exitCode`, `signal`, `log_file_path`, `tail_command`, `logs`, `hint`, and `detected_urls` (if any URLs are found in logs, the AI should extract and return them as markdown links).
+*   `ai_instructions` (string, mandatory): The AI MUST always follow the instructions in this field, including running the `tail_command` in a background terminal and displaying all `detected_urls` as markdown links.
 
 **Example Usage:**
 

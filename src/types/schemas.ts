@@ -315,24 +315,13 @@ export const StartSuccessPayloadSchema = z
 		ai_instructions: z
 			.string()
 			.describe(
-				"Direct imperative instructions for the AI to follow after starting the shell. Should not be shown to the user.",
+				"MANDATORY: Immediately run the tail_command using your run_terminal_cmd tool in a BACKGROUND terminal to monitor this shell's output (the command may be blocking). You MUST also display every detected_urls entry as a clickable markdown link to the user. Do not skip these steps.",
 			),
 		user_hint: z
 			.string()
 			.optional()
 			.describe(
 				"Optional hint or guidance for the end user about what to do next.",
-			),
-		actions: z
-			.array(
-				z.object({
-					action: z.literal("run_terminal_cmd"),
-					command: z.string(),
-				}),
-			)
-			.optional()
-			.describe(
-				"List of actions the AI should take, such as running a terminal command. Each action has an 'action' and a 'command' property.",
 			),
 		shellLogs: z
 			.array(z.string())

@@ -7,9 +7,7 @@ import type { z } from "zod";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { cfg } from "../constants/index.js";
 import {
-	AI_TAIL_COMMAND_INSTRUCTION,
 	COMPOSITE_LABEL_CONFLICT,
-	CURSOR_TAIL_INSTRUCTION,
 	DID_NOT_TERMINATE_GRACEFULLY_SIGKILL,
 	PROCESS_ALREADY_TERMINAL,
 	PROCESS_ALREADY_TERMINAL_NO_ACTION,
@@ -669,8 +667,29 @@ export async function startShell(
 				.map((l) => l.content)
 		: [];
 
-	// Success case
+	// --- Extract URLs from shellLogs ---
+	const urlRegex = /(https?:\/\/[^\s]+)/gi;
+	const detectedUrls = Array.from(
+		new Set(
+			shellLogs.flatMap((line) => {
+				const matches = line.match(urlRegex);
+				return matches ? matches : [];
+			}),
+		),
+	);
+
+	// --- AI instructions string ---
 	const tail_command = getTailCommand(finalShellInfo.logFilePath) || undefined;
+	const aiInstructions =
+		tail_command && detectedUrls.length > 0
+			? "MANDATORY: Immediately run the tail_command using your run_terminal_cmd tool in a BACKGROUND terminal to monitor this shell's output (the command may be blocking). You MUST also display every detected_urls entry as a clickable markdown link to the user. Do not skip these steps."
+			: tail_command
+				? "MANDATORY: Immediately run the tail_command using your run_terminal_cmd tool in a BACKGROUND terminal to monitor this shell's output (the command may be blocking). Do not skip this step."
+				: detectedUrls.length > 0
+					? "MANDATORY: You MUST display every detected_urls entry as a clickable markdown link to the user. Do not skip this step."
+					: "";
+
+	// --- Build actions array ---
 	const successPayload: z.infer<typeof schemas.StartSuccessPayloadSchema> = {
 		label: finalShellInfo.label,
 		command: finalShellInfo.command,
@@ -681,35 +700,15 @@ export async function startShell(
 		host: finalShellInfo.host,
 		message: `Shell '${label}' started successfully. Current status: ${finalShellInfo.status}.`,
 		tail_command,
-		ai_instructions: AI_TAIL_COMMAND_INSTRUCTION,
+		ai_instructions: aiInstructions,
 		user_hint: tail_command
 			? `You can monitor the shell output by running: ${tail_command}`
 			: undefined,
-		actions: tail_command
-			? [
-					{
-						action: "run_terminal_cmd",
-						command: tail_command,
-					},
-				]
-			: undefined,
+		detected_urls: detectedUrls.length > 0 ? detectedUrls : undefined,
 		shellLogs,
 		toolLogs,
 	};
 	log.info(label, successPayload.message, "tool");
-
-	if (host === "cursor") {
-		const logFile = finalShellInfo.logFilePath || "<logfile>";
-		const strongMsg = CURSOR_TAIL_INSTRUCTION(
-			logFile,
-			label,
-			finalShellInfo.os,
-		);
-		return ok(
-			textPayload(JSON.stringify(successPayload)),
-			textPayload(strongMsg),
-		);
-	}
 
 	return ok(textPayload(JSON.stringify(successPayload)));
 }
@@ -807,8 +806,29 @@ export async function startShellWithVerification(
 				.map((l) => l.content)
 		: [];
 
-	// Success case (reuse the same payload as startProcess)
+	// --- Extract URLs from shellLogs ---
+	const urlRegex = /(https?:\/\/[^\s]+)/gi;
+	const detectedUrls = Array.from(
+		new Set(
+			shellLogs.flatMap((line) => {
+				const matches = line.match(urlRegex);
+				return matches ? matches : [];
+			}),
+		),
+	);
+
+	// --- AI instructions string ---
 	const tail_command = getTailCommand(finalShellInfo.logFilePath) || undefined;
+	const aiInstructions =
+		tail_command && detectedUrls.length > 0
+			? "MANDATORY: Immediately run the tail_command using your run_terminal_cmd tool in a BACKGROUND terminal to monitor this shell's output (the command may be blocking). You MUST also display every detected_urls entry as a clickable markdown link to the user. Do not skip these steps."
+			: tail_command
+				? "MANDATORY: Immediately run the tail_command using your run_terminal_cmd tool in a BACKGROUND terminal to monitor this shell's output (the command may be blocking). Do not skip this step."
+				: detectedUrls.length > 0
+					? "MANDATORY: You MUST display every detected_urls entry as a clickable markdown link to the user. Do not skip this step."
+					: "";
+
+	// --- Build actions array ---
 	const successPayload: z.infer<typeof schemas.StartSuccessPayloadSchema> = {
 		label: finalShellInfo.label,
 		command: finalShellInfo.command,
@@ -819,18 +839,11 @@ export async function startShellWithVerification(
 		message: `Shell '${label}' started successfully. Current status: ${finalShellInfo.status}.`,
 		host: finalShellInfo.host,
 		tail_command,
-		ai_instructions: AI_TAIL_COMMAND_INSTRUCTION,
+		ai_instructions: aiInstructions,
 		user_hint: tail_command
 			? `You can monitor the shell output by running: ${tail_command}`
 			: undefined,
-		actions: tail_command
-			? [
-					{
-						action: "run_terminal_cmd",
-						command: tail_command,
-					},
-				]
-			: undefined,
+		detected_urls: detectedUrls.length > 0 ? detectedUrls : undefined,
 		isVerificationEnabled: verificationPattern !== undefined,
 		verificationPattern: verificationPattern
 			? verificationPattern.source
