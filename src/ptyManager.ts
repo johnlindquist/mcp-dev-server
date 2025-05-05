@@ -24,7 +24,7 @@ export function spawnPtyProcess(
 		return ptyProcess;
 	} catch (error: unknown) {
 		const errorMsg = `Failed to spawn PTY process: ${error instanceof Error ? error.message : String(error)}`;
-		log.error(label, errorMsg);
+		log.warn(label, errorMsg);
 		// Re-throw or handle appropriately – maybe return null or throw a custom error
 		throw new Error(errorMsg); // Or return null and check in caller
 	}
@@ -40,7 +40,7 @@ export function writeToPty(
 		log.debug(label, `Wrote to PTY: ${data.length} chars`);
 		return true;
 	} catch (error) {
-		log.error(label, `Failed to write to PTY process ${ptyProcess.pid}`, error);
+		log.warn(label, `Failed to write to PTY process ${ptyProcess.pid}`, error);
 		return false;
 	}
 }
@@ -59,7 +59,7 @@ export async function killPtyProcess(
 		log.debug(label, `fkill sent (${signal}) to ${ptyProcess.pid}`);
 		return true;
 	} catch (err) {
-		log.error(label, "fkill failed", err);
+		log.warn(label, "fkill failed", err);
 		return false;
 	}
 }
