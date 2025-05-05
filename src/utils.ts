@@ -35,8 +35,11 @@ export const log = {
 		sendLog("warn", label, message, data),
 	error: (label: string | null, message: string, data?: unknown) =>
 		sendLog("error", label, message, data),
-	debug: (label: string | null, message: string, data?: unknown) =>
-		sendLog("debug", label, message, data),
+	debug: (label: string | null, message: string, data?: unknown) => {
+		if (process.env.MCP_DEBUG) {
+			sendLog("debug", label, message, data);
+		}
+	},
 };
 
 // Helper Functions
