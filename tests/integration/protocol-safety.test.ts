@@ -18,7 +18,7 @@ let stderrLines: string[] = [];
 // biome-ignore lint/suspicious/noConsole: test isolation
 // biome-ignore lint/suspicious/noConsole: test isolation
 // biome-ignore lint/suspicious/noConsole: test isolation
-describe.only("Protocol Safety: No protocol-breaking output", () => {
+describe("Protocol Safety: No protocol-breaking output", () => {
 	beforeAll(async () => {
 		serverProcess = spawn(
 			SERVER_EXECUTABLE,
