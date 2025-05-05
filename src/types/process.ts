@@ -80,4 +80,5 @@ export interface ShellInfo {
 	os: OperatingSystemEnumType;
 	isProbablyAwaitingInput?: boolean;
 	osc133Buffer?: string;
+	finalizing?: boolean;
 }

@@ -132,16 +132,28 @@ export function handleShellExit(
 			updatedInfo &&
 			["stopped", "crashed", "error"].includes(updatedInfo.status)
 		) {
-			removeShell(label);
-			log.info(
-				label,
-				`Shell purged from management after reaching terminal state: ${updatedInfo.status}`,
-			);
+			if (updatedInfo.finalizing) {
+				log.info(
+					label,
+					"[handleShellExit] Removal deferred due to finalizing flag.",
+				);
+			} else {
+				log.error(
+					label,
+					`[DEBUG] About to call removeShell for label: ${label}. Stack: ${new Error().stack}`,
+				);
+				removeShell(label);
+				log.error(label, `[DEBUG] After removeShell for label: ${label}`);
+				log.info(
+					label,
+					`Shell purged from management after reaching terminal state: ${updatedInfo.status}`,
+				);
+			}
 		}
 	}
 	// Exited cleanly during startup/verification (let startShell handle final state)
 	else if (code === 0 && (status === "starting" || status === "verifying")) {
-		log.info(label, `Shell exited cleanly (code 0) during ${status} phase.`);
+		log.info(label, `Shell exited cleanly(code 0) during ${status} phase.`);
 		// Store exit info for startShell to check
 		shellInfo.exitCode = code;
 		shellInfo.signal = signal;
@@ -159,30 +171,23 @@ export function handleShellExit(
 			updatedInfo &&
 			["stopped", "crashed", "error"].includes(updatedInfo.status)
 		) {
-			removeShell(label);
-			log.info(
-				label,
-				`Shell purged from management after reaching terminal state: ${updatedInfo.status}`,
-			);
-		}
-	}
-	// Unexpected exit (crash)
-	else if (status !== "stopped" && status !== "error" && status !== "crashed") {
-		log.warn(
-			label,
-			`Shell exited unexpectedly (code: ${code}, signal: ${signal}). Marking as crashed.`,
-		);
-		updateProcessStatus(label, "crashed", { code, signal });
-		const updatedInfo = getShellInfo(label);
-		if (
-			updatedInfo &&
-			["stopped", "crashed", "error"].includes(updatedInfo.status)
-		) {
-			removeShell(label);
-			log.info(
-				label,
-				`Shell purged from management after reaching terminal state: ${updatedInfo.status}`,
-			);
+			if (updatedInfo.finalizing) {
+				log.info(
+					label,
+					"[handleShellExit] Removal deferred due to finalizing flag.",
+				);
+			} else {
+				log.error(
+					label,
+					`[DEBUG] About to call removeShell for label: ${label}. Stack: ${new Error().stack}`,
+				);
+				removeShell(label);
+				log.error(label, `[DEBUG] After removeShell for label: ${label}`);
+				log.info(
+					label,
+					`Shell purged from management after reaching terminal state: ${updatedInfo.status}`,
+				);
+			}
 		}
 		// Check retry configuration
 		if (

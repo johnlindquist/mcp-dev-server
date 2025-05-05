@@ -24,6 +24,7 @@ import {
 	managedShells,
 	updateProcessStatus,
 } from "../state.js";
+import { removeShell } from "../state.js";
 import type {
 	HostEnumType,
 	LogBufferType,
@@ -478,8 +479,11 @@ export async function startShell(
 		partialLineBuffer: "",
 		os: detectedOS,
 		lastLogTimestampReturned: 0,
+		finalizing: true,
 	};
+	log.error(label, `[DEBUG] About to set managedShells for label: ${label}`);
 	managedShells.set(label, shellInfo);
+	log.error(label, `[DEBUG] After set managedShells for label: ${label}`);
 	updateProcessStatus(label, "starting");
 	log.debug(label, "ShellInfo created/updated in state.", "tool");
 
@@ -671,13 +675,23 @@ export async function startShell(
 	}
 
 	// 7. Construct Final Payload
+	log.error(label, `[DEBUG] About to getShellInfo for label: ${label}`);
 	const finalShellInfo = getShellInfo(label);
 	if (!finalShellInfo) {
-		// ... (error handling from _startProcess) ...
 		log.error(label, "Shell info unexpectedly missing after start.", "tool");
+		log.error(
+			label,
+			`[DEBUG] getShellInfo returned undefined for label: ${label}. Stack: ${new Error().stack}`,
+		);
 		return fail(
 			textPayload(JSON.stringify({ error: "Internal error: Shell info lost" })),
 		);
+	}
+
+	// --- Clear finalizing and cleanup if needed ---
+	finalShellInfo.finalizing = false;
+	if (["stopped", "crashed", "error"].includes(finalShellInfo.status)) {
+		removeShell(label);
 	}
 
 	if (finalShellInfo.status === "error") {
@@ -731,7 +745,7 @@ export async function startShell(
 		workingDirectory: finalShellInfo.cwd,
 		status: finalShellInfo.status,
 		host: finalShellInfo.host,
-		message: `Shell '${label}' started successfully. Current status: ${finalShellInfo.status}.`,
+		message: `Shell '${label}' started successfully.Current status: ${finalShellInfo.status}.`,
 		tail_command,
 		ai_instructions: aiInstructions,
 		user_hint: tail_command
@@ -817,7 +831,7 @@ export async function startShellWithVerification(
 	}
 
 	if (finalShellInfo.status === "error") {
-		const errorMsg = `Shell failed to start or verify. Final status: error. ${failureReason || "Unknown reason"}`;
+		const errorMsg = `Shell failed to start or verify.Final status: error.${failureReason || "Unknown reason"} `;
 		log.error(label, errorMsg, "tool");
 		const payload: z.infer<typeof schemas.StartErrorPayloadSchema> = {
 			error: errorMsg,
@@ -865,12 +879,12 @@ export async function startShellWithVerification(
 		pid: finalShellInfo.pid as number,
 		workingDirectory: finalShellInfo.cwd,
 		status: finalShellInfo.status,
-		message: `Shell '${label}' started successfully. Current status: ${finalShellInfo.status}.`,
+		message: `Shell '${label}' started successfully.Current status: ${finalShellInfo.status}.`,
 		host: finalShellInfo.host,
 		tail_command,
 		ai_instructions: aiInstructions,
 		user_hint: tail_command
-			? `You can monitor the shell output by running: ${tail_command}`
+			? `You can monitor the shell output by running: ${tail_command} `
 			: undefined,
 		detected_urls: detectedUrls.length > 0 ? detectedUrls : undefined,
 		isVerificationEnabled: verificationPattern !== undefined,
