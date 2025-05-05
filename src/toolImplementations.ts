@@ -597,7 +597,7 @@ export async function healthCheckImpl(): Promise<CallToolResult> {
 		status: "ok",
 		server_name: cfg.serverName,
 		server_version: cfg.serverVersion,
-		active_shelles: managedShells.size,
+		active_shells: managedShells.size,
 		is_zombie_check_active: isZombieCheckActive(),
 	};
 	return ok(textPayload(JSON.stringify(payload)));

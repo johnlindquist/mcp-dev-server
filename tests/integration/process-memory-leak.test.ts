@@ -160,7 +160,7 @@ describe("Process Management: Memory and Resource Leak Checks", () => {
 			const listRequest = {
 				jsonrpc: "2.0",
 				method: "tools/call",
-				params: { name: "list_shelles", arguments: {} },
+				params: { name: "list_shells", arguments: {} },
 				id: "req-list-memleak-final",
 			};
 			const listResponse = (await sendRequest(

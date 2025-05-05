@@ -205,13 +205,13 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "list_shelles",
+					name: "list_shells",
 					arguments: { log_lines: 5 },
 				},
 				id: "req-list-one-1",
 			};
 
-			logVerbose("[TEST][listOne] Sending list_shelles request...");
+			logVerbose("[TEST][listOne] Sending list_shells request...");
 			const response = (await sendRequest(
 				serverProcess,
 				listRequest,
@@ -232,7 +232,7 @@ describe("MCP Process Manager Server (Stdio Integration)", () => {
 			try {
 				listResult = JSON.parse(result.content[0].text);
 			} catch (e) {
-				throw new Error(`Failed to parse list_shelles result content: ${e}`);
+				throw new Error(`Failed to parse list_shells result content: ${e}`);
 			}
 
 			expect(listResult).toBeInstanceOf(Array);
