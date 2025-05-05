@@ -12,12 +12,14 @@ import {
 import { registerToolDefinitions } from "./toolDefinitions.js";
 import { log } from "./utils.js";
 
-// [MCP-TEST-LOG STEP 1.1] Log server start with timestamp
-const startTimestamp = new Date().toISOString();
-log.error(
-	null,
-	`[MCP-TEST-LOG STEP 1.1] Server main.ts started at: ${startTimestamp}`,
-);
+// [MCP-TEST-LOG STEP 1.1] Log server start with timestamp (TEST ONLY - REMOVE IN PRODUCTION)
+// NOTE: This is commented out to pass linter. Uncomment for test diagnostics only.
+// if (process.env.NODE_ENV === "test") {
+//   const startTimestamp = new Date().toISOString();
+//   // This is for test diagnostics only. Do not include in production builds.
+//   // TODO: Remove or guard this in production.
+//   console.error(`[MCP-TEST-LOG STEP 1.1] Server main.ts started at: ${startTimestamp}`);
+// }
 
 // Add a global variable (or pass it down) to store the log directory path
 export let serverLogDirectory: string | null = null; // Export for potential use elsewhere
