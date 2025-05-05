@@ -64,7 +64,7 @@ export function addLogEntry(
 		try {
 			shellInfo.logFileStream.write(`${content}\n`);
 		} catch (writeError) {
-			log.error(
+			log.warn(
 				label,
 				`Direct error writing to log stream for ${label}`,
 				writeError,
