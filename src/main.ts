@@ -31,7 +31,7 @@ async function main() {
 		// Create a unique directory based on PID within the OS temp dir
 		const tempDir = os.tmpdir();
 		log.info(null, `[Diag] os.tmpdir() returned: ${tempDir}`);
-		const logDirName = `mcp-pm-logs-${process.pid}`;
+		const logDirName = `mcp-shell-yeah-logs-${process.pid}`;
 		log.info(null, `[Diag] Log directory name component: ${logDirName}`);
 		// Revert back to path.join as it was on main
 		serverLogDirectory = path.join(tempDir, logDirName);

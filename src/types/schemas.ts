@@ -476,8 +476,10 @@ export const HealthCheckPayloadSchema = z
 		status: z
 			.string()
 			.describe("Overall health status (e.g., 'OK', 'WARNING')."),
-		server_name: z.string().describe("Name of the MCP-PM server."),
-		server_version: z.string().describe("Version of the MCP-PM server."),
+		server_name: z.string().describe("Name of the mcp-shell-yeah server."),
+		server_version: z
+			.string()
+			.describe("Version of the mcp-shell-yeah server."),
 		active_shells: z
 			.number()
 			.int()

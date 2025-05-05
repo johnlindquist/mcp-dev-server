@@ -21,7 +21,7 @@ export const cfg = {
 	zombieCheckIntervalMs: ms(15000, 0), // Disable in tests
 
 	/** Internal server name identifier. */
-	serverName: "mcp-pm",
+	serverName: "mcp-shell-yeah",
 
 	/** Server version, sourced from package.json. */
 	serverVersion: packageInfo.version,

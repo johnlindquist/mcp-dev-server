@@ -18,27 +18,38 @@ import { cfg } from "./constants/index.js"; // Update path
 // 	},
 // });
 
+function safeLogData(data: unknown): string {
+	if (typeof data === "object" && data !== null) {
+		try {
+			return JSON.stringify(data);
+		} catch {
+			return String(data);
+		}
+	}
+	return typeof data === "undefined" ? "" : String(data);
+}
+
 // Minimal custom logger for ESM compatibility
 export const log = {
 	info: (label: string | null, message: string, data?: unknown) =>
 		console.log(
 			`[${cfg.serverName}${label ? ` ${label}` : ""}] INFO: ${message}`,
-			data ?? "",
+			safeLogData(data),
 		),
 	warn: (label: string | null, message: string, data?: unknown) =>
 		console.warn(
 			`[${cfg.serverName}${label ? ` ${label}` : ""}] WARN: ${message}`,
-			data ?? "",
+			safeLogData(data),
 		),
 	error: (label: string | null, message: string, error?: unknown) =>
 		console.error(
 			`[${cfg.serverName}${label ? ` ${label}` : ""}] ERROR: ${message}`,
-			error ?? "",
+			safeLogData(error),
 		),
 	debug: (label: string | null, message: string, data?: unknown) =>
 		console.debug(
 			`[${cfg.serverName}${label ? ` ${label}` : ""}] DEBUG: ${message}`,
-			data ?? "",
+			safeLogData(data),
 		),
 };
 

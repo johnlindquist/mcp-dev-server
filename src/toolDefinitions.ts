@@ -244,5 +244,5 @@ export function registerToolDefinitions(server: McpServer): void {
 		},
 	);
 
-	log.info(null, "Registered all MCP-PM tool definitions.");
+	log.info(null, "Registered all mcp-shell-yeah tool definitions.");
 }
