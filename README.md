@@ -1,20 +1,19 @@
-# MCP Process Manager (mcp-pm)
+# mcp-shell-yeah
 
-[![NPM version](https://img.shields.io/npm/v/mcp-pm.svg)](https://www.npmjs.com/package/mcp-pm)
+A **Model Context Protocol (MCP)** server designed to solve a common challenge: the difficulty AI agents have reliably managing long-running local development tasks like servers, build watchers, or test runners. Often, these background shells need to persist *across multiple conversations*, and checking their status or logs requires fragile custom scripts or manual intervention. **mcp-shell-yeah** provides a standardized MCP interface, enabling AI agents to reliably start, monitor, retrieve logs from, and stop these crucial shell processes, streamlining AI-driven development workflows.
 
-A **Model Context Protocol (MCP)** server designed to reliably manage background processes (like development servers, build scripts, test watchers, etc.) on behalf of AI agents or other tools.
+[![NPM version](https://img.shields.io/npm/v/mcp-shell-yeah.svg)](https://www.npmjs.com/package/mcp-shell-yeah)
 
-It allows MCP-compatible clients to start, monitor, retrieve logs from, and stop long-running tasks in a structured way.
+---
 
-## Add to Cursor
+## Quick Start: Add to Cursor
 
 ```json
-"mcp-pm": {
+"mcp-shell-yeah": {
   "command": "npx",
-  "args": ["mcp-pm@latest"]
+  "args": ["mcp-shell-yeah@latest"]
 }
 ```
-
 
 ---
 
@@ -32,6 +31,91 @@ It allows MCP-compatible clients to start, monitor, retrieve logs from, and stop
 </blockquote>
 
 ---
+
+## Key Capabilities
+
+- **Start & Manage Long-Running Shells:** Launch and manage dev servers, test runners, build scripts, and more.
+- **Maintain Shell State Across Conversations:** Shells persist and can be checked or controlled in future chats.
+- **Check Real-time Status:** Instantly know if a process is running, crashed, or stopped.
+- **Access Shell Output Logs Reliably:** Retrieve recent or full logs for any managed shell.
+- **Stop Specific Shells or All Managed Shells:** Gracefully or forcefully terminate processes as needed.
+- **Send Input to Interactive Shells:** Interact with prompts or command-line tools.
+
+---
+
+## Common Use Cases
+
+- **Start a dev server:** Launch `npm run dev` and let the AI check its logs or status later—even in a new chat.
+- **Monitor test runners:** Run `npm run test:watch` and have the AI watch for test failures across sessions.
+- **Track long builds:** Start a lengthy `build` command and check its completion status after a break.
+- **Restart stuck processes:** Ask the AI to restart a specific dev server if it becomes unresponsive.
+
+---
+
+## API Reference
+
+For detailed tool and API documentation (parameters, JSON structures, etc.), see [API.md](./API.md).
+
+---
+
+## Development Setup
+
+**Prerequisites:**
+- Node.js (v20.x or later recommended)
+- pnpm (preferred) or npm
+
+**Steps:**
+1. Clone the repository:
+    ```bash
+    git clone https://github.com/johnlindquist/mcp-shell-yeah.git # Replace with actual repo URL
+    cd mcp-shell-yeah
+    ```
+2. Install dependencies:
+    ```bash
+    pnpm install
+    # or
+    # npm install
+    ```
+3. Build the project:
+    ```bash
+    pnpm run build
+    # or
+    # npm run build
+    ```
+4. Run the built server locally:
+    ```bash
+    node build/index.js
+    ```
+
+---
+
+## Known Limitations
+
+- **Interactive Prompt Capture:** Some interactive prompts (notably from bash and python scripts) may not be captured in PTY logs, even with all known workarounds. Node.js-based prompts are reliably captured. See the API documentation for details.
+- **Node.js Readline Prompts:** Node.js readline prompts may not appear in logs due to PTY limitations. This is a known Node.js/PTY issue.
+- **OSC 133 Prompt Detection on macOS:** On macOS (bash 3.2), OSC 133 prompt sequences may not be reliably detected. Heuristic prompt detection is used as a fallback.
+
+---
+
+## Technology Stack
+
+- Node.js / TypeScript
+- `@modelcontextprotocol/sdk`: Core MCP server framework
+- `node-pty`: Robust pseudo-terminal process management
+- `zod`: Runtime validation
+- `biomejs`: Formatting and linting
+- `semantic-release`: Automated versioning and publishing
+
+---
+
+## MCP Compliance
+
+This project strictly follows the official Model Context Protocol (MCP) standard for tool responses and type usage. All result/content types are imported directly from [`@modelcontextprotocol/sdk/types.js`](https://www.npmjs.com/package/@modelcontextprotocol/sdk) (with `.js` for ESM compatibility). No custom type definitions for tool results or content are allowed. All tool implementations and helpers return the `{ content: [...], isError?: boolean }` structure as required by the MCP spec.
+
+---
+
+For contributor guidelines, internal notes, and advanced integration details, see [CONTRIBUTING.md](./CONTRIBUTING.md) and [API.md](./API.md).
+
 
 ## Features
 
@@ -70,9 +154,9 @@ The easiest way to run the MCP Process Manager is using `npx`, which ensures you
 1.  **Open your terminal.**
 2.  **Run the server:**
     ```bash
-    npx mcp-pm
+    npx mcp-shell-yeah
     ```
-3.  **Server is running:** The command will download (if needed) and execute the `mcp-pm` server. It will print initialization logs to stderr and then wait, listening for MCP messages on standard input (stdin) and sending responses to standard output (stdout).
+3.  **Server is running:** The command will download (if needed) and execute the `mcp-shell-yeah` server. It will print initialization logs to stderr and then wait, listening for MCP messages on standard input (stdin) and sending responses to standard output (stdout).
 
 Your MCP client or orchestrator can now be configured to communicate with this process via its stdio streams.
 
@@ -89,8 +173,8 @@ If you want to modify the server or contribute to its development:
 
 1.  **Clone the repository:**
     ```bash
-    git clone https://github.com/johnlindquist/mcp-pm.git # Replace with actual repo URL
-    cd mcp-pm
+    git clone https://github.com/johnlindquist/mcp-shell-yeah.git # Replace with actual repo URL
+    cd mcp-shell-yeah
     ```
 
 2.  **Install dependencies:**
@@ -156,7 +240,7 @@ See [`src/mcpUtils.ts`], [`src/toolImplementations.ts`], and [`tests/integration
 
 ## Tool Catalogue
 
-This section describes the tools provided by `mcp-pm`.
+This section describes the tools provided by `mcp-shell-yeah`.
 
 ### `start_shell`
 

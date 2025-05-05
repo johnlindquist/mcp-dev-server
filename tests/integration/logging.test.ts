@@ -16,6 +16,126 @@ import {
 	logVerboseError,
 } from "./test-helpers";
 
+async function sendRequest(
+	process: ChildProcessWithoutNullStreams,
+	request: Record<string, unknown>,
+	timeoutMs = 10000,
+): Promise<unknown> {
+	const requestId = request.id as string;
+	if (!requestId) {
+		throw new Error('Request must have an "id" property');
+	}
+	const requestString = `${JSON.stringify(request)}\n`;
+	logVerbose(
+		`[sendRequest] Sending request (ID ${requestId}): ${requestString.trim()}`,
+	);
+	return new Promise((resolve, reject) => {
+		let responseBuffer = "";
+		let responseReceived = false;
+		let responseListenersAttached = false;
+		const timeoutTimer = setTimeout(() => {
+			if (!responseReceived) {
+				cleanup();
+				const errorMsg = `Timeout waiting for response ID ${requestId} after ${timeoutMs}ms. Request: ${JSON.stringify(request)}`;
+				console.error(`[sendRequest] ${errorMsg}`);
+				reject(new Error(errorMsg));
+			}
+		}, timeoutMs);
+		const onData = (data: Buffer) => {
+			const rawChunk = data.toString();
+			logVerbose(
+				`[sendRequest] Received raw STDOUT chunk for ${requestId}: ${rawChunk}`,
+			);
+			responseBuffer += rawChunk;
+			const lines = responseBuffer.split("\n");
+			responseBuffer = lines.pop() || "";
+			for (const line of lines) {
+				if (line.trim() === "") continue;
+				logVerbose(`[sendRequest] Processing line for ${requestId}: ${line}`);
+				try {
+					const parsedResponse = JSON.parse(line);
+					if (parsedResponse.id === requestId) {
+						logVerbose(
+							`[sendRequest] Received matching response for ID ${requestId}: ${line.trim()}`,
+						);
+						responseReceived = true;
+						cleanup();
+						resolve(parsedResponse);
+						return;
+					}
+					logVerbose(
+						`[sendRequest] Ignoring response with different ID (${parsedResponse.id}) for request ${requestId}`,
+					);
+				} catch (e) {
+					logVerboseError(
+						`[sendRequest] Failed to parse potential JSON line for ${requestId}: ${line}`,
+						e,
+					);
+				}
+			}
+		};
+		const onError = (err: Error) => {
+			if (!responseReceived) {
+				cleanup();
+				const errorMsg = `Server process emitted error while waiting for ID ${requestId}: ${err.message}`;
+				console.error(`[sendRequest] ${errorMsg}`);
+				reject(new Error(errorMsg));
+			}
+		};
+		const onExit = (code: number | null, signal: string | null) => {
+			if (!responseReceived) {
+				cleanup();
+				const errorMsg = `Server process exited (code ${code}, signal ${signal}) before response ID ${requestId} was received.`;
+				console.error(`[sendRequest] ${errorMsg}`);
+				reject(new Error(errorMsg));
+			}
+		};
+		const cleanup = () => {
+			logVerbose(
+				`[sendRequest] Cleaning up listeners for request ID ${requestId}`,
+			);
+			clearTimeout(timeoutTimer);
+			if (responseListenersAttached) {
+				process.stdout.removeListener("data", onData);
+				process.stderr.removeListener("data", logStderr);
+				process.removeListener("error", onError);
+				process.removeListener("exit", onExit);
+				responseListenersAttached = false;
+			}
+		};
+		const logStderr = (data: Buffer) => {
+			logVerboseError(
+				`[sendRequest][Server STDERR during request ${requestId}]: ${data.toString().trim()}`,
+			);
+		};
+		if (!responseListenersAttached) {
+			logVerbose(
+				`[sendRequest] Attaching listeners for request ID ${requestId}`,
+			);
+			process.stdout.on("data", onData);
+			process.stdout.on("data", logStderr);
+			process.once("error", onError);
+			process.once("exit", onExit);
+			responseListenersAttached = true;
+		}
+		logVerbose(`[sendRequest] Writing request (ID ${requestId}) to stdin...`);
+		process.stdin.write(requestString, (err) => {
+			if (err) {
+				if (!responseReceived) {
+					cleanup();
+					const errorMsg = `Failed to write to server stdin for ID ${requestId}: ${err.message}`;
+					console.error(`[sendRequest] ${errorMsg}`);
+					reject(new Error(errorMsg));
+				}
+			} else {
+				logVerbose(
+					`[sendRequest] Successfully wrote request (ID ${requestId}) to stdin.`,
+				);
+			}
+		});
+	});
+}
+
 describe("Tool Features: Logging and Summaries", () => {
 	let serverProcess: ChildProcessWithoutNullStreams;
 
@@ -53,126 +173,6 @@ describe("Tool Features: Logging and Summaries", () => {
 			serverProcess.kill("SIGTERM");
 		}
 	});
-
-	async function sendRequest(
-		process: ChildProcessWithoutNullStreams,
-		request: Record<string, unknown>,
-		timeoutMs = 10000,
-	): Promise<unknown> {
-		const requestId = request.id as string;
-		if (!requestId) {
-			throw new Error('Request must have an "id" property');
-		}
-		const requestString = `${JSON.stringify(request)}\n`;
-		logVerbose(
-			`[sendRequest] Sending request (ID ${requestId}): ${requestString.trim()}`,
-		);
-		return new Promise((resolve, reject) => {
-			let responseBuffer = "";
-			let responseReceived = false;
-			let responseListenersAttached = false;
-			const timeoutTimer = setTimeout(() => {
-				if (!responseReceived) {
-					cleanup();
-					const errorMsg = `Timeout waiting for response ID ${requestId} after ${timeoutMs}ms. Request: ${JSON.stringify(request)}`;
-					console.error(`[sendRequest] ${errorMsg}`);
-					reject(new Error(errorMsg));
-				}
-			}, timeoutMs);
-			const onData = (data: Buffer) => {
-				const rawChunk = data.toString();
-				logVerbose(
-					`[sendRequest] Received raw STDOUT chunk for ${requestId}: ${rawChunk}`,
-				);
-				responseBuffer += rawChunk;
-				const lines = responseBuffer.split("\n");
-				responseBuffer = lines.pop() || "";
-				for (const line of lines) {
-					if (line.trim() === "") continue;
-					logVerbose(`[sendRequest] Processing line for ${requestId}: ${line}`);
-					try {
-						const parsedResponse = JSON.parse(line);
-						if (parsedResponse.id === requestId) {
-							logVerbose(
-								`[sendRequest] Received matching response for ID ${requestId}: ${line.trim()}`,
-							);
-							responseReceived = true;
-							cleanup();
-							resolve(parsedResponse);
-							return;
-						}
-						logVerbose(
-							`[sendRequest] Ignoring response with different ID (${parsedResponse.id}) for request ${requestId}`,
-						);
-					} catch (e) {
-						logVerboseError(
-							`[sendRequest] Failed to parse potential JSON line for ${requestId}: ${line}`,
-							e,
-						);
-					}
-				}
-			};
-			const onError = (err: Error) => {
-				if (!responseReceived) {
-					cleanup();
-					const errorMsg = `Server process emitted error while waiting for ID ${requestId}: ${err.message}`;
-					console.error(`[sendRequest] ${errorMsg}`);
-					reject(new Error(errorMsg));
-				}
-			};
-			const onExit = (code: number | null, signal: string | null) => {
-				if (!responseReceived) {
-					cleanup();
-					const errorMsg = `Server process exited (code ${code}, signal ${signal}) before response ID ${requestId} was received.`;
-					console.error(`[sendRequest] ${errorMsg}`);
-					reject(new Error(errorMsg));
-				}
-			};
-			const cleanup = () => {
-				logVerbose(
-					`[sendRequest] Cleaning up listeners for request ID ${requestId}`,
-				);
-				clearTimeout(timeoutTimer);
-				if (responseListenersAttached) {
-					process.stdout.removeListener("data", onData);
-					process.stderr.removeListener("data", logStderr);
-					process.removeListener("error", onError);
-					process.removeListener("exit", onExit);
-					responseListenersAttached = false;
-				}
-			};
-			const logStderr = (data: Buffer) => {
-				logVerboseError(
-					`[sendRequest][Server STDERR during request ${requestId}]: ${data.toString().trim()}`,
-				);
-			};
-			if (!responseListenersAttached) {
-				logVerbose(
-					`[sendRequest] Attaching listeners for request ID ${requestId}`,
-				);
-				process.stdout.on("data", onData);
-				process.stdout.on("data", logStderr);
-				process.once("error", onError);
-				process.once("exit", onExit);
-				responseListenersAttached = true;
-			}
-			logVerbose(`[sendRequest] Writing request (ID ${requestId}) to stdin...`);
-			process.stdin.write(requestString, (err) => {
-				if (err) {
-					if (!responseReceived) {
-						cleanup();
-						const errorMsg = `Failed to write to server stdin for ID ${requestId}: ${err.message}`;
-						console.error(`[sendRequest] ${errorMsg}`);
-						reject(new Error(errorMsg));
-					}
-				} else {
-					logVerbose(
-						`[sendRequest] Successfully wrote request (ID ${requestId}) to stdin.`,
-					);
-				}
-			});
-		});
-	}
 
 	it(
 		"should filter logs correctly on repeated checks of an active process",
@@ -583,5 +583,95 @@ describe("Tool Features: Logging and Summaries", () => {
 			console.log("[DEBUG][inputLogs] result3:", result3);
 		},
 		TEST_TIMEOUT + 5000,
+	);
+});
+
+describe("Log Line Limit: In-Memory Purge", () => {
+	let serverProcess: ChildProcessWithoutNullStreams;
+
+	beforeAll(async () => {
+		serverProcess = spawn(
+			SERVER_EXECUTABLE,
+			[SERVER_SCRIPT_PATH, ...SERVER_ARGS],
+			{
+				stdio: ["pipe", "pipe", "pipe"],
+				env: { ...process.env, MCP_PM_FAST: "1", MCP_MAX_LOG_LINES: "50" },
+			},
+		);
+		await new Promise<void>((resolve, reject) => {
+			let ready = false;
+			const timeout = setTimeout(() => {
+				if (!ready) reject(new Error("Server startup timed out"));
+			}, STARTUP_TIMEOUT);
+			serverProcess.stdout.on("data", (data: Buffer) => {
+				if (!ready && data.toString().includes(SERVER_READY_OUTPUT)) {
+					ready = true;
+					clearTimeout(timeout);
+					resolve();
+				}
+			});
+			serverProcess.on("error", reject);
+			serverProcess.on("exit", () =>
+				reject(new Error("Server exited before ready")),
+			);
+		});
+	});
+
+	afterAll(async () => {
+		if (serverProcess && !serverProcess.killed) {
+			serverProcess.stdin.end();
+			serverProcess.kill("SIGTERM");
+		}
+	});
+
+	it(
+		"should only keep the most recent 50 log lines in memory",
+		async () => {
+			const label = `test-log-limit-${Date.now()}`;
+			const logCount = 120;
+			const startRequest = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "start_shell",
+					arguments: {
+						command: "node",
+						args: [
+							"-e",
+							`for(let i=0;i<${logCount};++i){console.log('log-'+i)};setTimeout(()=>{},1000)`,
+						],
+						workingDirectory: path.join(__dirname),
+						label: label,
+						verification_pattern: "log-0",
+					},
+				},
+				id: `req-start-log-limit-${label}`,
+			};
+			await sendRequest(serverProcess, startRequest);
+			await new Promise((resolve) => setTimeout(resolve, 500));
+			const checkRequest = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "check_shell",
+					arguments: { label: label, log_lines: 200 },
+				},
+				id: `req-check-log-limit-${label}`,
+			};
+			const response = (await sendRequest(
+				serverProcess,
+				checkRequest,
+			)) as MCPResponse;
+			const result = response.result as CallToolResult;
+			const resultContentText = result?.content?.[0]?.text;
+			expect(resultContentText).toBeDefined();
+			const statusResult = JSON.parse(resultContentText);
+			expect(Array.isArray(statusResult.logs)).toBe(true);
+			expect(statusResult.logs.length).toBe(50);
+			// Should only contain the last 50 logs
+			expect(statusResult.logs[0]).toContain("log-70");
+			expect(statusResult.logs[49]).toContain("log-119");
+		},
+		TEST_TIMEOUT,
 	);
 });

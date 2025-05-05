@@ -32,6 +32,14 @@ import {
 	stripAnsiAndControlChars,
 } from "./utils.js";
 
+function logsToArray(
+	logs: LogEntry[] | { toArray: () => LogEntry[] },
+): LogEntry[] {
+	return typeof (logs as { toArray?: unknown }).toArray === "function"
+		? (logs as { toArray: () => LogEntry[] }).toArray()
+		: (logs as LogEntry[]);
+}
+
 export async function checkProcessStatusImpl(
 	params: CheckProcessStatusParams,
 ): Promise<CallToolResult> {
@@ -69,7 +77,7 @@ export async function checkProcessStatusImpl(
 
 	const finalProcessInfo = initialProcessInfo;
 
-	const allLogs: LogEntry[] = finalProcessInfo.logs || [];
+	const allLogs: LogEntry[] = logsToArray(finalProcessInfo.logs || []);
 	log.info(null, "[DEBUG][checkProcessStatusImpl] allLogs:", allLogs);
 	log.info(
 		null,
@@ -202,11 +210,11 @@ export async function listProcessesImpl(
 		if (processInfo) {
 			const requestedLines = log_lines ?? 0;
 			const formattedLogs = formatLogsForResponse(
-				processInfo.logs.map((l: LogEntry) => l.content),
+				logsToArray(processInfo.logs).map((l: LogEntry) => l.content),
 				requestedLines,
 			);
 			let logHint: string | null = null;
-			const totalStoredLogs = processInfo.logs.length;
+			const totalStoredLogs = logsToArray(processInfo.logs).length;
 
 			if (requestedLines > 0 && totalStoredLogs > formattedLogs.length) {
 				const hiddenLines = totalStoredLogs - formattedLogs.length;
@@ -524,7 +532,7 @@ export async function getAllLoglinesImpl(
 		);
 	}
 
-	const allLogs = processInfo.logs || [];
+	const allLogs = logsToArray(processInfo.logs || []);
 	const logContents = allLogs.map((l) => l.content);
 	const lineCount = logContents.length;
 	const isTruncated = lineCount >= cfg.maxStoredLogLines;

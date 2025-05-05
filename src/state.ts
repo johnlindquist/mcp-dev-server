@@ -1,11 +1,30 @@
 import { cfg } from "./constants/index.js";
-import type { LogEntry, ShellInfo, ShellStatus } from "./types/process.js"; // Update path
+import { LogRingBuffer } from "./process/LogRingBuffer.js";
+import type {
+	LogBufferType,
+	LogEntry,
+	ShellInfo,
+	ShellStatus,
+} from "./types/process.js"; // Update path
 import { log } from "./utils.js";
 
 // Renamed Map
 export const managedShells: Map<string, ShellInfo> = new Map();
 
 // REMOVE: const killProcessTree = promisify(treeKill); // Define killProcessTree here
+
+// --- Ring Buffer Implementation ---
+function isLogRingBuffer(logs: LogBufferType): logs is {
+	push: (item: LogEntry) => void;
+	toArray: () => LogEntry[];
+	length: number;
+} {
+	return (
+		typeof logs === "object" &&
+		logs !== null &&
+		typeof (logs as { toArray?: unknown }).toArray === "function"
+	);
+}
 
 export function addLogEntry(
 	label: string,
@@ -25,37 +44,36 @@ export function addLogEntry(
 		label,
 		`[state.addLogEntry] Pushing log entry (ts: ${entry.timestamp}): ${content.substring(0, 100)}`,
 	);
+	// --- Use ring buffer for logs ---
+	if (!shellInfo.logs || !isLogRingBuffer(shellInfo.logs)) {
+		shellInfo.logs = new LogRingBuffer<LogEntry>(
+			cfg.maxStoredLogLines,
+		) as LogBufferType;
+	}
 	shellInfo.logs.push(entry);
+	const logCount = isLogRingBuffer(shellInfo.logs)
+		? shellInfo.logs.length
+		: (shellInfo.logs as LogEntry[]).length;
 	log.debug(
 		label,
-		`[state.addLogEntry] Pushed entry. New log count: ${shellInfo.logs.length}`,
+		`[state.addLogEntry] Pushed entry. New log count: ${logCount}`,
 	);
 
-	// Enforce the maximum in-memory log line limit
-	if (shellInfo.logs.length > cfg.maxStoredLogLines) {
-		shellInfo.logs.shift();
-	}
-
 	// --- Write to file stream ---
-	// Use optional chaining where appropriate, but keep explicit check for write logic
 	if (shellInfo.logFileStream?.writable) {
 		try {
-			// Write the raw content + newline. Error handled by stream 'error' listener.
-			shellInfo.logFileStream.write(`${content}\n`); // Use template literal
+			shellInfo.logFileStream.write(`${content}\n`);
 		} catch (writeError) {
-			// This catch might not be strictly necessary due to the async nature
-			// and the 'error' listener, but added for robustness.
 			log.error(
 				label,
 				`Direct error writing to log stream for ${label}`,
 				writeError,
 			);
-			shellInfo.logFileStream?.end(); // Attempt to close on direct error (optional chain)
+			shellInfo.logFileStream?.end();
 			shellInfo.logFileStream = null;
-			shellInfo.logFilePath = null; // Mark as unusable
+			shellInfo.logFilePath = null;
 		}
 	}
-	// --- End write to file stream ---
 }
 
 // Renamed function

@@ -1,12 +1,24 @@
 // src/utils.ts
 
-import stripAnsi from "strip-ansi";
-import { cfg } from "./constants/index.js"; // Update path
 // Import MAX_STORED_LOG_LINES if needed for formatLogsForResponse logic refinement
 // import { MAX_STORED_LOG_LINES } from "./constants.js";
 // import * as path from 'node:path'; // Remove unused import
+// REMOVE: import { Signale } from "signale";
+import stripAnsi from "strip-ansi";
+import { cfg } from "./constants/index.js"; // Update path
 
-// Logging
+// Set up Signale logger
+// REMOVE: const isDev = process.env.NODE_ENV !== "production";
+// REMOVE: const signale = new Signale({
+// 	types: {
+// 		info: { badge: "ℹ️", color: "blue", label: "info" },
+// 		warn: { badge: "⚠️", color: "yellow", label: "warn" },
+// 		error: { badge: "❌", color: "red", label: "error" },
+// 		debug: { badge: "🐞", color: "magenta", label: "debug" },
+// 	},
+// });
+
+// Minimal custom logger for ESM compatibility
 export const log = {
 	info: (label: string | null, message: string, data?: unknown) =>
 		console.log(
@@ -23,12 +35,11 @@ export const log = {
 			`[${cfg.serverName}${label ? ` ${label}` : ""}] ERROR: ${message}`,
 			error ?? "",
 		),
-	debug: (label: string | null, message: string, data?: unknown) => {
+	debug: (label: string | null, message: string, data?: unknown) =>
 		console.debug(
 			`[${cfg.serverName}${label ? ` ${label}` : ""}] DEBUG: ${message}`,
 			data ?? "",
-		);
-	},
+		),
 };
 
 // Helper Functions
@@ -103,12 +114,20 @@ const BACKSPACE_REGEX = /.\x08/g; // Match any character followed by ASCII backs
 const OTHER_CONTROL_CHARS_REGEX = /[\r\x07]/g;
 
 export function formatLogsForResponse(
-	logs: { content: string; source: "tool" | "shell" }[] | string[],
+	logs:
+		| { content: string; source: "tool" | "shell" }[]
+		| string[]
+		| { toArray: () => any[] },
 	lineCount: number,
 	source?: "tool" | "shell",
 ): string[] {
 	if (lineCount <= 0) {
 		return []; // Return empty if 0 or negative lines requested
+	}
+
+	// --- Support LogRingBuffer ---
+	if (logs && typeof (logs as any).toArray === "function") {
+		logs = (logs as any).toArray();
 	}
 
 	let filteredLogs: string[];

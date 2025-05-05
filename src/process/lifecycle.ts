@@ -26,6 +26,8 @@ import {
 } from "../state.js";
 import type {
 	HostEnumType,
+	LogBufferType,
+	LogEntry,
 	OperatingSystemEnumType,
 	ShellInfo,
 	ShellStatus,
@@ -33,6 +35,7 @@ import type {
 import type * as schemas from "../types/schemas.js";
 import { getTailCommand, log } from "../utils.js";
 
+import { LogRingBuffer } from "./LogRingBuffer.js";
 // Import newly created functions
 import { setupLogFileStream } from "./logging.js";
 import { handleShellExit } from "./retry.js"; // Assuming retry logic helper is named this
@@ -313,7 +316,7 @@ export async function startShell(
 				host,
 				cwd: effectiveWorkingDirectory,
 				status: "error",
-				logs: [],
+				logs: new LogRingBuffer<LogEntry>(cfg.maxStoredLogLines),
 				pid: undefined,
 				shell: null,
 				exitCode: null,
@@ -390,7 +393,7 @@ export async function startShell(
 				host,
 				cwd: effectiveWorkingDirectory,
 				status: "error",
-				logs: [],
+				logs: new LogRingBuffer<LogEntry>(cfg.maxStoredLogLines),
 				pid: undefined,
 				shell: null,
 				exitCode: null,
@@ -418,6 +421,17 @@ export async function startShell(
 	else detectedOS = "linux";
 
 	// 4. Create/Update ShellInfo State
+	// Always use a LogRingBuffer for logs
+	let logsBuffer: LogBufferType;
+	if (existingShell && isRestart && existingShell.logs) {
+		const prevLogs = logsToArray(existingShell.logs);
+		logsBuffer = new LogRingBuffer<LogEntry>(cfg.maxStoredLogLines);
+		for (const entry of prevLogs.slice(-cfg.maxStoredLogLines)) {
+			logsBuffer.push(entry);
+		}
+	} else {
+		logsBuffer = new LogRingBuffer<LogEntry>(cfg.maxStoredLogLines);
+	}
 	const shellInfo: ShellInfo = {
 		label,
 		pid: ptyProcess.pid,
@@ -426,7 +440,7 @@ export async function startShell(
 		args,
 		cwd: effectiveWorkingDirectory,
 		host,
-		logs: existingShell && isRestart ? existingShell.logs : [],
+		logs: logsBuffer,
 		status: "starting",
 		exitCode: null,
 		signal: null,
@@ -656,16 +670,12 @@ export async function startShell(
 	}
 
 	// Add shellLogs and toolLogs for the AI
-	const shellLogs = finalShellInfo.logs
-		? finalShellInfo.logs
-				.filter((l) => l.source === "shell")
-				.map((l) => l.content)
-		: [];
-	const toolLogs = finalShellInfo.logs
-		? finalShellInfo.logs
-				.filter((l) => l.source === "tool")
-				.map((l) => l.content)
-		: [];
+	const shellLogs = logsToArray(finalShellInfo.logs)
+		.filter((l) => l.source === "shell")
+		.map((l) => l.content);
+	const toolLogs = logsToArray(finalShellInfo.logs)
+		.filter((l) => l.source === "tool")
+		.map((l) => l.content);
 
 	// --- Extract URLs from shellLogs ---
 	const urlRegex = /(https?:\/\/[^\s]+)/gi;
@@ -795,16 +805,12 @@ export async function startShellWithVerification(
 	}
 
 	// Add shellLogs and toolLogs for the AI
-	const shellLogs = finalShellInfo.logs
-		? finalShellInfo.logs
-				.filter((l) => l.source === "shell")
-				.map((l) => l.content)
-		: [];
-	const toolLogs = finalShellInfo.logs
-		? finalShellInfo.logs
-				.filter((l) => l.source === "tool")
-				.map((l) => l.content)
-		: [];
+	const shellLogs = logsToArray(finalShellInfo.logs)
+		.filter((l) => l.source === "shell")
+		.map((l) => l.content);
+	const toolLogs = logsToArray(finalShellInfo.logs)
+		.filter((l) => l.source === "tool")
+		.map((l) => l.content);
 
 	// --- Extract URLs from shellLogs ---
 	const urlRegex = /(https?:\/\/[^\s]+)/gi;
@@ -854,6 +860,12 @@ export async function startShellWithVerification(
 	};
 	log.info(label, successPayload.message, "tool");
 	return ok(textPayload(JSON.stringify(successPayload)));
+}
+
+function logsToArray(logs: LogBufferType): LogEntry[] {
+	return typeof (logs as { toArray?: unknown }).toArray === "function"
+		? (logs as { toArray: () => LogEntry[] }).toArray()
+		: (logs as LogEntry[]);
 }
 
 // TODO: Move retry logic from processLifecycle.ts to retry.ts
