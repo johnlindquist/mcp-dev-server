@@ -9,7 +9,7 @@ import { cfg } from "./constants/index.js"; // Update path
 // Logging
 export const log = {
 	info: (label: string | null, message: string, data?: unknown) =>
-		console.error(
+		console.log(
 			`[${cfg.serverName}${label ? ` ${label}` : ""}] INFO: ${message}`,
 			data ?? "",
 		),

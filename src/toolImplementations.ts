@@ -70,12 +70,14 @@ export async function checkProcessStatusImpl(
 	const finalProcessInfo = initialProcessInfo;
 
 	const allLogs: LogEntry[] = finalProcessInfo.logs || [];
-	console.log("[DEBUG][checkProcessStatusImpl] allLogs:", allLogs);
-	console.log(
+	log.info(null, "[DEBUG][checkProcessStatusImpl] allLogs:", allLogs);
+	log.info(
+		null,
 		"[DEBUG][checkProcessStatusImpl] previousLastLogTimestampReturned:",
 		previousLastLogTimestampReturned,
 	);
-	console.log(
+	log.info(
+		null,
 		"[DEBUG][checkProcessStatusImpl] allLogs timestamps:",
 		allLogs.map((l) => l.timestamp),
 	);
@@ -145,9 +147,9 @@ export async function checkProcessStatusImpl(
 		label,
 		`Analysing ${newLogsForSummary.length} logs for summary since timestamp ${previousLastLogTimestampReturned}`,
 	);
-	console.log(
+	log.info(
 		"[DEBUG][checkProcessStatusImpl] Logs for summary:",
-		newLogsForSummary.map((l) => l.content),
+		newLogsForSummary.map((l) => l.content).join(", "),
 	);
 	const { message: summaryMessage } = analyseLogs(
 		newLogsForSummary.map((l) => l.content),

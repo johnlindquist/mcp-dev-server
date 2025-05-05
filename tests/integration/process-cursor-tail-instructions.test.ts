@@ -1,6 +1,6 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
 	type CallToolResult,
 	type MCPResponse,
@@ -29,7 +29,7 @@ beforeAll(async () => {
 		const timeout = setTimeout(() => {
 			if (!ready) reject(new Error("Server startup timed out"));
 		}, STARTUP_TIMEOUT);
-		serverProcess.stderr.on("data", (data: Buffer) => {
+		serverProcess.stdout.on("data", (data: Buffer) => {
 			if (!ready && data.toString().includes(SERVER_READY_OUTPUT)) {
 				ready = true;
 				clearTimeout(timeout);

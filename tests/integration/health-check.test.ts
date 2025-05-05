@@ -30,7 +30,7 @@ describe("Tool: health_check", () => {
 			const timeout = setTimeout(() => {
 				if (!ready) reject(new Error("Server startup timed out"));
 			}, STARTUP_TIMEOUT);
-			serverProcess.stderr.on("data", (data: Buffer) => {
+			serverProcess.stdout.on("data", (data: Buffer) => {
 				if (!ready && data.toString().includes(SERVER_READY_OUTPUT)) {
 					ready = true;
 					clearTimeout(timeout);
@@ -148,7 +148,7 @@ describe("Tool: health_check", () => {
 					`[sendRequest] Attaching listeners for request ID ${requestId}`,
 				);
 				process.stdout.on("data", onData);
-				process.stderr.on("data", logStderr);
+				process.stdout.on("data", logStderr);
 				process.once("error", onError);
 				process.once("exit", onExit);
 				responseListenersAttached = true;
