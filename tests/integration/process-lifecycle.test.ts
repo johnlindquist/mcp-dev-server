@@ -27,6 +27,13 @@ interface VerificationPayload {
 	[key: string]: unknown;
 }
 
+// Helper type for test assertions
+interface ProcessStatusWithLogs extends ProcessStatusResult {
+	shellLogs?: string[];
+	toolLogs?: string[];
+	log_file_path?: string;
+}
+
 describe("Tool: Process Lifecycle (start, check, restart)", () => {
 	beforeAll(async () => {
 		serverProcess = spawn(
@@ -995,5 +1002,142 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 				await sendRequest(serverProcess, stopRequest);
 			});
 		}
+	});
+
+	describe("Quick Shell Process Capture", () => {
+		const fixtures = [
+			{
+				label: "node-quick",
+				command: "node",
+				args: [
+					require("node:path").resolve(__dirname, "fixtures/node-echo.cjs"),
+				],
+				output: "Hello from node!",
+			},
+			{
+				label: "bash-quick",
+				command: "bash",
+				args: [
+					require("node:path").resolve(__dirname, "fixtures/bash-echo.sh"),
+				],
+				output: "Hello from bash!",
+			},
+			{
+				label: "python-quick",
+				command: "python3",
+				args: [
+					require("node:path").resolve(__dirname, "fixtures/python-echo.py"),
+				],
+				output: "Hello from python!",
+			},
+		];
+
+		for (const fixture of fixtures) {
+			it(`should capture all output for quick shell: ${fixture.label}`, async () => {
+				const label = `quick-fixture-${fixture.label}-${Date.now()}`;
+				const startRequest = {
+					jsonrpc: "2.0",
+					method: "tools/call",
+					params: {
+						name: "start_shell",
+						arguments: {
+							label,
+							command: fixture.command,
+							args: fixture.args,
+							workingDirectory: process.cwd(),
+						},
+					},
+					id: `req-start-${label}`,
+				};
+				const response = (await sendRequest(
+					serverProcess,
+					startRequest,
+				)) as MCPResponse;
+				const result = response.result as CallToolResult;
+				const resultText = result?.content?.[0]?.text;
+				let startResult: ProcessStatusWithLogs | null = null;
+				try {
+					startResult = resultText ? JSON.parse(resultText) : null;
+				} catch (e) {
+					throw new Error(`Failed to parse start_shell result content: ${e}`);
+				}
+				expect(startResult).not.toBeNull();
+				if (startResult) {
+					expect(startResult.label).toBe(label);
+					expect(
+						["running", "stopped", "error"].includes(startResult.status),
+					).toBe(true);
+					expect(Array.isArray(startResult.shellLogs)).toBe(true);
+					const found = (startResult.shellLogs || []).some((line: string) =>
+						line.includes(fixture.output),
+					);
+					if (!found) {
+						const fs = require("node:fs");
+						const logPath = startResult.log_file_path;
+						if (logPath && fs.existsSync(logPath)) {
+							const logContent = fs.readFileSync(logPath, "utf8");
+							console.error(
+								`\n[DEBUG][Quick Shell][${fixture.label}] Log file contents:\n${logContent}`,
+							);
+						} else {
+							console.error(
+								`\n[DEBUG][Quick Shell][${fixture.label}] Log file not found: ${logPath}`,
+							);
+						}
+					}
+					expect(found).toBe(true);
+				}
+				// No need to stop quick processes, they should exit on their own
+			});
+		}
+
+		it("should clean up quick shell and not find it in check_shell", async () => {
+			const label = `quick-fixture-cleanup-${Date.now()}`;
+			const startRequest = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "start_shell",
+					arguments: {
+						label,
+						command: "node",
+						args: [
+							require("node:path").resolve(__dirname, "fixtures/node-echo.cjs"),
+						],
+						workingDirectory: process.cwd(),
+					},
+				},
+				id: `req-start-${label}`,
+			};
+			await sendRequest(serverProcess, startRequest);
+			// Wait for the process to exit (should be quick)
+			await new Promise((resolve) => setTimeout(resolve, 2500));
+			const checkRequest = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: {
+					name: "check_shell",
+					arguments: { label },
+				},
+				id: `req-check-${label}`,
+			};
+			const checkResponse = (await sendRequest(
+				serverProcess,
+				checkRequest,
+			)) as MCPResponse;
+			// Should return an error or a result indicating the process is not running
+			if (checkResponse.error) {
+				expect(checkResponse.error.message || checkResponse.error).toMatch(
+					/not found|no such process|not running|not available/i,
+				);
+			} else if (checkResponse.result) {
+				const result = checkResponse.result as CallToolResult;
+				const resultText = result?.content?.[0]?.text;
+				if (resultText) {
+					const parsed = JSON.parse(resultText);
+					expect(parsed.status).not.toBe("running");
+				}
+			}
+		});
 	});
 });
