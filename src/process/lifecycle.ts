@@ -69,15 +69,15 @@ export function handleData(
 	addLogEntry(label, data, "shell");
 
 	log.info(label, `[DEBUG] handleData received: ${JSON.stringify(data)}`);
-	log.error(
+	log.info(
 		label,
 		`[DEBUG] char codes: ${Array.from(data)
 			.map((c) => c.charCodeAt(0))
 			.join(",")}`,
 	);
-	log.error(label, `[DEBUG] ALL DATA: ${JSON.stringify(data)}`);
-	log.error(label, `[HANDLE_DATA] ${JSON.stringify(data)}`);
-	log.error(
+	log.info(label, `[DEBUG] ALL DATA: ${JSON.stringify(data)}`);
+	log.info(label, `[HANDLE_DATA] ${JSON.stringify(data)}`);
+	log.info(
 		label,
 		`[CHAR_CODES] ${Array.from(data)
 			.map((c) => c.charCodeAt(0))
@@ -85,7 +85,7 @@ export function handleData(
 	);
 
 	if (label.startsWith("prompt-detect-test-")) {
-		log.error(label, `[TEST ALL DATA] ${JSON.stringify(data)}`);
+		log.info(label, `[TEST ALL DATA] ${JSON.stringify(data)}`);
 	}
 
 	// Heuristic: If the line looks like a prompt, set isProbablyAwaitingInput (never sets to false)
@@ -96,8 +96,8 @@ export function handleData(
 	}
 
 	// DEBUG: Log every PTY data chunk and buffer state
-	log.error(label, `[OSC133 DEBUG] PTY chunk: ${JSON.stringify(data)}`);
-	log.error(
+	log.info(label, `[OSC133 DEBUG] PTY chunk: ${JSON.stringify(data)}`);
+	log.info(
 		label,
 		`[OSC133 DEBUG] osc133Buffer: ${JSON.stringify(shellInfo.osc133Buffer)}`,
 	);
