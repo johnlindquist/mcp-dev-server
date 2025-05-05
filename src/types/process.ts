@@ -35,6 +35,16 @@ export interface LogEntry {
 	source: "tool" | "shell";
 }
 
+// Update logs type to support LogRingBuffer
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type LogBufferType =
+	| LogEntry[]
+	| {
+			push: (item: LogEntry) => void;
+			toArray: () => LogEntry[];
+			length: number;
+	  };
+
 /** Detailed information about a managed process. */
 export interface ShellInfo {
 	label: string;
@@ -43,7 +53,7 @@ export interface ShellInfo {
 	cwd: string;
 	host: HostEnumType;
 	status: ShellStatus;
-	logs: LogEntry[];
+	logs: LogBufferType;
 	pid: number | undefined;
 	shell: IPty | null;
 	dataListener?: IDisposable;

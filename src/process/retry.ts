@@ -42,7 +42,7 @@ export async function handleCrashAndRetry(label: string): Promise<void> {
 	shellInfo.restartAttempts = (shellInfo.restartAttempts ?? 0) + 1;
 
 	if (shellInfo.restartAttempts > maxRetries) {
-		log.error(
+		log.warn(
 			label,
 			`Crash detected. Shell exceeded max retries (${maxRetries}). Marking as error.`,
 		);
@@ -240,12 +240,12 @@ export function stopAllShellsOnExit(): void {
 						})
 						.catch((err: unknown) => {
 							if (err instanceof Error) {
-								log.error(
+								log.warn(
 									label,
 									`Error stopping process tree for ${label}: ${err.message}`,
 								);
 							} else {
-								log.error(
+								log.warn(
 									label,
 									`Error stopping process tree for ${label}: Unknown error`,
 									err,

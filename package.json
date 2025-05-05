@@ -10,7 +10,7 @@
 		"url": "https://github.com/johnlindquist/mcp-pm.git"
 	},
 	"bin": {
-		"mcp-pm": "./build/index.mjs"
+		"mcp-shell-yeah": "./build/index.mjs"
 	},
 	"files": ["build"],
 	"scripts": {

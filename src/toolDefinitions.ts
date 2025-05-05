@@ -56,10 +56,13 @@ export function registerToolDefinitions(server: McpServer): void {
 			const effectiveLabel = params.label || `${cwdForLabel}:${params.command}`;
 			const hostValue = params.host;
 
-			log.info(
-				effectiveLabel,
-				`Determined label for start_shell: ${effectiveLabel}`,
-			);
+			// Only log in non-test/fast mode to avoid protocol-breaking output in tests
+			if (process.env.NODE_ENV !== "test" && process.env.MCP_PM_FAST !== "1") {
+				log.info(
+					effectiveLabel,
+					`Determined label for start_shell: ${effectiveLabel}`,
+				);
+			}
 
 			return handleToolCall(effectiveLabel, "start_shell", params, async () => {
 				return await startShell(
@@ -83,10 +86,13 @@ export function registerToolDefinitions(server: McpServer): void {
 			const effectiveLabel = params.label || `${cwdForLabel}:${params.command}`;
 			const hostValue = params.host;
 
-			log.info(
-				effectiveLabel,
-				`Determined label for start_shell_with_verification: ${effectiveLabel}`,
-			);
+			// Only log in non-test/fast mode to avoid protocol-breaking output in tests
+			if (process.env.NODE_ENV !== "test" && process.env.MCP_PM_FAST !== "1") {
+				log.info(
+					effectiveLabel,
+					`Determined label for start_shell_with_verification: ${effectiveLabel}`,
+				);
+			}
 
 			return handleToolCall(
 				effectiveLabel,
@@ -244,5 +250,5 @@ export function registerToolDefinitions(server: McpServer): void {
 		},
 	);
 
-	log.info(null, "Registered all MCP-PM tool definitions.");
+	log.info(null, "Registered all mcp-shell-yeah tool definitions.");
 }

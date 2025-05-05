@@ -32,7 +32,7 @@ export function setupLogFileStream(shellInfo: ShellInfo): void {
 		const logFileStream = fs.createWriteStream(logFilePath, { flags: "a" });
 
 		logFileStream.on("error", (err) => {
-			log.error(label, `Error writing to log file ${logFilePath}:`, err);
+			log.warn(label, `Error writing to log file ${logFilePath}:`, err);
 			const currentInfo = managedShells.get(label); // Get potentially updated info
 			if (currentInfo) {
 				currentInfo.logFileStream?.end(); // Attempt to close
@@ -55,7 +55,7 @@ export function setupLogFileStream(shellInfo: ShellInfo): void {
 		shellInfo.logFileStream = logFileStream;
 		log.info(label, `Logging shell output to: ${logFilePath}`);
 	} catch (error) {
-		log.error(label, "Failed to create or open log file stream", error);
+		log.warn(label, "Failed to create or open log file stream", error);
 		shellInfo.logFilePath = null; // Ensure path/stream are null if setup failed
 		shellInfo.logFileStream = null;
 	}

@@ -215,7 +215,7 @@ describe("Tool: health_check", () => {
 			try {
 				const parsedContent = JSON.parse(result.content[0].text);
 				expect(parsedContent.status).toBe("ok");
-				expect(parsedContent.server_name).toBe("mcp-pm");
+				expect(parsedContent.server_name).toBe("mcp-shell-yeah");
 				expect(parsedContent.server_version).toBeDefined();
 				expect(parsedContent.active_shells).toBe(0);
 				expect(parsedContent.is_zombie_check_active).toBe(false);

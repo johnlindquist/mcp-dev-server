@@ -1,33 +1,44 @@
 // src/utils.ts
 
-import stripAnsi from "strip-ansi";
-import { cfg } from "./constants/index.js"; // Update path
 // Import MAX_STORED_LOG_LINES if needed for formatLogsForResponse logic refinement
 // import { MAX_STORED_LOG_LINES } from "./constants.js";
 // import * as path from 'node:path'; // Remove unused import
+// REMOVE: import { Signale } from "signale";
+import stripAnsi from "strip-ansi";
+import { cfg } from "./constants/index.js"; // Update path
 
-// Logging
+function safeLogData(data: unknown): string {
+	if (typeof data === "object" && data !== null) {
+		try {
+			return JSON.stringify(data);
+		} catch {
+			return String(data);
+		}
+	}
+	return typeof data === "undefined" ? "" : String(data);
+}
+
+function sendLog(
+	level: "info" | "warn" | "error" | "debug",
+	label: string | null,
+	message: string,
+	data?: unknown,
+) {
+	const logMsg = `[${cfg.serverName}${label ? ` ${label}` : ""}] ${level.toUpperCase()}: ${message}`;
+	process.stderr.write(`${logMsg} ${data ? safeLogData(data) : ""}\n`);
+}
+
 export const log = {
 	info: (label: string | null, message: string, data?: unknown) =>
-		console.log(
-			`[${cfg.serverName}${label ? ` ${label}` : ""}] INFO: ${message}`,
-			data ?? "",
-		),
+		sendLog("info", label, message, data),
 	warn: (label: string | null, message: string, data?: unknown) =>
-		console.warn(
-			`[${cfg.serverName}${label ? ` ${label}` : ""}] WARN: ${message}`,
-			data ?? "",
-		),
-	error: (label: string | null, message: string, error?: unknown) =>
-		console.error(
-			`[${cfg.serverName}${label ? ` ${label}` : ""}] ERROR: ${message}`,
-			error ?? "",
-		),
+		sendLog("warn", label, message, data),
+	error: (label: string | null, message: string, data?: unknown) =>
+		sendLog("error", label, message, data),
 	debug: (label: string | null, message: string, data?: unknown) => {
-		console.debug(
-			`[${cfg.serverName}${label ? ` ${label}` : ""}] DEBUG: ${message}`,
-			data ?? "",
-		);
+		if (process.env.MCP_DEBUG) {
+			sendLog("debug", label, message, data);
+		}
 	},
 };
 
@@ -103,12 +114,20 @@ const BACKSPACE_REGEX = /.\x08/g; // Match any character followed by ASCII backs
 const OTHER_CONTROL_CHARS_REGEX = /[\r\x07]/g;
 
 export function formatLogsForResponse(
-	logs: { content: string; source: "tool" | "shell" }[] | string[],
+	logs:
+		| { content: string; source: "tool" | "shell" }[]
+		| string[]
+		| { toArray: () => any[] },
 	lineCount: number,
 	source?: "tool" | "shell",
 ): string[] {
 	if (lineCount <= 0) {
 		return []; // Return empty if 0 or negative lines requested
+	}
+
+	// --- Support LogRingBuffer ---
+	if (logs && typeof (logs as any).toArray === "function") {
+		logs = (logs as any).toArray();
 	}
 
 	let filteredLogs: string[];

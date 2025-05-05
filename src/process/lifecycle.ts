@@ -26,6 +26,8 @@ import {
 } from "../state.js";
 import type {
 	HostEnumType,
+	LogBufferType,
+	LogEntry,
 	OperatingSystemEnumType,
 	ShellInfo,
 	ShellStatus,
@@ -33,6 +35,7 @@ import type {
 import type * as schemas from "../types/schemas.js";
 import { getTailCommand, log } from "../utils.js";
 
+import { LogRingBuffer } from "./LogRingBuffer.js";
 // Import newly created functions
 import { setupLogFileStream } from "./logging.js";
 import { handleShellExit } from "./retry.js"; // Assuming retry logic helper is named this
@@ -65,24 +68,24 @@ export function handleData(
 	// Use addLogEntry which also handles file logging
 	addLogEntry(label, data, "shell");
 
-	log.info(label, `[DEBUG] handleData received: ${JSON.stringify(data)}`);
-	log.error(
+	log.debug(label, `handleData received: ${JSON.stringify(data)}`);
+	log.debug(
 		label,
-		`[DEBUG] char codes: ${Array.from(data)
+		`char codes: ${Array.from(data)
 			.map((c) => c.charCodeAt(0))
 			.join(",")}`,
 	);
-	log.error(label, `[DEBUG] ALL DATA: ${JSON.stringify(data)}`);
-	log.error(label, `[HANDLE_DATA] ${JSON.stringify(data)}`);
-	log.error(
+	log.debug(label, `ALL DATA: ${JSON.stringify(data)}`);
+	log.debug(label, `${JSON.stringify(data)}`);
+	log.debug(
 		label,
-		`[CHAR_CODES] ${Array.from(data)
+		`CHAR_CODES: ${Array.from(data)
 			.map((c) => c.charCodeAt(0))
 			.join(",")}`,
 	);
 
 	if (label.startsWith("prompt-detect-test-")) {
-		log.error(label, `[TEST ALL DATA] ${JSON.stringify(data)}`);
+		log.debug(label, `${JSON.stringify(data)}`);
 	}
 
 	// Heuristic: If the line looks like a prompt, set isProbablyAwaitingInput (never sets to false)
@@ -93,11 +96,8 @@ export function handleData(
 	}
 
 	// DEBUG: Log every PTY data chunk and buffer state
-	log.error(label, `[OSC133 DEBUG] PTY chunk: ${JSON.stringify(data)}`);
-	log.error(
-		label,
-		`[OSC133 DEBUG] osc133Buffer: ${JSON.stringify(shellInfo.osc133Buffer)}`,
-	);
+	log.debug(label, `PTY chunk: ${JSON.stringify(data)}`);
+	log.debug(label, `osc133Buffer: ${JSON.stringify(shellInfo.osc133Buffer)}`);
 
 	// TEST-ONLY: Write raw char codes and buffer to /tmp for prompt-detect-test- labels
 	if (label.startsWith("prompt-detect-test-")) {
@@ -292,14 +292,22 @@ export async function startShell(
 		? path.resolve(workingDirectoryInput)
 		: process.env.MCP_WORKSPACE_ROOT || process.cwd();
 
-	log.info(
-		label,
-		`Starting shell... Command: "${command}", Args: [${args.join(", ")}], CWD: "${effectiveWorkingDirectory}", Host: ${host}, isRestart: ${isRestart}`,
-		"tool",
-	);
+	// Only log in non-test/fast mode to avoid protocol-breaking output in tests
+	if (process.env.NODE_ENV !== "test" && process.env.MCP_PM_FAST !== "1") {
+		log.info(
+			label,
+			`Starting shell... Command: "${command}", Args: [${args.join(", ")}], CWD: "${effectiveWorkingDirectory}", Host: ${host}, isRestart: ${isRestart}`,
+			"tool",
+		);
+	}
 
 	// 1. Verify working directory
-	log.debug(label, `Verifying working directory: ${effectiveWorkingDirectory}`);
+	if (process.env.NODE_ENV !== "test" && process.env.MCP_PM_FAST !== "1") {
+		log.debug(
+			label,
+			`Verifying working directory: ${effectiveWorkingDirectory}`,
+		);
+	}
 	if (!fs.existsSync(effectiveWorkingDirectory)) {
 		const errorMsg = WORKING_DIRECTORY_NOT_FOUND(effectiveWorkingDirectory);
 		log.error(label, errorMsg, "tool");
@@ -313,7 +321,7 @@ export async function startShell(
 				host,
 				cwd: effectiveWorkingDirectory,
 				status: "error",
-				logs: [],
+				logs: new LogRingBuffer<LogEntry>(cfg.maxStoredLogLines),
 				pid: undefined,
 				shell: null,
 				exitCode: null,
@@ -332,7 +340,9 @@ export async function startShell(
 		};
 		return fail(textPayload(JSON.stringify(payload)));
 	}
-	log.debug(label, "Working directory verified.", "tool");
+	if (process.env.NODE_ENV !== "test" && process.env.MCP_PM_FAST !== "1") {
+		log.debug(label, "Working directory verified.", "tool");
+	}
 
 	const existingShell = managedShells.get(label);
 
@@ -369,7 +379,10 @@ export async function startShell(
 	// 3. Spawn PTY Process (use imported function)
 	let ptyProcess: IPty;
 	try {
-		log.debug(label, `Attempting to spawn PTY with command: ${command}`);
+		// Only log in non-test/fast mode to avoid protocol-breaking output in tests
+		if (process.env.NODE_ENV !== "test" && process.env.MCP_PM_FAST !== "1") {
+			log.debug(label, `Attempting to spawn PTY with command: ${command}`);
+		}
 		ptyProcess = spawnPtyShell(
 			// <-- Use imported function
 			command,
@@ -378,7 +391,20 @@ export async function startShell(
 			{ ...process.env },
 			label,
 		);
-		log.info(label, `PTY process created successfully, PID: ${ptyProcess.pid}`);
+		// Only log in non-test/fast mode to avoid protocol-breaking output in tests
+		if (process.env.NODE_ENV !== "test" && process.env.MCP_PM_FAST !== "1") {
+			log.debug(
+				label,
+				`PTY spawned: PID=${ptyProcess.pid}, Command='${command}', Args='${args.join(" ")}' `,
+			);
+		}
+		// Only log in non-test/fast mode to avoid protocol-breaking output in tests
+		if (process.env.NODE_ENV !== "test" && process.env.MCP_PM_FAST !== "1") {
+			log.info(
+				label,
+				`PTY process created successfully, PID: ${ptyProcess.pid}`,
+			);
+		}
 	} catch (error) {
 		// ... (pty spawn error handling from _startProcess) ...
 		const errorMsg = `PTY process spawn failed: ${error instanceof Error ? error.message : String(error)}`;
@@ -390,7 +416,7 @@ export async function startShell(
 				host,
 				cwd: effectiveWorkingDirectory,
 				status: "error",
-				logs: [],
+				logs: new LogRingBuffer<LogEntry>(cfg.maxStoredLogLines),
 				pid: undefined,
 				shell: null,
 				exitCode: null,
@@ -418,6 +444,17 @@ export async function startShell(
 	else detectedOS = "linux";
 
 	// 4. Create/Update ShellInfo State
+	// Always use a LogRingBuffer for logs
+	let logsBuffer: LogBufferType;
+	if (existingShell && isRestart && existingShell.logs) {
+		const prevLogs = logsToArray(existingShell.logs);
+		logsBuffer = new LogRingBuffer<LogEntry>(cfg.maxStoredLogLines);
+		for (const entry of prevLogs.slice(-cfg.maxStoredLogLines)) {
+			logsBuffer.push(entry);
+		}
+	} else {
+		logsBuffer = new LogRingBuffer<LogEntry>(cfg.maxStoredLogLines);
+	}
 	const shellInfo: ShellInfo = {
 		label,
 		pid: ptyProcess.pid,
@@ -426,7 +463,7 @@ export async function startShell(
 		args,
 		cwd: effectiveWorkingDirectory,
 		host,
-		logs: existingShell && isRestart ? existingShell.logs : [],
+		logs: logsBuffer,
 		status: "starting",
 		exitCode: null,
 		signal: null,
@@ -656,16 +693,12 @@ export async function startShell(
 	}
 
 	// Add shellLogs and toolLogs for the AI
-	const shellLogs = finalShellInfo.logs
-		? finalShellInfo.logs
-				.filter((l) => l.source === "shell")
-				.map((l) => l.content)
-		: [];
-	const toolLogs = finalShellInfo.logs
-		? finalShellInfo.logs
-				.filter((l) => l.source === "tool")
-				.map((l) => l.content)
-		: [];
+	const shellLogs = logsToArray(finalShellInfo.logs)
+		.filter((l) => l.source === "shell")
+		.map((l) => l.content);
+	const toolLogs = logsToArray(finalShellInfo.logs)
+		.filter((l) => l.source === "tool")
+		.map((l) => l.content);
 
 	// --- Extract URLs from shellLogs ---
 	const urlRegex = /(https?:\/\/[^\s]+)/gi;
@@ -795,16 +828,12 @@ export async function startShellWithVerification(
 	}
 
 	// Add shellLogs and toolLogs for the AI
-	const shellLogs = finalShellInfo.logs
-		? finalShellInfo.logs
-				.filter((l) => l.source === "shell")
-				.map((l) => l.content)
-		: [];
-	const toolLogs = finalShellInfo.logs
-		? finalShellInfo.logs
-				.filter((l) => l.source === "tool")
-				.map((l) => l.content)
-		: [];
+	const shellLogs = logsToArray(finalShellInfo.logs)
+		.filter((l) => l.source === "shell")
+		.map((l) => l.content);
+	const toolLogs = logsToArray(finalShellInfo.logs)
+		.filter((l) => l.source === "tool")
+		.map((l) => l.content);
 
 	// --- Extract URLs from shellLogs ---
 	const urlRegex = /(https?:\/\/[^\s]+)/gi;
@@ -854,6 +883,12 @@ export async function startShellWithVerification(
 	};
 	log.info(label, successPayload.message, "tool");
 	return ok(textPayload(JSON.stringify(successPayload)));
+}
+
+function logsToArray(logs: LogBufferType): LogEntry[] {
+	return typeof (logs as { toArray?: unknown }).toArray === "function"
+		? (logs as { toArray: () => LogEntry[] }).toArray()
+		: (logs as LogEntry[]);
 }
 
 // TODO: Move retry logic from processLifecycle.ts to retry.ts

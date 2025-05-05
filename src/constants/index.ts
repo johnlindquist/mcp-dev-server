@@ -9,7 +9,7 @@ export function ms(normal: number, fast: number): number {
 
 export const cfg = {
 	/** Maximum number of log lines to store in memory per process. */
-	maxStoredLogLines: 1000,
+	maxStoredLogLines: Number(process.env.MCP_MAX_LOG_LINES) || 1000,
 
 	/** Default number of log lines returned by check_shell and list_shells if not specified. */
 	defaultReturnLogLines: 50, // Used in lifecycle.ts
@@ -21,7 +21,7 @@ export const cfg = {
 	zombieCheckIntervalMs: ms(15000, 0), // Disable in tests
 
 	/** Internal server name identifier. */
-	serverName: "mcp-pm",
+	serverName: "mcp-shell-yeah",
 
 	/** Server version, sourced from package.json. */
 	serverVersion: packageInfo.version,
