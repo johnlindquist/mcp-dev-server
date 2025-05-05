@@ -14,7 +14,8 @@ import { log } from "./utils.js";
 
 // [MCP-TEST-LOG STEP 1.1] Log server start with timestamp
 const startTimestamp = new Date().toISOString();
-console.error(
+log.error(
+	null,
 	`[MCP-TEST-LOG STEP 1.1] Server main.ts started at: ${startTimestamp}`,
 );
 

@@ -95,7 +95,7 @@ describe("Process Management: Memory and Resource Leak Checks", () => {
 			const timeout = setTimeout(() => {
 				if (!ready) reject(new Error("Server startup timed out"));
 			}, STARTUP_TIMEOUT);
-			serverProcess.stderr.on("data", (data: Buffer) => {
+			serverProcess.stdout.on("data", (data: Buffer) => {
 				if (!ready && data.toString().includes(SERVER_READY_OUTPUT)) {
 					ready = true;
 					clearTimeout(timeout);
@@ -160,7 +160,7 @@ describe("Process Management: Memory and Resource Leak Checks", () => {
 			const listRequest = {
 				jsonrpc: "2.0",
 				method: "tools/call",
-				params: { name: "list_shelles", arguments: {} },
+				params: { name: "list_shells", arguments: {} },
 				id: "req-list-memleak-final",
 			};
 			const listResponse = (await sendRequest(

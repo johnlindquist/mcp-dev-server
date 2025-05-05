@@ -572,9 +572,9 @@ export async function startShell(
 			// On exit, flush any remaining buffer
 			const currentInfo = getShellInfo(label);
 			if (currentInfo) {
-				console.log(
+				log.info(
 					"[DEBUG][exitListener] lastLogTimestampReturned before flush:",
-					currentInfo.lastLogTimestampReturned,
+					`${currentInfo.lastLogTimestampReturned}`,
 				);
 				if (currentInfo.idleFlushTimer) {
 					clearTimeout(currentInfo.idleFlushTimer);
@@ -586,7 +586,7 @@ export async function startShell(
 				) {
 					try {
 						handleData(label, currentInfo.partialLineBuffer, "stdout");
-						console.log(
+						log.info(
 							"[DEBUG][exitListener] Flushed log on exit:",
 							currentInfo.partialLineBuffer,
 						);
@@ -599,9 +599,9 @@ export async function startShell(
 					}
 					currentInfo.partialLineBuffer = "";
 				}
-				console.log(
+				log.info(
 					"[DEBUG][exitListener] lastLogTimestampReturned after flush:",
-					currentInfo.lastLogTimestampReturned,
+					`${currentInfo.lastLogTimestampReturned}`,
 				);
 			}
 			handleShellExit(

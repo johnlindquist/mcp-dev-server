@@ -129,7 +129,7 @@ async function sendRequest(
 				`[sendRequest] Attaching listeners for request ID ${requestId}`,
 			);
 			process.stdout.on("data", onData);
-			process.stderr.on("data", logStderr);
+			process.stdout.on("data", logStderr);
 			process.once("error", onError);
 			process.once("exit", onExit);
 			responseListenersAttached = true;
@@ -166,7 +166,7 @@ async function sendRequest(
 	});
 }
 
-describe("Tool: list_shelles", () => {
+describe("Tool: list_shells", () => {
 	let serverProcess: ChildProcessWithoutNullStreams;
 
 	beforeAll(async () => {
@@ -183,7 +183,7 @@ describe("Tool: list_shelles", () => {
 			const timeout = setTimeout(() => {
 				if (!ready) reject(new Error("Server startup timed out"));
 			}, STARTUP_TIMEOUT);
-			serverProcess.stderr.on("data", (data: Buffer) => {
+			serverProcess.stdout.on("data", (data: Buffer) => {
 				if (!ready && data.toString().includes(SERVER_READY_OUTPUT)) {
 					ready = true;
 					clearTimeout(timeout);
@@ -212,12 +212,12 @@ describe("Tool: list_shelles", () => {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "list_shelles",
+					name: "list_shells",
 					arguments: { log_lines: 0 },
 				},
 				id: "req-list-empty-2",
 			};
-			logVerbose("[TEST][listEmpty] Sending list_shelles request...");
+			logVerbose("[TEST][listEmpty] Sending list_shells request...");
 			const response = (await sendRequest(
 				serverProcess,
 				listRequest,
@@ -241,7 +241,7 @@ describe("Tool: list_shelles", () => {
 			try {
 				listResult = JSON.parse(result.content[0].text);
 			} catch (e) {
-				throw new Error(`Failed to parse list_shelles result content: ${e}`);
+				throw new Error(`Failed to parse list_shells result content: ${e}`);
 			}
 			expect(listResult).toBeInstanceOf(Array);
 			expect(listResult?.length).toBe(0);
@@ -301,12 +301,12 @@ describe("Tool: list_shelles", () => {
 				jsonrpc: "2.0",
 				method: "tools/call",
 				params: {
-					name: "list_shelles",
+					name: "list_shells",
 					arguments: { log_lines: 0 },
 				},
 				id: `req-list-after-purge-${uniqueLabel}`,
 			};
-			logVerbose("[TEST][purgeStopped] Sending list_shelles request...");
+			logVerbose("[TEST][purgeStopped] Sending list_shells request...");
 			const response = (await sendRequest(
 				serverProcess,
 				listRequest,
@@ -321,7 +321,7 @@ describe("Tool: list_shelles", () => {
 			try {
 				listResult = JSON.parse(result.content[0].text);
 			} catch (e) {
-				throw new Error(`Failed to parse list_shelles result content: ${e}`);
+				throw new Error(`Failed to parse list_shells result content: ${e}`);
 			}
 			const found = listResult.find((p) => p.label === uniqueLabel);
 			expect(found).toBeUndefined();

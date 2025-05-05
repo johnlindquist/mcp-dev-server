@@ -379,7 +379,7 @@ export const CheckStatusPayloadSchema = ShellStatusInfoSchema.extend({
 }).describe("Response payload for a check_shell call.");
 export type CheckStatusPayloadType = z.infer<typeof CheckStatusPayloadSchema>;
 
-// list_shelles individual item schema
+// list_shells individual item schema
 export const ListProcessDetailSchema = ShellStatusInfoSchema.extend({
 	logs: z
 		.array(z.string())
@@ -392,14 +392,14 @@ export const ListProcessDetailSchema = ShellStatusInfoSchema.extend({
 		.optional()
 		.describe("Hint about the logs shown (e.g., number stored vs shown)."),
 }).describe(
-	"Detailed information for a single process in the list_shelles response.",
+	"Detailed information for a single process in the list_shells response.",
 );
 export type ListProcessDetailType = z.infer<typeof ListProcessDetailSchema>;
 
-// list_shelles payload (array of details)
+// list_shells payload (array of details)
 export const ListProcessesPayloadSchema = z
 	.array(ListProcessDetailSchema)
-	.describe("Response payload for a list_shelles call.");
+	.describe("Response payload for a list_shells call.");
 export type ListProcessesPayloadType = z.infer<
 	typeof ListProcessesPayloadSchema
 >;
@@ -414,7 +414,7 @@ export const StopProcessPayloadSchema = z
 	.describe("Response payload for a stop_shell call.");
 export type StopProcessPayloadType = z.infer<typeof StopProcessPayloadSchema>;
 
-// stop_all_shelles payload
+// stop_all_shells payload
 export const StopAllProcessesPayloadSchema = z
 	.object({
 		stopped_count: z.number().int(),
@@ -429,7 +429,7 @@ export const StopAllProcessesPayloadSchema = z
 			}),
 		),
 	})
-	.describe("Response payload for a stop_all_shelles call.");
+	.describe("Response payload for a stop_all_shells call.");
 export type StopAllProcessesPayloadType = z.infer<
 	typeof StopAllProcessesPayloadSchema
 >;
@@ -478,7 +478,7 @@ export const HealthCheckPayloadSchema = z
 			.describe("Overall health status (e.g., 'OK', 'WARNING')."),
 		server_name: z.string().describe("Name of the MCP-PM server."),
 		server_version: z.string().describe("Version of the MCP-PM server."),
-		active_shelles: z
+		active_shells: z
 			.number()
 			.int()
 			.describe("Number of currently managed processes."),

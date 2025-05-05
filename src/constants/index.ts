@@ -11,7 +11,7 @@ export const cfg = {
 	/** Maximum number of log lines to store in memory per process. */
 	maxStoredLogLines: 1000,
 
-	/** Default number of log lines returned by check_shell and list_shelles if not specified. */
+	/** Default number of log lines returned by check_shell and list_shells if not specified. */
 	defaultReturnLogLines: 50, // Used in lifecycle.ts
 
 	/** Duration (ms) to wait for graceful process termination before forcing kill. */

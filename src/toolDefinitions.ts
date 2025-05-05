@@ -142,13 +142,13 @@ export function registerToolDefinitions(server: McpServer): void {
 	);
 
 	server.tool(
-		"stop_all_shelles",
+		"stop_all_shells",
 		"Attempts to gracefully stop all active managed shells.",
 		{},
 		(params: Record<string, unknown>) => {
 			return handleToolCall(
 				null,
-				"stop_all_shelles",
+				"stop_all_shells",
 				{},
 				async () => await stopAllProcessesImpl(),
 			);
@@ -156,13 +156,13 @@ export function registerToolDefinitions(server: McpServer): void {
 	);
 
 	server.tool(
-		"list_shelles",
+		"list_shells",
 		"Lists all managed shells and their statuses, including recent output lines for each shell.",
 		shape(schemas.ListProcessesParams.shape),
 		(params: ListProcessesParamsType) => {
 			return handleToolCall(
 				null,
-				"list_shelles",
+				"list_shells",
 				params,
 				async () => await listProcessesImpl(params),
 			);
