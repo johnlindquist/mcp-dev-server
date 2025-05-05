@@ -14,7 +14,7 @@ export const log = {
 			data ?? "",
 		),
 	warn: (label: string | null, message: string, data?: unknown) =>
-		console.error(
+		console.warn(
 			`[${cfg.serverName}${label ? ` ${label}` : ""}] WARN: ${message}`,
 			data ?? "",
 		),
@@ -24,7 +24,7 @@ export const log = {
 			error ?? "",
 		),
 	debug: (label: string | null, message: string, data?: unknown) => {
-		console.error(
+		console.debug(
 			`[${cfg.serverName}${label ? ` ${label}` : ""}] DEBUG: ${message}`,
 			data ?? "",
 		);
@@ -38,7 +38,7 @@ export function stripAnsiSafe(input: string): string {
 		const cleanedInput = input.replace(/\\u0000/g, "");
 		return stripAnsi(cleanedInput);
 	} catch (e: unknown) {
-		log.error(
+		console.error(
 			null,
 			`Error stripping ANSI: ${e instanceof Error ? e.message : String(e)}`,
 			{ originalInput: input },
@@ -76,7 +76,7 @@ export function stripAnsiAndControlChars(input: string): string {
 		// cleanedInput = cleanedInput.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, ''); // Example, adjust as needed
 		return cleanedInput;
 	} catch (e: unknown) {
-		log.error(
+		console.error(
 			null,
 			`Error stripping ANSI/Control Chars: ${e instanceof Error ? e.message : String(e)}`,
 			{ originalInput: `${input.substring(0, 100)}...` }, // Log snippet on error
