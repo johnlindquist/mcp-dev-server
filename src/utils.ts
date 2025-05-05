@@ -7,17 +7,6 @@
 import stripAnsi from "strip-ansi";
 import { cfg } from "./constants/index.js"; // Update path
 
-// Set up Signale logger
-// REMOVE: const isDev = process.env.NODE_ENV !== "production";
-// REMOVE: const signale = new Signale({
-// 	types: {
-// 		info: { badge: "ℹ️", color: "blue", label: "info" },
-// 		warn: { badge: "⚠️", color: "yellow", label: "warn" },
-// 		error: { badge: "❌", color: "red", label: "error" },
-// 		debug: { badge: "🐞", color: "magenta", label: "debug" },
-// 	},
-// });
-
 function safeLogData(data: unknown): string {
 	if (typeof data === "object" && data !== null) {
 		try {
@@ -29,28 +18,25 @@ function safeLogData(data: unknown): string {
 	return typeof data === "undefined" ? "" : String(data);
 }
 
-// Minimal custom logger for ESM compatibility
+function sendLog(
+	level: "info" | "warn" | "error" | "debug",
+	label: string | null,
+	message: string,
+	data?: unknown,
+) {
+	const logMsg = `[${cfg.serverName}${label ? ` ${label}` : ""}] ${level.toUpperCase()}: ${message}`;
+	process.stderr.write(`${logMsg} ${data ? safeLogData(data) : ""}\n`);
+}
+
 export const log = {
 	info: (label: string | null, message: string, data?: unknown) =>
-		console.log(
-			`[${cfg.serverName}${label ? ` ${label}` : ""}] INFO: ${message}`,
-			safeLogData(data),
-		),
+		sendLog("info", label, message, data),
 	warn: (label: string | null, message: string, data?: unknown) =>
-		console.warn(
-			`[${cfg.serverName}${label ? ` ${label}` : ""}] WARN: ${message}`,
-			safeLogData(data),
-		),
-	error: (label: string | null, message: string, error?: unknown) =>
-		console.error(
-			`[${cfg.serverName}${label ? ` ${label}` : ""}] ERROR: ${message}`,
-			safeLogData(error),
-		),
+		sendLog("warn", label, message, data),
+	error: (label: string | null, message: string, data?: unknown) =>
+		sendLog("error", label, message, data),
 	debug: (label: string | null, message: string, data?: unknown) =>
-		console.debug(
-			`[${cfg.serverName}${label ? ` ${label}` : ""}] DEBUG: ${message}`,
-			safeLogData(data),
-		),
+		sendLog("debug", label, message, data),
 };
 
 // Helper Functions

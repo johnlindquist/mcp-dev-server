@@ -74,6 +74,15 @@ async function main() {
 	await server.connect(transport);
 	log.info(null, "MCP Server connected and listening via stdio.");
 
+	// Emit ready message to stdout for test harness ONLY in test/fast mode
+	function emitTestReadyMessage() {
+		// biome-ignore lint/suspicious/noConsole: Allow test harness to detect server readiness
+		console.log("MCP Server connected and listening via stdio.");
+	}
+	if (process.env.NODE_ENV === "test" || process.env.MCP_PM_FAST === "1") {
+		emitTestReadyMessage();
+	}
+
 	// Graceful shutdown
 	const cleanup = () => {
 		log.info(null, "Initiating graceful shutdown...");

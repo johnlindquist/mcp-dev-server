@@ -295,14 +295,22 @@ export async function startShell(
 		? path.resolve(workingDirectoryInput)
 		: process.env.MCP_WORKSPACE_ROOT || process.cwd();
 
-	log.info(
-		label,
-		`Starting shell... Command: "${command}", Args: [${args.join(", ")}], CWD: "${effectiveWorkingDirectory}", Host: ${host}, isRestart: ${isRestart}`,
-		"tool",
-	);
+	// Only log in non-test/fast mode to avoid protocol-breaking output in tests
+	if (process.env.NODE_ENV !== "test" && process.env.MCP_PM_FAST !== "1") {
+		log.info(
+			label,
+			`Starting shell... Command: "${command}", Args: [${args.join(", ")}], CWD: "${effectiveWorkingDirectory}", Host: ${host}, isRestart: ${isRestart}`,
+			"tool",
+		);
+	}
 
 	// 1. Verify working directory
-	log.debug(label, `Verifying working directory: ${effectiveWorkingDirectory}`);
+	if (process.env.NODE_ENV !== "test" && process.env.MCP_PM_FAST !== "1") {
+		log.debug(
+			label,
+			`Verifying working directory: ${effectiveWorkingDirectory}`,
+		);
+	}
 	if (!fs.existsSync(effectiveWorkingDirectory)) {
 		const errorMsg = WORKING_DIRECTORY_NOT_FOUND(effectiveWorkingDirectory);
 		log.error(label, errorMsg, "tool");
@@ -335,7 +343,9 @@ export async function startShell(
 		};
 		return fail(textPayload(JSON.stringify(payload)));
 	}
-	log.debug(label, "Working directory verified.", "tool");
+	if (process.env.NODE_ENV !== "test" && process.env.MCP_PM_FAST !== "1") {
+		log.debug(label, "Working directory verified.", "tool");
+	}
 
 	const existingShell = managedShells.get(label);
 
@@ -372,7 +382,10 @@ export async function startShell(
 	// 3. Spawn PTY Process (use imported function)
 	let ptyProcess: IPty;
 	try {
-		log.debug(label, `Attempting to spawn PTY with command: ${command}`);
+		// Only log in non-test/fast mode to avoid protocol-breaking output in tests
+		if (process.env.NODE_ENV !== "test" && process.env.MCP_PM_FAST !== "1") {
+			log.debug(label, `Attempting to spawn PTY with command: ${command}`);
+		}
 		ptyProcess = spawnPtyShell(
 			// <-- Use imported function
 			command,
@@ -381,7 +394,20 @@ export async function startShell(
 			{ ...process.env },
 			label,
 		);
-		log.info(label, `PTY process created successfully, PID: ${ptyProcess.pid}`);
+		// Only log in non-test/fast mode to avoid protocol-breaking output in tests
+		if (process.env.NODE_ENV !== "test" && process.env.MCP_PM_FAST !== "1") {
+			log.debug(
+				label,
+				`PTY spawned: PID=${ptyProcess.pid}, Command='${command}', Args='${args.join(" ")}' `,
+			);
+		}
+		// Only log in non-test/fast mode to avoid protocol-breaking output in tests
+		if (process.env.NODE_ENV !== "test" && process.env.MCP_PM_FAST !== "1") {
+			log.info(
+				label,
+				`PTY process created successfully, PID: ${ptyProcess.pid}`,
+			);
+		}
 	} catch (error) {
 		// ... (pty spawn error handling from _startProcess) ...
 		const errorMsg = `PTY process spawn failed: ${error instanceof Error ? error.message : String(error)}`;

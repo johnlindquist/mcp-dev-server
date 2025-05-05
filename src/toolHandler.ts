@@ -8,7 +8,10 @@ export async function handleToolCall<T extends Record<string, unknown>>(
 	params: T,
 	handlerFn: () => Promise<CallToolResult>,
 ): Promise<CallToolResult> {
-	log.info(label, `Tool invoked: ${toolName}`, { params });
+	// Only log in non-test/fast mode to avoid protocol-breaking output in tests
+	if (process.env.NODE_ENV !== "test" && process.env.MCP_PM_FAST !== "1") {
+		log.info(label, `Tool invoked: ${toolName}`, { params });
+	}
 	try {
 		const result = await handlerFn();
 		if (!result.isError) {

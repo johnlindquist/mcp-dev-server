@@ -67,10 +67,13 @@ export function spawnPtyShell(
 			// shell, // Removed: not a valid property for node-pty
 			// useConpty: false, // Uncomment for Windows debugging if needed
 		});
-		log.debug(
-			label,
-			`PTY spawned: PID=${ptyProcess.pid}, Command='${finalCommand}', Args='${finalArgs.join(" ")}'`,
-		);
+		// Only log in non-test/fast mode to avoid protocol-breaking output in tests
+		if (process.env.NODE_ENV !== "test" && process.env.MCP_PM_FAST !== "1") {
+			log.debug(
+				label,
+				`PTY spawned: PID=${ptyProcess.pid}, Command='${finalCommand}', Args='${finalArgs.join(" ")}'`,
+			);
+		}
 		return ptyProcess;
 	} catch (error) {
 		log.error(label, `Failed to spawn PTY for command '${command}'`, error);
