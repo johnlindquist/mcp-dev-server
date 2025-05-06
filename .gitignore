@@ -141,4 +141,7 @@ dist
 .yarn/install-state.gz
 .pnp.*
 # SpecStory explanation file
+.specstory/
+# SpecStory explanation file
 .specstory/.what-is-this.md
+.specstory/

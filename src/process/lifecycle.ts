@@ -730,16 +730,47 @@ export async function startShell(
 	}
 
 	// Add shellLogs and toolLogs for the AI
-	const shellLogs = Array.isArray(finalShellInfo.logs)
+	let shellLogs = Array.isArray(finalShellInfo.logs)
 		? (finalShellInfo.logs as LogEntry[])
 				.filter((l) => l.source === "shell")
 				.map((l) => l.content)
 		: [];
-	const toolLogs = Array.isArray(finalShellInfo.logs)
+	let toolLogs = Array.isArray(finalShellInfo.logs)
 		? (finalShellInfo.logs as LogEntry[])
 				.filter((l) => l.source === "tool")
 				.map((l) => l.content)
 		: [];
+
+	// If shellLogs is empty and logFilePath exists, read from log file
+	if (
+		shellLogs.length === 0 &&
+		finalShellInfo.logFilePath &&
+		fs.existsSync(finalShellInfo.logFilePath)
+	) {
+		try {
+			const fileContent = fs.readFileSync(finalShellInfo.logFilePath, "utf8");
+			shellLogs = fileContent.split("\n").filter(Boolean);
+		} catch {}
+	}
+
+	// If toolLogs is empty and logFilePath exists, read from log file and extract tool lines
+	if (
+		toolLogs.length === 0 &&
+		finalShellInfo.logFilePath &&
+		fs.existsSync(finalShellInfo.logFilePath)
+	) {
+		try {
+			const fileContent = fs.readFileSync(finalShellInfo.logFilePath, "utf8");
+			toolLogs = fileContent
+				.split("\n")
+				.filter(
+					(line) =>
+						/tool/i.test(line) ||
+						line.startsWith("Status:") ||
+						line.startsWith("Shell spawned"),
+				);
+		} catch {}
+	}
 
 	// --- Extract URLs from shellLogs ---
 	const urlRegex = /(https?:\/\/[^\s]+)/gi;
@@ -872,16 +903,47 @@ export async function startShellWithVerification(
 	}
 
 	// Add shellLogs and toolLogs for the AI
-	const shellLogs = Array.isArray(finalShellInfo.logs)
+	let shellLogs = Array.isArray(finalShellInfo.logs)
 		? (finalShellInfo.logs as LogEntry[])
 				.filter((l) => l.source === "shell")
 				.map((l) => l.content)
 		: [];
-	const toolLogs = Array.isArray(finalShellInfo.logs)
+	let toolLogs = Array.isArray(finalShellInfo.logs)
 		? (finalShellInfo.logs as LogEntry[])
 				.filter((l) => l.source === "tool")
 				.map((l) => l.content)
 		: [];
+
+	// If shellLogs is empty and logFilePath exists, read from log file
+	if (
+		shellLogs.length === 0 &&
+		finalShellInfo.logFilePath &&
+		fs.existsSync(finalShellInfo.logFilePath)
+	) {
+		try {
+			const fileContent = fs.readFileSync(finalShellInfo.logFilePath, "utf8");
+			shellLogs = fileContent.split("\n").filter(Boolean);
+		} catch {}
+	}
+
+	// If toolLogs is empty and logFilePath exists, read from log file and extract tool lines
+	if (
+		toolLogs.length === 0 &&
+		finalShellInfo.logFilePath &&
+		fs.existsSync(finalShellInfo.logFilePath)
+	) {
+		try {
+			const fileContent = fs.readFileSync(finalShellInfo.logFilePath, "utf8");
+			toolLogs = fileContent
+				.split("\n")
+				.filter(
+					(line) =>
+						/tool/i.test(line) ||
+						line.startsWith("Status:") ||
+						line.startsWith("Shell spawned"),
+				);
+		} catch {}
+	}
 
 	// --- Extract URLs from shellLogs ---
 	const urlRegex = /(https?:\/\/[^\s]+)/gi;
@@ -954,7 +1016,7 @@ function _buildStartShellSuccessPayload(
 				.filter((l) => l.source === "shell")
 				.map((l) => l.content)
 		: [];
-	const toolLogs = Array.isArray(finalShellInfo.logs)
+	let toolLogs = Array.isArray(finalShellInfo.logs)
 		? (finalShellInfo.logs as LogEntry[])
 				.filter((l) => l.source === "tool")
 				.map((l) => l.content)
@@ -969,6 +1031,25 @@ function _buildStartShellSuccessPayload(
 		try {
 			const fileContent = fs.readFileSync(finalShellInfo.logFilePath, "utf8");
 			shellLogs = fileContent.split("\n").filter(Boolean);
+		} catch {}
+	}
+
+	// If toolLogs is empty and logFilePath exists, read from log file and extract tool lines
+	if (
+		toolLogs.length === 0 &&
+		finalShellInfo.logFilePath &&
+		fs.existsSync(finalShellInfo.logFilePath)
+	) {
+		try {
+			const fileContent = fs.readFileSync(finalShellInfo.logFilePath, "utf8");
+			toolLogs = fileContent
+				.split("\n")
+				.filter(
+					(line) =>
+						/tool/i.test(line) ||
+						line.startsWith("Status:") ||
+						line.startsWith("Shell spawned"),
+				);
 		} catch {}
 	}
 
