@@ -15,7 +15,7 @@ import {
 	TERMINATED_GRACEFULLY_AFTER_SIGTERM,
 	WORKING_DIRECTORY_NOT_FOUND,
 } from "../constants/messages.js";
-import { fail, ok, textPayload } from "../mcpUtils.js";
+import { createShellOperationResult } from "../mcpUtils.js";
 import { checkAndUpdateProcessStatus } from "../processSupervisor.js";
 import { killPtyProcess } from "../ptyManager.js";
 import {
@@ -132,8 +132,12 @@ export async function stopShell(
 	const initialShellInfo = await checkAndUpdateProcessStatus(label);
 
 	if (!initialShellInfo) {
-		return fail(
-			textPayload(JSON.stringify({ error: `Shell "${label}" not found.` })),
+		return createShellOperationResult(
+			label,
+			"error", // Default status for not found
+			`Shell "${label}" not found.`,
+			undefined,
+			true,
 		);
 	}
 
@@ -147,13 +151,12 @@ export async function stopShell(
 			label,
 			PROCESS_ALREADY_TERMINAL_NO_ACTION(initialShellInfo.status),
 		);
-		const payload: z.infer<typeof schemas.StopProcessPayloadSchema> = {
+		return createShellOperationResult(
 			label,
-			status: initialShellInfo.status,
-			message: PROCESS_ALREADY_TERMINAL(initialShellInfo.status),
-			// pid: initialShellInfo.pid, // PID might not be in the schema, check schemas.ts
-		};
-		return ok(textPayload(JSON.stringify(payload)));
+			initialShellInfo.status,
+			PROCESS_ALREADY_TERMINAL(initialShellInfo.status),
+			// initialShellInfo.pid, // PID might not be in the schema, check schemas.ts
+		);
 	}
 
 	// Check if we have a shell handle and PID to work with
@@ -163,25 +166,23 @@ export async function stopShell(
 			`Shell "${label}" found but has no active shell handle or PID. Cannot send signals. Marking as error.`,
 		);
 		updateProcessStatus(label, "error"); // Update status to error
-		const payload: z.infer<typeof schemas.StopProcessPayloadSchema> = {
-			label,
-			status: "error",
-			message: PROCESS_NO_ACTIVE_HANDLE,
-			// pid: initialShellInfo.pid,
-		};
 		// Return failure as we couldn't perform the stop action
-		return fail(textPayload(JSON.stringify(payload)));
+		return createShellOperationResult(
+			label,
+			"error",
+			PROCESS_NO_ACTIVE_HANDLE,
+			undefined,
+			true,
+		);
 	}
 
 	// Mark that we initiated the stop and update status
-	// TODO: Check if ProcessInfo type allows stopRequested property
-	// initialShellInfo.stopRequested = true;
 	updateProcessStatus(label, "stopping");
 
 	let finalMessage = "";
-	let finalStatus: ShellStatus = initialShellInfo.status; // Use ProcessStatus type
-	const shellToKill = initialShellInfo.shell; // Store reference
-	const pidToKill = initialShellInfo.pid; // Store PID
+	let finalStatus: ShellStatus = initialShellInfo.status;
+	const shellToKill = initialShellInfo.shell;
+	const pidToKill = initialShellInfo.pid;
 
 	try {
 		if (force) {
@@ -192,7 +193,6 @@ export async function stopShell(
 			);
 			addLogEntry(label, "Sending SIGKILL...", "tool");
 			await killPtyProcess(shellToKill, label, "SIGKILL");
-			// Note: The onExit handler will update the status.
 			finalMessage = `Force stop requested. SIGKILL sent to PID ${pidToKill}.`;
 			finalStatus = "stopping"; // Assume stopping until exit confirms
 			log.info(label, finalMessage);
@@ -213,11 +213,9 @@ export async function stopShell(
 				setTimeout(resolve, cfg.stopWaitDurationMs),
 			);
 
-			// Check status *after* the wait
 			const infoAfterWait = await checkAndUpdateProcessStatus(label);
-			finalStatus = infoAfterWait?.status ?? "error"; // Get potentially updated status
+			finalStatus = infoAfterWait?.status ?? "error";
 
-			// Check if still running
 			if (
 				infoAfterWait &&
 				["stopping", "running", "starting", "verifying", "restarting"].includes(
@@ -235,12 +233,12 @@ export async function stopShell(
 				);
 				await killPtyProcess(shellToKill, label, "SIGKILL");
 				finalMessage = DID_NOT_TERMINATE_GRACEFULLY_SIGKILL(pidToKill);
-				finalStatus = "stopping"; // Assume stopping until exit confirms
+				finalStatus = "stopping";
 			} else {
 				finalMessage = TERMINATED_GRACEFULLY_AFTER_SIGTERM(pidToKill);
 				log.info(label, finalMessage);
 				addLogEntry(label, "Shell terminated gracefully.", "tool");
-				finalStatus = infoAfterWait?.status ?? "stopped"; // Use status after wait
+				finalStatus = infoAfterWait?.status ?? "stopped";
 			}
 		}
 	} catch (error) {
@@ -248,31 +246,28 @@ export async function stopShell(
 		log.error(label, errorMsg, "tool");
 		addLogEntry(label, `Error stopping shell: ${errorMsg}`, "tool");
 		finalMessage = `Error stopping shell: ${errorMsg}`;
-		updateProcessStatus(label, "error"); // Ensure status is error
-		finalStatus = "error";
-
-		const errorPayload: z.infer<typeof schemas.StopProcessPayloadSchema> = {
+		finalStatus = "error"; // Update status to error on exception
+		updateProcessStatus(label, "error"); // Persist error state
+		return createShellOperationResult(
 			label,
-			status: finalStatus,
-			message: finalMessage,
-			// pid: pidToKill, // Check schema
-		};
-		return fail(textPayload(JSON.stringify(errorPayload)));
+			finalStatus,
+			finalMessage,
+			undefined,
+			true, // Explicitly setting isError to true
+		);
 	}
 
-	// Construct success payload
-	const payload: z.infer<typeof schemas.StopProcessPayloadSchema> = {
+	// Wait for a short period to allow the exit handler to potentially update the status
+	await new Promise((resolve) => setTimeout(resolve, 100)); // e.g., 100ms
+	const latestShellInfo = getShellInfo(label); // Get the most up-to-date info
+
+	return createShellOperationResult(
 		label,
-		status: finalStatus, // Use the determined final status
-		message: finalMessage,
-		// pid: pidToKill, // Check schema
-	};
-	log.info(
-		label,
-		`Returning result for stop_shell. Final status: ${payload.status}.`,
-		"tool",
+		latestShellInfo?.status ?? finalStatus, // Prefer latest status from state
+		finalMessage,
+		undefined,
+		finalStatus === "error", // isError if the operation's final determined status is an error
 	);
-	return ok(textPayload(JSON.stringify(payload)));
 }
 
 export { stopShell as stopProcess };
@@ -339,7 +334,13 @@ export async function startShell(
 			cwd: effectiveWorkingDirectory,
 			error_type: "working_directory_not_found",
 		};
-		return fail(textPayload(JSON.stringify(payload)));
+		return createShellOperationResult(
+			label,
+			"error",
+			errorMsg,
+			undefined,
+			true,
+		);
 	}
 	if (process.env.NODE_ENV !== "test" && process.env.MCP_PM_FAST !== "1") {
 		log.debug(label, "Working directory verified.", "tool");
@@ -372,7 +373,13 @@ export async function startShell(
 					status: existing.status,
 					error_type: "composite_label_conflict",
 				};
-				return fail(textPayload(JSON.stringify(payload)));
+				return createShellOperationResult(
+					label,
+					existing.status,
+					errorMsg,
+					existing.pid,
+					true,
+				);
 			}
 		}
 	}
@@ -434,7 +441,13 @@ export async function startShell(
 			status: "error",
 			error_type: "pty_spawn_failed",
 		};
-		return fail(textPayload(JSON.stringify(payload)));
+		return createShellOperationResult(
+			label,
+			"error",
+			errorMsg,
+			undefined,
+			true,
+		);
 	}
 
 	// Detect OS
@@ -683,8 +696,12 @@ export async function startShell(
 			label,
 			`[DEBUG] getShellInfo returned undefined for label: ${label}. Stack: ${new Error().stack}`,
 		);
-		return fail(
-			textPayload(JSON.stringify({ error: "Internal error: Shell info lost" })),
+		return createShellOperationResult(
+			label,
+			"error",
+			"Internal error: Shell info lost",
+			undefined,
+			true,
 		);
 	}
 
@@ -703,16 +720,57 @@ export async function startShell(
 			status: "error",
 			error_type: "start_failed",
 		};
-		return fail(textPayload(JSON.stringify(payload)));
+		return createShellOperationResult(
+			label,
+			"error",
+			errorMsg,
+			undefined,
+			true,
+		);
 	}
 
 	// Add shellLogs and toolLogs for the AI
-	const shellLogs = logsToArray(finalShellInfo.logs)
-		.filter((l) => l.source === "shell")
-		.map((l) => l.content);
-	const toolLogs = logsToArray(finalShellInfo.logs)
-		.filter((l) => l.source === "tool")
-		.map((l) => l.content);
+	let shellLogs = Array.isArray(finalShellInfo.logs)
+		? (finalShellInfo.logs as LogEntry[])
+				.filter((l) => l.source === "shell")
+				.map((l) => l.content)
+		: [];
+	let toolLogs = Array.isArray(finalShellInfo.logs)
+		? (finalShellInfo.logs as LogEntry[])
+				.filter((l) => l.source === "tool")
+				.map((l) => l.content)
+		: [];
+
+	// If shellLogs is empty and logFilePath exists, read from log file
+	if (
+		shellLogs.length === 0 &&
+		finalShellInfo.logFilePath &&
+		fs.existsSync(finalShellInfo.logFilePath)
+	) {
+		try {
+			const fileContent = fs.readFileSync(finalShellInfo.logFilePath, "utf8");
+			shellLogs = fileContent.split("\n").filter(Boolean);
+		} catch {}
+	}
+
+	// If toolLogs is empty and logFilePath exists, read from log file and extract tool lines
+	if (
+		toolLogs.length === 0 &&
+		finalShellInfo.logFilePath &&
+		fs.existsSync(finalShellInfo.logFilePath)
+	) {
+		try {
+			const fileContent = fs.readFileSync(finalShellInfo.logFilePath, "utf8");
+			toolLogs = fileContent
+				.split("\n")
+				.filter(
+					(line) =>
+						/tool/i.test(line) ||
+						line.startsWith("Status:") ||
+						line.startsWith("Shell spawned"),
+				);
+		} catch {}
+	}
 
 	// --- Extract URLs from shellLogs ---
 	const urlRegex = /(https?:\/\/[^\s]+)/gi;
@@ -737,27 +795,18 @@ export async function startShell(
 					: "";
 
 	// --- Build actions array ---
-	const successPayload: z.infer<typeof schemas.StartSuccessPayloadSchema> = {
-		label: finalShellInfo.label,
-		command: finalShellInfo.command,
-		args: finalShellInfo.args,
-		pid: finalShellInfo.pid as number,
-		workingDirectory: finalShellInfo.cwd,
-		status: finalShellInfo.status,
-		host: finalShellInfo.host,
-		message: `Shell '${label}' started successfully.Current status: ${finalShellInfo.status}.`,
-		tail_command,
-		ai_instructions: aiInstructions,
-		user_hint: tail_command
-			? `You can monitor the shell output by running: ${tail_command}`
-			: undefined,
+	const payload = _buildStartShellSuccessPayload(finalShellInfo, host, {
+		isVerificationEnabled: false,
+		verificationPattern: undefined,
+		verificationTimeoutMs: undefined,
 		detected_urls: detectedUrls.length > 0 ? detectedUrls : undefined,
-		shellLogs,
-		toolLogs,
-	};
-	log.info(label, successPayload.message, "tool");
+	});
+	log.info(label, payload.message, "tool");
 
-	return ok(textPayload(JSON.stringify(successPayload)));
+	return {
+		content: [{ type: "text", text: JSON.stringify(payload) }],
+		isError: false,
+	};
 }
 
 export async function startShellWithVerification(
@@ -827,7 +876,13 @@ export async function startShellWithVerification(
 			status: "error",
 			error_type: "internal_error_after_verification",
 		};
-		return fail(textPayload(JSON.stringify(payload)));
+		return createShellOperationResult(
+			label,
+			"error",
+			"Internal error: Shell info lost after verification",
+			undefined,
+			true,
+		);
 	}
 
 	if (finalShellInfo.status === "error") {
@@ -838,16 +893,57 @@ export async function startShellWithVerification(
 			status: "error",
 			error_type: "start_or_verification_failed",
 		};
-		return fail(textPayload(JSON.stringify(payload)));
+		return createShellOperationResult(
+			label,
+			"error",
+			errorMsg,
+			undefined,
+			true,
+		);
 	}
 
 	// Add shellLogs and toolLogs for the AI
-	const shellLogs = logsToArray(finalShellInfo.logs)
-		.filter((l) => l.source === "shell")
-		.map((l) => l.content);
-	const toolLogs = logsToArray(finalShellInfo.logs)
-		.filter((l) => l.source === "tool")
-		.map((l) => l.content);
+	let shellLogs = Array.isArray(finalShellInfo.logs)
+		? (finalShellInfo.logs as LogEntry[])
+				.filter((l) => l.source === "shell")
+				.map((l) => l.content)
+		: [];
+	let toolLogs = Array.isArray(finalShellInfo.logs)
+		? (finalShellInfo.logs as LogEntry[])
+				.filter((l) => l.source === "tool")
+				.map((l) => l.content)
+		: [];
+
+	// If shellLogs is empty and logFilePath exists, read from log file
+	if (
+		shellLogs.length === 0 &&
+		finalShellInfo.logFilePath &&
+		fs.existsSync(finalShellInfo.logFilePath)
+	) {
+		try {
+			const fileContent = fs.readFileSync(finalShellInfo.logFilePath, "utf8");
+			shellLogs = fileContent.split("\n").filter(Boolean);
+		} catch {}
+	}
+
+	// If toolLogs is empty and logFilePath exists, read from log file and extract tool lines
+	if (
+		toolLogs.length === 0 &&
+		finalShellInfo.logFilePath &&
+		fs.existsSync(finalShellInfo.logFilePath)
+	) {
+		try {
+			const fileContent = fs.readFileSync(finalShellInfo.logFilePath, "utf8");
+			toolLogs = fileContent
+				.split("\n")
+				.filter(
+					(line) =>
+						/tool/i.test(line) ||
+						line.startsWith("Status:") ||
+						line.startsWith("Shell spawned"),
+				);
+		} catch {}
+	}
 
 	// --- Extract URLs from shellLogs ---
 	const urlRegex = /(https?:\/\/[^\s]+)/gi;
@@ -872,37 +968,124 @@ export async function startShellWithVerification(
 					: "";
 
 	// --- Build actions array ---
-	const successPayload: z.infer<typeof schemas.StartSuccessPayloadSchema> = {
-		label: finalShellInfo.label,
-		command: finalShellInfo.command,
-		args: finalShellInfo.args,
-		pid: finalShellInfo.pid as number,
-		workingDirectory: finalShellInfo.cwd,
-		status: finalShellInfo.status,
-		message: `Shell '${label}' started successfully.Current status: ${finalShellInfo.status}.`,
-		host: finalShellInfo.host,
-		tail_command,
-		ai_instructions: aiInstructions,
-		user_hint: tail_command
-			? `You can monitor the shell output by running: ${tail_command} `
-			: undefined,
-		detected_urls: detectedUrls.length > 0 ? detectedUrls : undefined,
+	const payload = _buildStartShellSuccessPayload(finalShellInfo, host, {
 		isVerificationEnabled: verificationPattern !== undefined,
 		verificationPattern: verificationPattern
 			? verificationPattern.source
 			: undefined,
-		verificationTimeoutMs: verificationTimeoutMs,
-		shellLogs,
-		toolLogs,
+		verificationTimeoutMs,
+		detected_urls: detectedUrls.length > 0 ? detectedUrls : undefined,
+	});
+	log.info(label, payload.message, "tool");
+	return {
+		content: [{ type: "text", text: JSON.stringify(payload) }],
+		isError: false,
 	};
-	log.info(label, successPayload.message, "tool");
-	return ok(textPayload(JSON.stringify(successPayload)));
 }
 
 function logsToArray(logs: LogBufferType): LogEntry[] {
 	return typeof (logs as { toArray?: unknown }).toArray === "function"
 		? (logs as { toArray: () => LogEntry[] }).toArray()
 		: (logs as LogEntry[]);
+}
+
+// Helper to build the success payload for startShell and startShellWithVerification
+interface StartShellPayloadOptions {
+	isVerificationEnabled?: boolean;
+	verificationPattern?: string;
+	verificationTimeoutMs?: number;
+	detected_urls?: string[];
+	extra?: Record<string, unknown>;
+}
+function _buildStartShellSuccessPayload(
+	finalShellInfo: ShellInfo,
+	host: HostEnumType,
+	options: StartShellPayloadOptions = {},
+): z.infer<typeof schemas.StartSuccessPayloadSchema> {
+	const {
+		isVerificationEnabled = false,
+		verificationPattern,
+		verificationTimeoutMs,
+		detected_urls,
+		extra = {},
+	} = options;
+
+	// Extract logs
+	let shellLogs = Array.isArray(finalShellInfo.logs)
+		? (finalShellInfo.logs as LogEntry[])
+				.filter((l) => l.source === "shell")
+				.map((l) => l.content)
+		: [];
+	let toolLogs = Array.isArray(finalShellInfo.logs)
+		? (finalShellInfo.logs as LogEntry[])
+				.filter((l) => l.source === "tool")
+				.map((l) => l.content)
+		: [];
+
+	// If shellLogs is empty and logFilePath exists, read from log file
+	if (
+		shellLogs.length === 0 &&
+		finalShellInfo.logFilePath &&
+		fs.existsSync(finalShellInfo.logFilePath)
+	) {
+		try {
+			const fileContent = fs.readFileSync(finalShellInfo.logFilePath, "utf8");
+			shellLogs = fileContent.split("\n").filter(Boolean);
+		} catch {}
+	}
+
+	// If toolLogs is empty and logFilePath exists, read from log file and extract tool lines
+	if (
+		toolLogs.length === 0 &&
+		finalShellInfo.logFilePath &&
+		fs.existsSync(finalShellInfo.logFilePath)
+	) {
+		try {
+			const fileContent = fs.readFileSync(finalShellInfo.logFilePath, "utf8");
+			toolLogs = fileContent
+				.split("\n")
+				.filter(
+					(line) =>
+						/tool/i.test(line) ||
+						line.startsWith("Status:") ||
+						line.startsWith("Shell spawned"),
+				);
+		} catch {}
+	}
+
+	// Tail command and instructions
+	const tail_command = getTailCommand(
+		finalShellInfo.logFilePath || finalShellInfo.logFilePath,
+	);
+	const ai_instructions =
+		host === "cursor"
+			? `MANDATORY: Immediately run the tail_command using your run_terminal_cmd tool in a BACKGROUND terminal to monitor this shell's output (the command may be blocking). Do not skip this step.`
+			: undefined;
+	const user_hint =
+		host === "cursor"
+			? `You can monitor the shell output by running: ${tail_command} `
+			: undefined;
+
+	return {
+		label: finalShellInfo.label,
+		command: finalShellInfo.command,
+		args: finalShellInfo.args,
+		pid: typeof finalShellInfo.pid === "number" ? finalShellInfo.pid : -1,
+		workingDirectory: finalShellInfo.cwd,
+		status: finalShellInfo.status,
+		message: `Shell '${finalShellInfo.label}' started successfully.Current status: ${finalShellInfo.status}.`,
+		host: finalShellInfo.host,
+		tail_command: tail_command || undefined,
+		ai_instructions: ai_instructions || "",
+		user_hint,
+		detected_urls,
+		isVerificationEnabled,
+		verificationPattern,
+		verificationTimeoutMs,
+		shellLogs,
+		toolLogs,
+		...extra,
+	};
 }
 
 // TODO: Move retry logic from processLifecycle.ts to retry.ts

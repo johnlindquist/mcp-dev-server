@@ -47,6 +47,30 @@ export const fail = (
 	};
 };
 
+export const createShellOperationResult = (
+	label: string,
+	status: string,
+	message?: string,
+	pid?: number,
+	isError = false,
+): CallToolResult => {
+	const payload: Record<string, unknown> = {
+		label,
+		status,
+	};
+	if (message) {
+		payload.message = message;
+	}
+	if (pid !== undefined) {
+		payload.pid = pid;
+	}
+	const result = {
+		content: [textPayload(JSON.stringify(payload))],
+		isError,
+	};
+	return result;
+};
+
 export const shape = <T extends ZodRawShape>(x: T) => x;
 
 export const safeSubstring = (v: unknown, len = 100): string =>

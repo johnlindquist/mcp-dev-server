@@ -99,7 +99,7 @@ Response payload for check_shell. Contains fields like `label`, `status`, `pid`,
 }
 ```
 
-### `list_shelles`
+### `list_shells`
 
 Lists all currently managed processes and their status.
 
@@ -109,7 +109,7 @@ Lists all currently managed processes and their status.
 
 **Returns:** (JSON)
 
-Response payload for list_shelles, containing an array of process details. Each detail object includes fields like `label`, `status`, `pid`, `command`, `args`, `cwd`, `exitCode`, `signal`, `log_file_path`, `tail_command`, `logs`, `log_hint`.
+Response payload for list_shells, containing an array of process details. Each detail object includes fields like `label`, `status`, `pid`, `command`, `args`, `cwd`, `exitCode`, `signal`, `log_file_path`, `tail_command`, `logs`, `log_hint`.
 
 **Example Usage:**
 
@@ -141,7 +141,7 @@ Response payload for stop_shell. Contains fields like `label`, `status`, `messag
 }
 ```
 
-### `stop_all_shelles`
+### `stop_all_shells`
 
 Attempts to gracefully stop all managed processes.
 
@@ -149,7 +149,7 @@ Attempts to gracefully stop all managed processes.
 
 **Returns:** (JSON)
 
-Response payload for stop_all_shelles. Contains a `summary` string and a `details` array. Each detail object includes `label`, `result` (e.g., SignalSent, Skipped, Failed), `status`, `pid`.
+Response payload for stop_all_shells. Contains a `summary` string and a `details` array. Each detail object includes `label`, `result` (e.g., SignalSent, Skipped, Failed), `status`, `pid`.
 
 **Example Usage:**
 
