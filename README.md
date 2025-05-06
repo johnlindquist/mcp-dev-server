@@ -139,8 +139,8 @@ This server exposes the following tools for MCP clients:
 *   `start_shell_with_verification`: Starts a new background process with verification, timeout, and retry options. (Label is optional)
 *   `check_shell`: Checks the status and logs of a specific process. (Requires label) If any URLs are found in logs, the AI should extract and return them as markdown links.
 *   `stop_shell`: Stops a specific process. (Requires label)
-*   `list_shelles`: Lists all currently managed processes and their basic status.
-*   `stop_all_shelles`: Attempts to stop all managed processes.
+*   `list_shells`: Lists all currently managed processes and their basic status.
+*   `stop_all_shells`: Attempts to stop all managed processes.
 *   `restart_shell`: Restarts a specific process. (Requires label)
 *   `wait_for_shell`: Waits for a specific process to reach a target status. (Requires label)
 *   `get_all_loglines`: Retrieves the complete stored log history for a specific managed process. (Requires label)
@@ -335,7 +335,7 @@ Response payload for check_shell. Contains fields like `label`, `status`, `pid`,
 }
 ```
 
-### `list_shelles`
+### `list_shells`
 
 Lists all currently managed processes and their status.
 
@@ -345,7 +345,7 @@ Lists all currently managed processes and their status.
 
 **Returns:** (JSON)
 
-Response payload for list_shelles, containing an array of process details. Each detail object includes fields like `label`, `status`, `pid`, `command`, `args`, `cwd`, `exitCode`, `signal`, `log_file_path`, `tail_command`, `logs`, `log_hint`.
+Response payload for list_shells, containing an array of process details. Each detail object includes fields like `label`, `status`, `pid`, `command`, `args`, `cwd`, `exitCode`, `signal`, `log_file_path`, `tail_command`, `logs`, `log_hint`.
 
 **Example Usage:**
 
@@ -377,7 +377,7 @@ Response payload for stop_shell. Contains fields like `label`, `status`, `messag
 }
 ```
 
-### `stop_all_shelles`
+### `stop_all_shells`
 
 Attempts to gracefully stop all managed processes.
 
@@ -385,7 +385,7 @@ Attempts to gracefully stop all managed processes.
 
 **Returns:** (JSON)
 
-Response payload for stop_all_shelles. Contains a `summary` string and a `details` array. Each detail object includes `label`, `result` (e.g., SignalSent, Skipped, Failed), `status`, `pid`.
+Response payload for stop_all_shells. Contains a `summary` string and a `details` array. Each detail object includes `label`, `result` (e.g., SignalSent, Skipped, Failed), `status`, `pid`.
 
 **Example Usage:**
 

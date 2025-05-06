@@ -10,73 +10,8 @@ import {
 	SERVER_SCRIPT_PATH,
 	STARTUP_TIMEOUT,
 	TEST_TIMEOUT,
+	sendRequest,
 } from "./test-helpers";
-
-async function sendRequest(
-	process: ChildProcessWithoutNullStreams,
-	request: Record<string, unknown>,
-	timeoutMs = 15000,
-) {
-	const requestId = request.id as string;
-	if (!requestId) throw new Error('Request must have an "id" property');
-	const requestString = `${JSON.stringify(request)}\n`;
-	return new Promise((resolve, reject) => {
-		let responseBuffer = "";
-		let responseReceived = false;
-		const timeoutTimer = setTimeout(() => {
-			if (!responseReceived) {
-				cleanup();
-				reject(new Error(`Timeout waiting for response ID ${requestId}`));
-			}
-		}, timeoutMs);
-		const onData = (data: Buffer) => {
-			responseBuffer += data.toString();
-			let newlineIndex: number;
-			while (true) {
-				newlineIndex = responseBuffer.indexOf("\n");
-				if (newlineIndex === -1) break;
-				const line = responseBuffer.substring(0, newlineIndex).trim();
-				responseBuffer = responseBuffer.substring(newlineIndex + 1);
-				if (line === "") continue;
-				try {
-					const parsedResponse = JSON.parse(line);
-					if (parsedResponse.id === requestId) {
-						responseReceived = true;
-						cleanup();
-						resolve(parsedResponse);
-						return;
-					}
-				} catch {}
-			}
-		};
-		const onError = (err: Error) => {
-			if (!responseReceived) {
-				cleanup();
-				reject(err);
-			}
-		};
-		const onExit = () => {
-			if (!responseReceived) {
-				cleanup();
-				reject(
-					new Error(
-						`Server exited before response ID ${requestId} was received.`,
-					),
-				);
-			}
-		};
-		const cleanup = () => {
-			clearTimeout(timeoutTimer);
-			process.stdout.removeListener("data", onData);
-			process.removeListener("error", onError);
-			process.removeListener("exit", onExit);
-		};
-		process.stdout.on("data", onData);
-		process.once("error", onError);
-		process.once("exit", onExit);
-		process.stdin.write(requestString);
-	});
-}
 
 describe("Process Management: Memory and Resource Leak Checks", () => {
 	let serverProcess: ChildProcessWithoutNullStreams;
