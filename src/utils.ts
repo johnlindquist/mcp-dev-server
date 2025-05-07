@@ -205,3 +205,15 @@ export function getTailCommand(logFilePath: string | null): string | null {
 	const escapedPath = logFilePath.replace(/"/g, '\\"');
 	return `tail -f -n 10 "${escapedPath}"`;
 }
+
+/**
+ * Normalizes a process label for internal use (e.g., as a shell label key).
+ * Converts to lowercase and replaces all whitespace with dashes.
+ * Ensures only dash-separated, lowercased words are used as labels.
+ *
+ * @param label The original process label.
+ * @returns A normalized label string (lowercase, dashes for whitespace).
+ */
+export function normalizeLabel(label: string): string {
+	return label.trim().toLowerCase().replace(/\s+/g, "-");
+}

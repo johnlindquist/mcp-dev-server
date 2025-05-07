@@ -1,5 +1,5 @@
 ---
-description: Worktree creator. Load whenver a user requests "Create a worktree"
+description: Create a worktree
 globs: 
 alwaysApply: false
 ---

@@ -12,10 +12,8 @@ const shape = <T extends z.ZodRawShape>(shape: T): T => shape;
 // Label Schema (used across multiple param schemas)
 export const labelSchema = z
 	.string()
-	.min(1)
-	.regex(
-		/^[a-zA-Z0-9_\-.:/]+$/,
-		"Label can only contain letters, numbers, underscores, hyphens, periods, colons, and forward slashes.",
+	.describe(
+		"The normalized label for the shell (lowercase, dashes for whitespace only).",
 	);
 
 // --- Parameter Schemas ---
