@@ -79,9 +79,9 @@ export function registerToolDefinitions(server: McpServer): void {
 
 	server.tool(
 		"start_shell_with_verification",
-		"Starts a shell with verification (pattern, timeout, retries). Useful for dev servers, tests, or scripts that print a specific line when ready. Returns monitoring commands and all shell output for inspection.",
+		"Starts a shell with verification (pattern, timeout, retries). Returns monitoring commands and all shell output. IMPORTANT: This tool is rarely used. Prefer 'start_shell' unless explicitly requested by the user to verify successful startup.",
 		shape(schemas.StartShellWithVerificationParams.shape),
-		(params: schemas.StartProcessWithVerificationParamsType) => {
+		(params: z.infer<typeof schemas.StartShellWithVerificationParams>) => {
 			const cwdForLabel = params.workingDirectory;
 			const effectiveLabel = params.label || `${cwdForLabel}:${params.command}`;
 			const hostValue = params.host;
