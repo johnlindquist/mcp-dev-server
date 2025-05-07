@@ -41,7 +41,6 @@ import { LogRingBuffer } from "./LogRingBuffer.js";
 import { setupLogFileStream } from "./logging.js";
 import { handleShellExit } from "./retry.js"; // Assuming retry logic helper is named this
 import { spawnPtyShell } from "./spawn.js"; // <-- Import spawnPtyProcess
-import { verifyProcessStartup, waitForLogSettleOrTimeout } from "./verify.js";
 
 // Max length for rolling OSC 133 buffer
 const OSC133_BUFFER_MAXLEN = 40;
@@ -105,13 +104,12 @@ export function handleData(
 		const out = `CHUNK: [${Array.from(data)
 			.map((c) => c.charCodeAt(0))
 			.join(",")}]
-BUFFER: [${
-			typeof shellInfo.osc133Buffer === "string"
+BUFFER: [${typeof shellInfo.osc133Buffer === "string"
 				? Array.from(shellInfo.osc133Buffer)
-						.map((c) => c.charCodeAt(0))
-						.join(",")
+					.map((c) => c.charCodeAt(0))
+					.join(",")
 				: ""
-		}]
+			}]
 `;
 		fs.appendFileSync(`/tmp/osc133-debug-${label}.log`, out);
 	}
@@ -769,13 +767,13 @@ export async function startShell(
 	// Add shellLogs and toolLogs for the AI
 	let shellLogs = Array.isArray(finalShellInfo.logs)
 		? (finalShellInfo.logs as LogEntry[])
-				.filter((l) => l.source === "shell")
-				.map((l) => l.content)
+			.filter((l) => l.source === "shell")
+			.map((l) => l.content)
 		: [];
 	let toolLogs = Array.isArray(finalShellInfo.logs)
 		? (finalShellInfo.logs as LogEntry[])
-				.filter((l) => l.source === "tool")
-				.map((l) => l.content)
+			.filter((l) => l.source === "tool")
+			.map((l) => l.content)
 		: [];
 
 	// If shellLogs is empty and logFilePath exists, read from log file
@@ -787,7 +785,7 @@ export async function startShell(
 		try {
 			const fileContent = fs.readFileSync(finalShellInfo.logFilePath, "utf8");
 			shellLogs = fileContent.split("\n").filter(Boolean);
-		} catch {}
+		} catch { }
 	}
 
 	// If toolLogs is empty and logFilePath exists, read from log file and extract tool lines
@@ -801,12 +799,12 @@ export async function startShell(
 			toolLogs = fileContent
 				.split("\n")
 				.filter(
-					(line) =>
+					(line: string) =>
 						/tool/i.test(line) ||
 						line.startsWith("Status:") ||
 						line.startsWith("Shell spawned"),
 				);
-		} catch {}
+		} catch { }
 	}
 
 	// --- Extract URLs from shellLogs ---
@@ -846,187 +844,13 @@ export async function startShell(
 	};
 }
 
-export async function startShellWithVerification(
-	label: string,
-	command: string,
-	args: string[],
-	workingDirectoryInput: string | undefined,
-	host: HostEnumType,
-	verificationPattern: RegExp | undefined,
-	verificationTimeoutMs: number | undefined,
-	retryDelayMs: number | undefined,
-	maxRetries: number | undefined,
-	isRestart = false,
-): Promise<CallToolResult> {
-	// Start the shell without verification logic
-	const startResult = await startShell(
-		label,
-		command,
-		args,
-		workingDirectoryInput,
-		host,
-		isRestart,
-	);
-
-	// If shell failed to start, return immediately
-	if (startResult.isError) {
-		return startResult;
-	}
-
-	// Attach verification parameters to shellInfo
-	const shellInfo = getShellInfo(label);
-	if (!shellInfo) {
-		return startResult;
-	}
-	shellInfo.verificationPattern = verificationPattern;
-	shellInfo.verificationTimeoutMs = verificationTimeoutMs;
-	shellInfo.retryDelayMs = retryDelayMs;
-	shellInfo.maxRetries = maxRetries;
-
-	// Perform verification
-	const { verificationFailed, failureReason } =
-		await verifyProcessStartup(shellInfo);
-
-	// After verification, wait for logs to settle or timeout
-	let settleStatus: "settled" | "timeout" = "timeout";
-	let settleWaitMs = 0;
-	const settleStart = Date.now();
-	if (shellInfo.shell) {
-		const settleResult = await waitForLogSettleOrTimeout(
-			label,
-			shellInfo.shell,
-		);
-		settleStatus = settleResult.settled ? "settled" : "timeout";
-		settleWaitMs = Date.now() - settleStart;
-	}
-
-	// 7. Construct Final Payload
-	const finalShellInfo = getShellInfo(label);
-	if (!finalShellInfo) {
-		log.error(
-			label,
-			"Shell info unexpectedly missing after verification.",
-			"tool",
-		);
-		const payload: z.infer<typeof schemas.StartErrorPayloadSchema> = {
-			error: "Internal error: Shell info lost after verification",
-			status: "error",
-			error_type: "internal_error_after_verification",
-		};
-		return createShellOperationResult(
-			label,
-			"error",
-			"Internal error: Shell info lost after verification",
-			undefined,
-			true,
-		);
-	}
-
-	if (finalShellInfo.status === "error") {
-		const errorMsg = `Shell failed to start or verify.Final status: error.${failureReason || "Unknown reason"} `;
-		log.error(label, errorMsg, "tool");
-		const payload: z.infer<typeof schemas.StartErrorPayloadSchema> = {
-			error: errorMsg,
-			status: "error",
-			error_type: "start_or_verification_failed",
-		};
-		return createShellOperationResult(
-			label,
-			"error",
-			errorMsg,
-			undefined,
-			true,
-		);
-	}
-
-	// Add shellLogs and toolLogs for the AI
-	let shellLogs = Array.isArray(finalShellInfo.logs)
-		? (finalShellInfo.logs as LogEntry[])
-				.filter((l) => l.source === "shell")
-				.map((l) => l.content)
-		: [];
-	let toolLogs = Array.isArray(finalShellInfo.logs)
-		? (finalShellInfo.logs as LogEntry[])
-				.filter((l) => l.source === "tool")
-				.map((l) => l.content)
-		: [];
-
-	// If shellLogs is empty and logFilePath exists, read from log file
-	if (
-		shellLogs.length === 0 &&
-		finalShellInfo.logFilePath &&
-		fs.existsSync(finalShellInfo.logFilePath)
-	) {
-		try {
-			const fileContent = fs.readFileSync(finalShellInfo.logFilePath, "utf8");
-			shellLogs = fileContent.split("\n").filter(Boolean);
-		} catch {}
-	}
-
-	// If toolLogs is empty and logFilePath exists, read from log file and extract tool lines
-	if (
-		toolLogs.length === 0 &&
-		finalShellInfo.logFilePath &&
-		fs.existsSync(finalShellInfo.logFilePath)
-	) {
-		try {
-			const fileContent = fs.readFileSync(finalShellInfo.logFilePath, "utf8");
-			toolLogs = fileContent
-				.split("\n")
-				.filter(
-					(line) =>
-						/tool/i.test(line) ||
-						line.startsWith("Status:") ||
-						line.startsWith("Shell spawned"),
-				);
-		} catch {}
-	}
-
-	// --- Extract URLs from shellLogs ---
-	const urlRegex = /(https?:\/\/[^\s]+)/gi;
-	const detectedUrls = Array.from(
-		new Set(
-			shellLogs.flatMap((line) => {
-				const matches = line.match(urlRegex);
-				return matches ? matches : [];
-			}),
-		),
-	);
-
-	// --- AI instructions string ---
-	const tail_command = getTailCommand(finalShellInfo.logFilePath) || undefined;
-	const aiInstructions =
-		tail_command && detectedUrls.length > 0
-			? "MANDATORY: Immediately run the tail_command using your run_terminal_cmd tool in a BACKGROUND terminal to monitor this shell's output (the command may be blocking). You MUST also display every detected_urls entry as a clickable markdown link to the user. Do not skip these steps."
-			: tail_command
-				? "MANDATORY: Immediately run the tail_command using your run_terminal_cmd tool in a BACKGROUND terminal to monitor this shell's output (the command may be blocking). Do not skip this step."
-				: detectedUrls.length > 0
-					? "MANDATORY: You MUST display every detected_urls entry as a clickable markdown link to the user. Do not skip this step."
-					: "";
-
-	// --- Build actions array ---
-	const payload = _buildStartShellSuccessPayload(finalShellInfo, host, {
-		isVerificationEnabled: verificationPattern !== undefined,
-		verificationPattern: verificationPattern
-			? verificationPattern.source
-			: undefined,
-		verificationTimeoutMs,
-		detected_urls: detectedUrls.length > 0 ? detectedUrls : undefined,
-	});
-	log.info(label, payload.message, "tool");
-	return {
-		content: [{ type: "text", text: JSON.stringify(payload) }],
-		isError: false,
-	};
-}
-
 function logsToArray(logs: LogBufferType): LogEntry[] {
 	return typeof (logs as { toArray?: unknown }).toArray === "function"
 		? (logs as { toArray: () => LogEntry[] }).toArray()
 		: (logs as LogEntry[]);
 }
 
-// Helper to build the success payload for startShell and startShellWithVerification
+// Helper to build the success payload for startShell
 interface StartShellPayloadOptions {
 	isVerificationEnabled?: boolean;
 	verificationPattern?: string;
@@ -1050,13 +874,13 @@ function _buildStartShellSuccessPayload(
 	// Extract logs
 	let shellLogs = Array.isArray(finalShellInfo.logs)
 		? (finalShellInfo.logs as LogEntry[])
-				.filter((l) => l.source === "shell")
-				.map((l) => l.content)
+			.filter((l) => l.source === "shell")
+			.map((l) => l.content)
 		: [];
 	let toolLogs = Array.isArray(finalShellInfo.logs)
 		? (finalShellInfo.logs as LogEntry[])
-				.filter((l) => l.source === "tool")
-				.map((l) => l.content)
+			.filter((l) => l.source === "tool")
+			.map((l) => l.content)
 		: [];
 
 	// If shellLogs is empty and logFilePath exists, read from log file
@@ -1068,7 +892,7 @@ function _buildStartShellSuccessPayload(
 		try {
 			const fileContent = fs.readFileSync(finalShellInfo.logFilePath, "utf8");
 			shellLogs = fileContent.split("\n").filter(Boolean);
-		} catch {}
+		} catch { }
 	}
 
 	// If toolLogs is empty and logFilePath exists, read from log file and extract tool lines
@@ -1082,12 +906,12 @@ function _buildStartShellSuccessPayload(
 			toolLogs = fileContent
 				.split("\n")
 				.filter(
-					(line) =>
+					(line: string) =>
 						/tool/i.test(line) ||
 						line.startsWith("Status:") ||
 						line.startsWith("Shell spawned"),
 				);
-		} catch {}
+		} catch { }
 	}
 
 	// Tail command and instructions

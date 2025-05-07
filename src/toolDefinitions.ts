@@ -6,7 +6,6 @@ import {
 } from "./constants/messages.js";
 import {
 	startShell,
-	startShellWithVerification,
 	stopProcess,
 } from "./process/lifecycle.js";
 import { handleToolCall } from "./toolHandler.js";
@@ -21,7 +20,7 @@ import {
 	waitForProcessImpl,
 } from "./toolImplementations.js";
 import * as schemas from "./types/schemas.js";
-import { log } from "./utils.js";
+import { log, normalizeLabel } from "./utils.js";
 // If needed, import SDK types for tool content/results:
 // import type { CallToolResult, TextContent, ImageContent, AudioContent, EmbeddedResource } from "@modelcontextprotocol/sdk/types.js";
 
@@ -51,70 +50,16 @@ export function registerToolDefinitions(server: McpServer): void {
 		"start_shell",
 		`Starts a shell (e.g. dev server, test runner) in a managed environment. ${MARKDOWN_LINK_EXTRACTION_MSG} ${AI_TAIL_COMMAND_INSTRUCTION}`,
 		shape(schemas.StartShellParams.shape),
-		(params: StartProcessParamsType) => {
-			const cwdForLabel = params.workingDirectory;
-			const effectiveLabel = params.label || `${cwdForLabel}:${params.command}`;
-			const hostValue = params.host;
-
-			// Only log in non-test/fast mode to avoid protocol-breaking output in tests
-			if (process.env.NODE_ENV !== "test" && process.env.MCP_PM_FAST !== "1") {
-				log.info(
-					effectiveLabel,
-					`Determined label for start_shell: ${effectiveLabel}`,
-				);
-			}
-
-			return handleToolCall(effectiveLabel, "start_shell", params, async () => {
-				return await startShell(
-					effectiveLabel,
-					params.command,
-					params.args,
-					params.workingDirectory,
-					hostValue,
-					false,
-				);
-			});
-		},
-	);
-
-	server.tool(
-		"start_shell_with_verification",
-		"Starts a shell with verification (pattern, timeout, retries). Returns monitoring commands and all shell output. IMPORTANT: This tool is rarely used. Prefer 'start_shell' unless explicitly requested by the user to verify successful startup.",
-		shape(schemas.StartShellWithVerificationParams.shape),
-		(params: z.infer<typeof schemas.StartShellWithVerificationParams>) => {
-			const cwdForLabel = params.workingDirectory;
-			const effectiveLabel = params.label || `${cwdForLabel}:${params.command}`;
-			const hostValue = params.host;
-
-			// Only log in non-test/fast mode to avoid protocol-breaking output in tests
-			if (process.env.NODE_ENV !== "test" && process.env.MCP_PM_FAST !== "1") {
-				log.info(
-					effectiveLabel,
-					`Determined label for start_shell_with_verification: ${effectiveLabel}`,
-				);
-			}
-
-			return handleToolCall(
-				effectiveLabel,
-				"start_shell_with_verification",
-				params,
-				async () => {
-					const verificationPattern = params.verification_pattern
-						? new RegExp(params.verification_pattern)
-						: undefined;
-					return await startShellWithVerification(
-						effectiveLabel,
-						params.command,
-						params.args,
-						params.workingDirectory,
-						hostValue,
-						verificationPattern,
-						params.verification_timeout_ms,
-						params.retry_delay_ms,
-						params.max_retries,
-						false,
-					);
-				},
+		async (params: z.infer<typeof schemas.StartShellParams>) => {
+			const { command, args, workingDirectory, host, label: userLabel } =
+				params;
+			const label = userLabel || normalizeLabel(`${workingDirectory}:${command}`);
+			return await startShell(
+				label,
+				command,
+				args,
+				workingDirectory,
+				host,
 			);
 		},
 	);
