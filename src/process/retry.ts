@@ -8,7 +8,7 @@ import {
 } from "../state.js"; // Adjust path
 import { managedShells } from "../state.js"; // Need state access
 import { log } from "../utils.js"; // Adjust path
-import { startShellWithVerification } from "./lifecycle.js"; // Import the new startProcess
+import { startShell } from "./lifecycle.js"; // Import the new startProcess
 
 /**
  * Handles the logic for retrying a crashed shell.
@@ -68,16 +68,12 @@ export async function handleCrashAndRetry(label: string): Promise<void> {
 
 		log.info(label, "Initiating restart...");
 		// Call the new startProcessWithVerification from lifecycle.ts
-		await startShellWithVerification(
+		const result = await startShell(
 			label,
 			shellInfo.command,
 			shellInfo.args,
 			shellInfo.cwd,
 			shellInfo.host,
-			shellInfo.verificationPattern,
-			shellInfo.verificationTimeoutMs,
-			shellInfo.retryDelayMs,
-			shellInfo.maxRetries,
 			true, // Indicate this is a restart
 		);
 	}

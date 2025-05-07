@@ -15,6 +15,7 @@ import {
 	logVerbose,
 	logVerboseError,
 } from "./test-helpers";
+import type { StartSuccessPayloadType } from "../../src/types/schemas.js";
 
 let serverProcess: ChildProcessWithoutNullStreams;
 
@@ -244,7 +245,7 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 			logVerbose("[TEST][startProcess] Asserting result properties...");
 			const result = response.result as CallToolResult;
 			expect(result?.content?.[0]?.text).toBeDefined();
-			let startResult: ProcessStatusResult | null = null;
+			let startResult: StartSuccessPayloadType | null = null;
 			try {
 				startResult = JSON.parse(result.content[0].text);
 			} catch (e) {
@@ -499,7 +500,7 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 			const checkResultWrapper = checkResponse.result as CallToolResult;
 			try {
 				checkResult = JSON.parse(checkResultWrapper.content[0].text);
-			} catch (e) {}
+			} catch (e) { }
 
 			expect(checkResult?.status).toBe("running");
 			expect(checkResult?.pid).toBe(restartedPid);
@@ -521,117 +522,6 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 			logVerbose("[TEST][restart] Cleanup stop request sent. Test finished.");
 		},
 		TEST_TIMEOUT * 2,
-	);
-
-	it(
-		"should start a process with verification and receive confirmation",
-		async () => {
-			logVerbose("[TEST][startProcessWithVerification] Starting test...");
-			const uniqueLabel = `test-process-verification-${Date.now()}`;
-			const command = "node";
-			const args = [
-				"-e",
-				"console.log('Verification pattern: READY'); setTimeout(() => console.log('Node process finished'), 200);",
-			];
-			const workingDirectory = path.resolve(__dirname);
-			logVerbose(
-				`[TEST][startProcessWithVerification] Generated label: ${uniqueLabel}, CWD: ${workingDirectory}`,
-			);
-
-			const startRequest = {
-				jsonrpc: "2.0",
-				method: "tools/call",
-				params: {
-					name: "start_shell_with_verification",
-					arguments: {
-						command,
-						args,
-						workingDirectory,
-						label: uniqueLabel,
-						verification_pattern: "READY",
-						verification_timeout_ms: 2000,
-					},
-				},
-				id: "req-start-verification-1",
-			};
-			logVerbose(
-				"[TEST][startProcessWithVerification] Sending start request...",
-			);
-
-			const response = (await sendRequest(
-				serverProcess,
-				startRequest,
-			)) as MCPResponse;
-			logVerbose(
-				"[TEST][startProcessWithVerification] Received response:",
-				JSON.stringify(response),
-			);
-
-			logVerbose(
-				"[TEST][startProcessWithVerification] Asserting response properties...",
-			);
-			expect(response.id).toBe("req-start-verification-1");
-			expect(
-				response.result,
-				`Expected result to be defined, error: ${JSON.stringify(response.error)}`,
-			).toBeDefined();
-			expect(
-				response.error,
-				`Expected error to be undefined, got: ${JSON.stringify(response.error)}`,
-			).toBeUndefined();
-
-			logVerbose(
-				"[TEST][startProcessWithVerification] Asserting result properties...",
-			);
-			const result = response.result as CallToolResult;
-			expect(result?.content?.[0]?.text).toBeDefined();
-			let startResult: ProcessStatusResult | null = null;
-			try {
-				console.log(
-					"DEBUG: Raw result.content[0].text:",
-					result.content[0].text,
-				);
-				startResult = JSON.parse(result.content[0].text);
-				console.log("DEBUG: Parsed startResult:", startResult);
-			} catch (e) {
-				throw new Error(
-					`Failed to parse start_shell_with_verification result content: ${e}`,
-				);
-			}
-			expect(startResult).not.toBeNull();
-			if (startResult) {
-				expect(startResult.label).toBe(uniqueLabel);
-				expect(["running", "stopped"]).toContain(startResult.status);
-				const verificationResult = startResult as VerificationPayload;
-				expect(verificationResult.isVerificationEnabled).toBe(true);
-				expect(verificationResult.verificationPattern).toBe("READY");
-			}
-			console.log("[TEST][startProcessWithVerification] Assertions passed.");
-
-			logVerbose("[TEST][startProcessWithVerification] Waiting briefly...");
-			await new Promise((resolve) => setTimeout(resolve, 200));
-
-			const stopRequest = {
-				jsonrpc: "2.0",
-				method: "tools/call",
-				params: {
-					name: "stop_shell",
-					arguments: { label: uniqueLabel },
-				},
-				id: `req-stop-verification-${uniqueLabel}`,
-			};
-			logVerbose("[TEST][stop] Sending stop_shell request...");
-			const stopResponse = (await sendRequest(
-				serverProcess,
-				stopRequest,
-			)) as MCPResponse;
-			logVerbose(
-				"[TEST][stop] Received stop response:",
-				JSON.stringify(stopResponse),
-			);
-			logVerbose("[TEST][startProcessWithVerification] Test finished.");
-		},
-		TEST_TIMEOUT,
 	);
 
 	it(
@@ -657,9 +547,8 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 				serverProcess,
 				startRequest,
 			)) as MCPResponse;
-			const startResult = JSON.parse(
-				(startResponse.result as CallToolResult).content[0].text,
-			);
+			const startResultText = (startResponse.result as CallToolResult).content[0].text;
+			const startResult: StartSuccessPayloadType = JSON.parse(startResultText);
 			expect(Array.isArray(startResult.shellLogs)).toBe(true);
 			expect(startResult.shellLogs.length).toBeGreaterThan(0);
 			expect(Array.isArray(startResult.toolLogs)).toBe(true);
@@ -678,9 +567,8 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 				serverProcess,
 				restartRequest,
 			)) as MCPResponse;
-			const restartResult = JSON.parse(
-				(restartResponse.result as CallToolResult).content[0].text,
-			);
+			const restartResultText = (restartResponse.result as CallToolResult).content[0].text;
+			const restartResult: StartSuccessPayloadType = JSON.parse(restartResultText);
 			expect(Array.isArray(restartResult.shellLogs)).toBe(true);
 			expect(restartResult.shellLogs.length).toBeGreaterThan(0);
 			expect(Array.isArray(restartResult.toolLogs)).toBe(true);
@@ -874,8 +762,8 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 				}
 				if (!found) {
 					const fs = require("node:fs");
-					const logPath = lastCheckResult.log_file_path;
-					if (fs.existsSync(logPath)) {
+					const logPath = lastCheckResult?.log_file_path;
+					if (logPath && fs.existsSync(logPath)) {
 						const logContent = fs.readFileSync(logPath, "utf8");
 						console.error(
 							`[DEBUG][Prompt Fixture Capture][${fixture.label}] Log file contents:\n${logContent}`,
@@ -976,8 +864,8 @@ describe("Tool: Process Lifecycle (start, check, restart)", () => {
 				}
 				if (!found) {
 					const fs = require("node:fs");
-					const logPath = lastCheckResult.log_file_path;
-					if (fs.existsSync(logPath)) {
+					const logPath = lastCheckResult?.log_file_path;
+					if (logPath && fs.existsSync(logPath)) {
 						const logContent = fs.readFileSync(logPath, "utf8");
 						console.error(
 							`[DEBUG][Echo Fixture Capture][${fixture.label}] Log file contents:\n${logContent}`,
