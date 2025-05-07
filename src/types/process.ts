@@ -47,6 +47,9 @@ export type LogBufferType =
 
 /** Detailed information about a managed process. */
 export interface ShellInfo {
+	/**
+	 * The normalized label for the shell (lowercase, dashes for whitespace only).
+	 */
 	label: string;
 	command: string;
 	args: string[];

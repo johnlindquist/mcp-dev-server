@@ -34,7 +34,7 @@ import type {
 	ShellStatus,
 } from "../types/process.js";
 import type * as schemas from "../types/schemas.js";
-import { getTailCommand, log } from "../utils.js";
+import { getTailCommand, log, normalizeLabel } from "../utils.js";
 
 import { LogRingBuffer } from "./LogRingBuffer.js";
 // Import newly created functions
@@ -284,6 +284,8 @@ export async function startShell(
 	host: HostEnumType,
 	isRestart = false,
 ): Promise<CallToolResult> {
+	// Normalize the label to enforce lowercase and dashes
+	const normalizedLabel = normalizeLabel(label);
 	const effectiveWorkingDirectory = workingDirectoryInput
 		? path.resolve(workingDirectoryInput)
 		: process.env.MCP_WORKSPACE_ROOT || process.cwd();
@@ -291,7 +293,7 @@ export async function startShell(
 	// Only log in non-test/fast mode to avoid protocol-breaking output in tests
 	if (process.env.NODE_ENV !== "test" && process.env.MCP_PM_FAST !== "1") {
 		log.info(
-			label,
+			normalizedLabel,
 			`Starting shell... Command: "${command}", Args: [${args.join(", ")}], CWD: "${effectiveWorkingDirectory}", Host: ${host}, isRestart: ${isRestart}`,
 			"tool",
 		);
@@ -300,18 +302,18 @@ export async function startShell(
 	// 1. Verify working directory
 	if (process.env.NODE_ENV !== "test" && process.env.MCP_PM_FAST !== "1") {
 		log.debug(
-			label,
+			normalizedLabel,
 			`Verifying working directory: ${effectiveWorkingDirectory}`,
 		);
 	}
 	if (!fs.existsSync(effectiveWorkingDirectory)) {
 		const errorMsg = WORKING_DIRECTORY_NOT_FOUND(effectiveWorkingDirectory);
-		log.error(label, errorMsg, "tool");
+		log.error(normalizedLabel, errorMsg, "tool");
 		// Ensure state exists for error
-		if (!managedShells.has(label)) {
+		if (!managedShells.has(normalizedLabel)) {
 			// Create minimal error state
-			managedShells.set(label, {
-				label,
+			managedShells.set(normalizedLabel, {
+				label: normalizedLabel,
 				command,
 				args,
 				host,
@@ -327,7 +329,7 @@ export async function startShell(
 				os: "linux",
 			});
 		}
-		updateProcessStatus(label, "error");
+		updateProcessStatus(normalizedLabel, "error");
 		const payload: z.infer<typeof schemas.StartErrorPayloadSchema> = {
 			error: errorMsg,
 			status: "error",
@@ -335,7 +337,7 @@ export async function startShell(
 			error_type: "working_directory_not_found",
 		};
 		return createShellOperationResult(
-			label,
+			normalizedLabel,
 			"error",
 			errorMsg,
 			undefined,
@@ -343,17 +345,17 @@ export async function startShell(
 		);
 	}
 	if (process.env.NODE_ENV !== "test" && process.env.MCP_PM_FAST !== "1") {
-		log.debug(label, "Working directory verified.", "tool");
+		log.debug(normalizedLabel, "Working directory verified.", "tool");
 	}
 
-	const existingShell = managedShells.get(label);
+	const existingShell = managedShells.get(normalizedLabel);
 
 	// 2. Check for active conflict (only if not restarting)
 	if (!isRestart) {
 		// ... (conflict check logic from _startProcess) ...
 		for (const existing of managedShells.values()) {
 			if (
-				existing.label === label &&
+				existing.label === normalizedLabel &&
 				existing.cwd === effectiveWorkingDirectory &&
 				existing.command === command &&
 				["starting", "running", "verifying", "restarting", "stopping"].includes(
@@ -361,20 +363,20 @@ export async function startShell(
 				)
 			) {
 				const errorMsg = COMPOSITE_LABEL_CONFLICT(
-					label,
+					normalizedLabel,
 					effectiveWorkingDirectory,
 					command,
 					existing.status,
 					existing.pid,
 				);
-				log.error(label, errorMsg, "tool");
+				log.error(normalizedLabel, errorMsg, "tool");
 				const payload: z.infer<typeof schemas.StartErrorPayloadSchema> = {
 					error: errorMsg,
 					status: existing.status,
 					error_type: "composite_label_conflict",
 				};
 				return createShellOperationResult(
-					label,
+					normalizedLabel,
 					existing.status,
 					errorMsg,
 					existing.pid,
@@ -389,7 +391,10 @@ export async function startShell(
 	try {
 		// Only log in non-test/fast mode to avoid protocol-breaking output in tests
 		if (process.env.NODE_ENV !== "test" && process.env.MCP_PM_FAST !== "1") {
-			log.debug(label, `Attempting to spawn PTY with command: ${command}`);
+			log.debug(
+				normalizedLabel,
+				`Attempting to spawn PTY with command: ${command}`,
+			);
 		}
 		ptyProcess = spawnPtyShell(
 			// <-- Use imported function
@@ -397,28 +402,28 @@ export async function startShell(
 			args,
 			effectiveWorkingDirectory,
 			{ ...process.env },
-			label,
+			normalizedLabel,
 		);
 		// Only log in non-test/fast mode to avoid protocol-breaking output in tests
 		if (process.env.NODE_ENV !== "test" && process.env.MCP_PM_FAST !== "1") {
 			log.debug(
-				label,
+				normalizedLabel,
 				`PTY spawned: PID=${ptyProcess.pid}, Command='${command}', Args='${args.join(" ")}' `,
 			);
 		}
 		// Only log in non-test/fast mode to avoid protocol-breaking output in tests
 		if (process.env.NODE_ENV !== "test" && process.env.MCP_PM_FAST !== "1") {
 			log.info(
-				label,
+				normalizedLabel,
 				`PTY process created successfully, PID: ${ptyProcess.pid}`,
 			);
 		}
 	} catch (error) {
 		// ... (pty spawn error handling from _startProcess) ...
 		const errorMsg = `PTY process spawn failed: ${error instanceof Error ? error.message : String(error)}`;
-		if (!managedShells.has(label)) {
-			managedShells.set(label, {
-				label,
+		if (!managedShells.has(normalizedLabel)) {
+			managedShells.set(normalizedLabel, {
+				label: normalizedLabel,
 				command,
 				args,
 				host,
@@ -434,15 +439,15 @@ export async function startShell(
 				os: "linux",
 			});
 		}
-		updateProcessStatus(label, "error");
-		addLogEntry(label, `Error: ${errorMsg}`, "tool");
+		updateProcessStatus(normalizedLabel, "error");
+		addLogEntry(normalizedLabel, `Error: ${errorMsg}`, "tool");
 		const payload: z.infer<typeof schemas.StartErrorPayloadSchema> = {
 			error: errorMsg,
 			status: "error",
 			error_type: "pty_spawn_failed",
 		};
 		return createShellOperationResult(
-			label,
+			normalizedLabel,
 			"error",
 			errorMsg,
 			undefined,
@@ -470,7 +475,7 @@ export async function startShell(
 		logsBuffer = new LogRingBuffer<LogEntry>(cfg.maxStoredLogLines);
 	}
 	const shellInfo: ShellInfo = {
-		label,
+		label: normalizedLabel,
 		pid: ptyProcess.pid,
 		shell: ptyProcess,
 		command,
@@ -494,28 +499,34 @@ export async function startShell(
 		lastLogTimestampReturned: 0,
 		finalizing: true,
 	};
-	log.error(label, `[DEBUG] About to set managedShells for label: ${label}`);
-	managedShells.set(label, shellInfo);
-	log.error(label, `[DEBUG] After set managedShells for label: ${label}`);
-	updateProcessStatus(label, "starting");
-	log.debug(label, "ShellInfo created/updated in state.", "tool");
+	log.error(
+		normalizedLabel,
+		`[DEBUG] About to set managedShells for label: ${normalizedLabel}`,
+	);
+	managedShells.set(normalizedLabel, shellInfo);
+	log.error(
+		normalizedLabel,
+		`[DEBUG] After set managedShells for label: ${normalizedLabel}`,
+	);
+	updateProcessStatus(normalizedLabel, "starting");
+	log.debug(normalizedLabel, "ShellInfo created/updated in state.", "tool");
 
 	// 5. Setup Log File Streaming (call helper)
 	setupLogFileStream(shellInfo); // Mutates shellInfo
 	addLogEntry(
-		label,
+		normalizedLabel,
 		`Shell spawned successfully (PID: ${ptyProcess.pid}) in ${effectiveWorkingDirectory}. Status: starting.`,
 		"tool",
 	);
 
 	// 6. Attach Persistent Listeners (if not failed/exited)
-	const currentShellState = getShellInfo(label);
+	const currentShellState = getShellInfo(normalizedLabel);
 	if (
 		currentShellState?.shell &&
 		!["error", "crashed", "stopped"].includes(currentShellState.status)
 	) {
 		log.debug(
-			label,
+			normalizedLabel,
 			`Attaching persistent listeners. Status: ${currentShellState.status}`,
 			"tool",
 		);
@@ -523,7 +534,7 @@ export async function startShell(
 		// Data Listener
 		const FLUSH_IDLE_MS = 50;
 		const dataListener = (data: string): void => {
-			const currentInfo = getShellInfo(label);
+			const currentInfo = getShellInfo(normalizedLabel);
 			if (!currentInfo) return;
 
 			// --- OSC 133 rolling buffer detection (on every data chunk) ---
@@ -567,10 +578,14 @@ export async function startShell(
 					currentInfo.partialLineBuffer.length > 0
 				) {
 					try {
-						handleData(label, currentInfo.partialLineBuffer, "stdout");
+						handleData(
+							normalizedLabel,
+							currentInfo.partialLineBuffer,
+							"stdout",
+						);
 					} catch (e: unknown) {
 						log.error(
-							label,
+							normalizedLabel,
 							"Error processing PTY data (idle flush)",
 							(e as Error).message,
 						);
@@ -590,9 +605,13 @@ export async function startShell(
 				const trimmedLine = line.replace(/[\r\n]+$/, "");
 				if (trimmedLine) {
 					try {
-						handleData(label, trimmedLine, "stdout");
+						handleData(normalizedLabel, trimmedLine, "stdout");
 					} catch (e: unknown) {
-						log.error(label, "Error processing PTY data", (e as Error).message);
+						log.error(
+							normalizedLabel,
+							"Error processing PTY data",
+							(e as Error).message,
+						);
 					}
 				}
 				lastIndex = endIdx;
@@ -611,7 +630,7 @@ export async function startShell(
 			// DEBUG: Log when isProbablyAwaitingInput is set by OSC 133
 			if (idx !== -1) {
 				log.error(
-					label,
+					normalizedLabel,
 					"[OSC133 DEBUG] Detected PROMPT_END_SEQUENCE, setting isProbablyAwaitingInput = true",
 				);
 			}
@@ -624,7 +643,7 @@ export async function startShell(
 			signal,
 		}: { exitCode: number; signal?: number }) => {
 			// On exit, flush any remaining buffer
-			const currentInfo = getShellInfo(label);
+			const currentInfo = getShellInfo(normalizedLabel);
 			if (currentInfo) {
 				log.info(
 					"[DEBUG][exitListener] lastLogTimestampReturned before flush:",
@@ -639,14 +658,18 @@ export async function startShell(
 					currentInfo.partialLineBuffer.length > 0
 				) {
 					try {
-						handleData(label, currentInfo.partialLineBuffer, "stdout");
+						handleData(
+							normalizedLabel,
+							currentInfo.partialLineBuffer,
+							"stdout",
+						);
 						log.info(
 							"[DEBUG][exitListener] Flushed log on exit:",
 							currentInfo.partialLineBuffer,
 						);
 					} catch (e: unknown) {
 						log.error(
-							label,
+							normalizedLabel,
 							"Error processing PTY data (exit flush)",
 							(e as Error).message,
 						);
@@ -659,19 +682,23 @@ export async function startShell(
 				);
 			}
 			handleShellExit(
-				label,
+				normalizedLabel,
 				exitCode ?? null,
 				signal !== undefined ? String(signal) : null,
 			);
 		};
 		shellInfo.mainExitListenerDisposable = ptyProcess.onExit(exitListener);
-		log.debug(label, "Persistent listeners attached.", "tool");
+		log.debug(normalizedLabel, "Persistent listeners attached.", "tool");
 		// Immediately set status to 'running' for non-verification processes
-		updateProcessStatus(label, "running");
-		addLogEntry(label, "Status: running (no verification specified).", "tool");
+		updateProcessStatus(normalizedLabel, "running");
+		addLogEntry(
+			normalizedLabel,
+			"Status: running (no verification specified).",
+			"tool",
+		);
 	} else {
 		log.warn(
-			label,
+			normalizedLabel,
 			`Skipping persistent listener attachment. Shell state: ${currentShellState?.status}, shell exists: ${!!currentShellState?.shell}`,
 			"tool",
 		);
@@ -682,22 +709,32 @@ export async function startShell(
 	let settleWaitMs = 0;
 	const settleStart = Date.now();
 	if (ptyProcess) {
-		const settleResult = await waitForLogSettleOrTimeout(label, ptyProcess);
+		const settleResult = await waitForLogSettleOrTimeout(
+			normalizedLabel,
+			ptyProcess,
+		);
 		settleStatus = settleResult.settled ? "settled" : "timeout";
 		settleWaitMs = Date.now() - settleStart;
 	}
 
 	// 7. Construct Final Payload
-	log.error(label, `[DEBUG] About to getShellInfo for label: ${label}`);
-	const finalShellInfo = getShellInfo(label);
+	log.error(
+		normalizedLabel,
+		`[DEBUG] About to getShellInfo for label: ${normalizedLabel}`,
+	);
+	const finalShellInfo = getShellInfo(normalizedLabel);
 	if (!finalShellInfo) {
-		log.error(label, "Shell info unexpectedly missing after start.", "tool");
 		log.error(
-			label,
-			`[DEBUG] getShellInfo returned undefined for label: ${label}. Stack: ${new Error().stack}`,
+			normalizedLabel,
+			"Shell info unexpectedly missing after start.",
+			"tool",
+		);
+		log.error(
+			normalizedLabel,
+			`[DEBUG] getShellInfo returned undefined for label: ${normalizedLabel}. Stack: ${new Error().stack}`,
 		);
 		return createShellOperationResult(
-			label,
+			normalizedLabel,
 			"error",
 			"Internal error: Shell info lost",
 			undefined,
@@ -708,20 +745,20 @@ export async function startShell(
 	// --- Clear finalizing and cleanup if needed ---
 	finalShellInfo.finalizing = false;
 	if (["stopped", "crashed", "error"].includes(finalShellInfo.status)) {
-		removeShell(label);
+		removeShell(normalizedLabel);
 	}
 
 	if (finalShellInfo.status === "error") {
 		// ... (error payload construction from _startProcess) ...
 		const errorMsg = "Shell failed to start. Final status: error.";
-		log.error(label, errorMsg, "tool");
+		log.error(normalizedLabel, errorMsg, "tool");
 		const payload: z.infer<typeof schemas.StartErrorPayloadSchema> = {
 			error: errorMsg,
 			status: "error",
 			error_type: "start_failed",
 		};
 		return createShellOperationResult(
-			label,
+			normalizedLabel,
 			"error",
 			errorMsg,
 			undefined,
@@ -801,7 +838,7 @@ export async function startShell(
 		verificationTimeoutMs: undefined,
 		detected_urls: detectedUrls.length > 0 ? detectedUrls : undefined,
 	});
-	log.info(label, payload.message, "tool");
+	log.info(normalizedLabel, payload.message, "tool");
 
 	return {
 		content: [{ type: "text", text: JSON.stringify(payload) }],

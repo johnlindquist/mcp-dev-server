@@ -1,5 +1,5 @@
 ---
-description: GitHub Searcher. Load when the user requests to "Search GitHub" or "Get Examples".
+description: Search GitHub
 globs: 
 alwaysApply: false
 ---
