@@ -89,7 +89,7 @@ export const StartShellWithVerificationParams = z.object(
 			.string()
 			.optional()
 			.describe(
-				"Optional regex pattern to match in shell output to verify successful startup. For example, 'running on port 3000' or 'localhost'.",
+				"Important: Rarely used. Optional regex pattern to match in shell output to verify successful startup. For example, 'running on port 3000' or 'localhost'.",
 			),
 		verification_timeout_ms: z
 			.number()
@@ -98,7 +98,7 @@ export const StartShellWithVerificationParams = z.object(
 			.optional()
 			.default(cfg.defaultVerificationTimeoutMs)
 			.describe(
-				"Milliseconds to wait for the verification pattern in shell output. -1 disables the timer (default).",
+				"IMPORTANT: Rarely used. Milliseconds to wait for the verification pattern in shell output. -1 disables the timer (default).",
 			),
 		retry_delay_ms: z
 			.number()
@@ -117,10 +117,7 @@ export const StartShellWithVerificationParams = z.object(
 				`Optional maximum number of restart attempts for a crashed shell (default: ${cfg.maxRetries}). 0 disables restarts.`,
 			),
 	}),
-);
-export type StartProcessWithVerificationParamsType = z.infer<
-	typeof StartShellWithVerificationParams
->;
+).describe("Parameters for starting a shell with verification. IMPORTANT: This is rarely used. Prefer 'StartShellParams' unless the user explicitly requests to verify successful shell startup.");
 
 export const CheckProcessStatusParams = z.object(
 	shape({

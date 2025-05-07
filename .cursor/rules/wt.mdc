@@ -3,6 +3,10 @@ description: Worktree manager. Load when a user requests "Create a worktree", "p
 globs: 
 alwaysApply: false
 ---
+
+To manage worktrees, use the `wt` cli
+If it fails to run, you may need to install `https://www.npmjs.com/package/@johnlindquist/worktree` globally
+
 Usage: wt [options] [command]
 
 Manage git worktrees and open them in the Cursor editor.
@@ -28,3 +32,12 @@ Commands:
                                       number and create a worktree.
   config                              Manage CLI configuration settings.
   help [command]                      display help for command
+
+
+Examples:
+
+wt new feature/login
+wt new feature/chat --checkout
+wt new feature/auth -p ./auth-worktree
+wt new feature/deps -i pnpm
+wt new feature/vscode -e code

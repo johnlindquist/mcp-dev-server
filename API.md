@@ -40,7 +40,7 @@ On failure, returns an error object, potentially including `error`, `status`, `c
 
 ### `start_shell_with_verification`
 
-Starts a background process with verification (pattern, timeout, retries).
+Starts a background process with verification (pattern, timeout, retries). Rarely used, prefer `start_shell` unless the user explicitly uses the words "to verify that the shell has started".
 
 **Parameters:**
 
