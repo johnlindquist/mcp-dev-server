@@ -3,9 +3,8 @@ description: Plan creator. Load when the user wants to make plans.
 globs:
 alwaysApply: false
 ---
-
 <goal>
-1. Create a .cursor/plans/<YYYY-MM-DD-HH-MM>-<plan-name>.md file with the contents of the plan.
+1. Create a docs/plans/<YYYY-MM-DD-HH-MM>-<plan-name>.md file with the contents of the plan.
 2. Write the contents of the <instructions/> based the user's request
 </goal>
 
