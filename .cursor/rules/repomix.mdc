@@ -1,8 +1,11 @@
 ---
-description: Pack a directory
+description: File packer. Load when a user requests "Pack files/directory/pattern"
 globs:
 alwaysApply: false
 ---
+
+> Note: Always use `-o tmp/<filename>` so that the file is saved to a "tmp" directory in the current project.
+
 Usage: repomix [options] [directories...]
 
 Repomix - Pack your repository into a single AI-friendly file

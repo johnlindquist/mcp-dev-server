@@ -1,5 +1,5 @@
 ---
-description: Create a worktree
+description: Worktree manager. Load when a user requests "Create a worktree", "purge worktrees", etc.
 globs: 
 alwaysApply: false
 ---

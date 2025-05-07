@@ -1,5 +1,5 @@
 ---
-description: Diagram Creator. Load when the user wants to create a diagram.
+description: Diagram Creator. Load when the user requests "Create a diagram".
 globs:
 alwaysApply: false
 ---

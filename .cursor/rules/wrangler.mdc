@@ -1,5 +1,5 @@
 ---
-description: Use wrangler
+description: Wrangler runner. Load when a user requests to run a wrangler command.
 globs: 
 alwaysApply: false
 ---
