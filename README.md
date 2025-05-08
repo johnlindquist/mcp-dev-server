@@ -145,6 +145,26 @@ This server exposes the following tools for MCP clients:
 *   `wait_for_shell`: Waits for a specific process to reach a target status. (Requires label)
 *   `get_all_loglines`: Retrieves the complete stored log history for a specific managed process. (Requires label)
 *   `send_input`: Sends text input to the stdin of a running process. (Requires label)
+
+    **New Behavior:** After sending input, this tool waits 1 second and then returns the result of a `check_shell` call, including updated logs and process status. This allows you to see the immediate effect of your input on the process.
+
+    **Example:**
+    ```js
+    // Integration test snippet
+    const sendInputRequest = {
+      jsonrpc: "2.0",
+      method: "tools/call",
+      params: {
+        name: "send_input",
+        arguments: { label, input: 'echo "hello from send_input"' },
+      },
+      id: `req-sendinput-${label}`,
+    };
+    const sendInputResponse = (await sendRequest(serverProcess, sendInputRequest));
+    const sendInputResult = JSON.parse(sendInputResponse.result.content[0].text);
+    // sendInputResult.logs will include "hello from send_input"
+    // sendInputResult.status will reflect the updated process state
+    ```
 *   `health_check`: Provides a status summary of the process manager itself.
 
 ## Quick Start: Running the Server
