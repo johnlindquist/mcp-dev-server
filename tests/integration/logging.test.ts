@@ -530,6 +530,7 @@ describe("Tool Features: Logging and Summaries", () => {
 			let foundError = false;
 			let foundUrl = false;
 			let logsJoined = "";
+			let stoppedAt: number | null = null;
 			for (let i = 0; i < 60; i++) {
 				const checkRequest2 = {
 					jsonrpc: "2.0",
@@ -562,9 +563,16 @@ describe("Tool Features: Logging and Summaries", () => {
 					if (/URL: http:\/\/localhost:1234\/after/.test(logsJoined))
 						foundUrl = true;
 					if (foundError && foundUrl) break;
-					if (result2.status === "stopped" && !(foundError && foundUrl)) {
+					if (result2.status === "stopped" && stoppedAt === null) {
+						stoppedAt = i;
+					}
+					if (
+						stoppedAt !== null &&
+						i - stoppedAt >= 5 &&
+						!(foundError && foundUrl)
+					) {
 						console.error(
-							"[DEBUG][inputLogs] Process stopped before logs found. Logs:",
+							"[DEBUG][inputLogs] Process stopped and logs not found after 5 extra polls. Logs:",
 							logsJoined,
 						);
 						break;
