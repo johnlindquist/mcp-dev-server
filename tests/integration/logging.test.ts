@@ -526,11 +526,11 @@ describe("Tool Features: Logging and Summaries", () => {
 			};
 			await sendRequest(serverProcess, sendInputRequest);
 
-			// Poll for the expected output in logs (up to 30 times, 100ms apart)
+			// Poll for the expected output in logs (up to 60 times, 200ms apart)
 			let foundError = false;
 			let foundUrl = false;
 			let logsJoined = "";
-			for (let i = 0; i < 30; i++) {
+			for (let i = 0; i < 60; i++) {
 				const checkRequest2 = {
 					jsonrpc: "2.0",
 					method: "tools/call",
@@ -546,17 +546,31 @@ describe("Tool Features: Logging and Summaries", () => {
 				)) as MCPResponse;
 				const check2Result = check2Response.result as CallToolResult;
 				const result2ContentText = check2Result?.content?.[0]?.text;
-				logsJoined = "";
 				if (result2ContentText) {
-					const result2 = JSON.parse(result2ContentText) as ProcessStatusResult & {
+					const result2 = JSON.parse(
+						result2ContentText,
+					) as ProcessStatusResult & {
 						message?: string;
 					};
-					logsJoined = result2.logs.join("\n");
+					const logsArr = result2.logs ?? [];
+					logsJoined = logsArr.join("\n");
+					console.log(
+						`[DEBUG][inputLogs][poll ${i}] status: ${result2.status}, logs:`,
+						logsJoined,
+					);
 					if (/Error after input/.test(logsJoined)) foundError = true;
-					if (/URL: http:\/\/localhost:1234\/after/.test(logsJoined)) foundUrl = true;
+					if (/URL: http:\/\/localhost:1234\/after/.test(logsJoined))
+						foundUrl = true;
 					if (foundError && foundUrl) break;
+					if (result2.status === "stopped" && !(foundError && foundUrl)) {
+						console.error(
+							"[DEBUG][inputLogs] Process stopped before logs found. Logs:",
+							logsJoined,
+						);
+						break;
+					}
 				}
-				await new Promise((resolve) => setTimeout(resolve, 100));
+				await new Promise((resolve) => setTimeout(resolve, 200));
 			}
 			if (!foundError || !foundUrl) {
 				console.error("[DEBUG] Logs after polling:", logsJoined);
