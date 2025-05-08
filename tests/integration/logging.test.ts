@@ -524,62 +524,74 @@ describe("Tool Features: Logging and Summaries", () => {
 				},
 				id: `req-send-input-logs-${label}`,
 			};
-			await sendRequest(serverProcess, sendInputRequest);
 
-			// Poll for the expected output in logs (up to 60 times, 200ms apart)
-			let foundError = false;
-			let foundUrl = false;
-			let logsJoined = "";
+			// First, check the direct response from send_input
+			const sendInputResponse = (await sendRequest(
+				serverProcess,
+				sendInputRequest,
+			)) as MCPResponse;
+			const sendInputResult = sendInputResponse.result as CallToolResult;
+			const sendInputContentText = sendInputResult?.content?.[0]?.text;
+			expect(sendInputContentText).toBeDefined();
+			const sendInputParsed = JSON.parse(sendInputContentText as string) as ProcessStatusResult & { message?: string };
+			let logsJoined = (sendInputParsed.logs ?? []).join("\n");
+			let foundError = /Error after input/.test(logsJoined);
+			let foundUrl = /URL: http:\/\/localhost:1234\/after/.test(logsJoined);
 			let stoppedAt: number | null = null;
-			for (let i = 0; i < 60; i++) {
-				const checkRequest2 = {
-					jsonrpc: "2.0",
-					method: "tools/call",
-					params: {
-						name: "check_shell",
-						arguments: { label: label, log_lines: 100 },
-					},
-					id: `req-check2-input-logs-${label}-${i}`,
-				};
-				const check2Response = (await sendRequest(
-					serverProcess,
-					checkRequest2,
-				)) as MCPResponse;
-				const check2Result = check2Response.result as CallToolResult;
-				const result2ContentText = check2Result?.content?.[0]?.text;
-				if (result2ContentText) {
-					const result2 = JSON.parse(
-						result2ContentText,
-					) as ProcessStatusResult & {
-						message?: string;
+
+			if (!(foundError && foundUrl)) {
+				console.warn("[DEBUG][inputLogs] Expected logs not found in send_input response. Falling back to polling. send_input logs:", logsJoined);
+				// Poll for the expected output in logs (up to 60 times, 200ms apart)
+				for (let i = 0; i < 60; i++) {
+					const checkRequest2 = {
+						jsonrpc: "2.0",
+						method: "tools/call",
+						params: {
+							name: "check_shell",
+							arguments: { label: label, log_lines: 100 },
+						},
+						id: `req-check2-input-logs-${label}-${i}`,
 					};
-					const logsArr = result2.logs ?? [];
-					logsJoined = logsArr.join("\n");
-					console.log(
-						`[DEBUG][inputLogs][poll ${i}] status: ${result2.status}, logs:`,
-						logsJoined,
-					);
-					if (/Error after input/.test(logsJoined)) foundError = true;
-					if (/URL: http:\/\/localhost:1234\/after/.test(logsJoined))
-						foundUrl = true;
-					if (foundError && foundUrl) break;
-					if (result2.status === "stopped" && stoppedAt === null) {
-						stoppedAt = i;
-					}
-					if (
-						stoppedAt !== null &&
-						i - stoppedAt >= 5 &&
-						!(foundError && foundUrl)
-					) {
-						console.error(
-							"[DEBUG][inputLogs] Process stopped and logs not found after 5 extra polls. Logs:",
+					const check2Response = (await sendRequest(
+						serverProcess,
+						checkRequest2,
+					)) as MCPResponse;
+					const check2Result = check2Response.result as CallToolResult;
+					const result2ContentText = check2Result?.content?.[0]?.text;
+					if (result2ContentText) {
+						const result2 = JSON.parse(
+							result2ContentText,
+						) as ProcessStatusResult & { message?: string };
+						const logsArr = result2.logs ?? [];
+						logsJoined = logsArr.join("\n");
+						console.log(
+							`[DEBUG][inputLogs][poll ${i}] status: ${result2.status}, logs:`,
 							logsJoined,
 						);
-						break;
+						if (/Error after input/.test(logsJoined)) foundError = true;
+						if (/URL: http:\/\/localhost:1234\/after/.test(logsJoined)) {
+							foundUrl = true;
+						}
+						if (foundError && foundUrl) break;
+						if (result2.status === "stopped" && stoppedAt === null) {
+							stoppedAt = i;
+						}
+						if (
+							stoppedAt !== null &&
+							i - stoppedAt >= 5 &&
+							!(foundError && foundUrl)
+						) {
+							console.error(
+								"[DEBUG][inputLogs] Process stopped and logs not found after 5 extra polls. Logs:",
+								logsJoined,
+							);
+							break;
+						}
 					}
+					await new Promise((resolve) => setTimeout(resolve, 200));
 				}
-				await new Promise((resolve) => setTimeout(resolve, 200));
 			}
+
 			if (!foundError || !foundUrl) {
 				console.error("[DEBUG] Logs after polling:", logsJoined);
 			}
