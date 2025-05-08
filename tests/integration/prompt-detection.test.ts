@@ -104,7 +104,7 @@ echo "OSC 133 Configured"
 							resolve(parsedResponse);
 							return;
 						}
-					} catch {}
+					} catch { }
 				}
 			};
 			const onError = (err: Error) => {
@@ -582,6 +582,72 @@ echo "OSC 133 Configured"
 		};
 		const result = JSON.parse(resp.result.content[0].text);
 		expect(result.isProbablyAwaitingInput).toBe(true);
+		// Cleanup
+		const stopRequest = {
+			jsonrpc: "2.0",
+			method: "tools/call",
+			params: { name: "stop_shell", arguments: { label } },
+			id: `req-stop-${label}`,
+		};
+		await sendRequest(serverProcess, stopRequest);
+	});
+
+	it("send_input returns check_shell result after 1s delay", async () => {
+		const label = LABEL_PREFIX + "send-input-check-" + Date.now();
+		// Start shell
+		const startRequest = {
+			jsonrpc: "2.0",
+			method: "tools/call",
+			params: {
+				name: "start_shell",
+				arguments: {
+					label,
+					command: COMMAND,
+					args: ARGS,
+					workingDirectory: process.cwd(),
+				},
+			},
+			id: `req-start-${label}`,
+		};
+		await sendRequest(serverProcess, startRequest);
+
+		// Send input and capture response
+		const input = 'echo "hello from send_input"';
+		const sendInputRequest = {
+			jsonrpc: "2.0",
+			method: "tools/call",
+			params: {
+				name: "send_input",
+				arguments: { label, input },
+			},
+			id: `req-sendinput-${label}`,
+		};
+		const sendInputResponse = (await sendRequest(serverProcess, sendInputRequest)) as {
+			result: { content: { text: string }[] };
+		};
+		const sendInputResult = JSON.parse(sendInputResponse.result.content[0].text);
+		// Assert logs and status are present
+		expect(sendInputResult).toHaveProperty("logs");
+		expect(Array.isArray(sendInputResult.logs)).toBe(true);
+		expect(sendInputResult).toHaveProperty("status");
+		// Should include our echo output in logs
+		const logsJoined = sendInputResult.logs.join("\n");
+		expect(logsJoined).toContain("hello from send_input");
+
+		// Optionally, compare with direct check_shell
+		const checkRequest = {
+			jsonrpc: "2.0",
+			method: "tools/call",
+			params: { name: "check_shell", arguments: { label } },
+			id: `req-check-${label}`,
+		};
+		const checkResponse = (await sendRequest(serverProcess, checkRequest)) as {
+			result: { content: { text: string }[] };
+		};
+		const checkResult = JSON.parse(checkResponse.result.content[0].text);
+		// The logs should be similar
+		expect(checkResult.logs.join("\n")).toContain("hello from send_input");
+
 		// Cleanup
 		const stopRequest = {
 			jsonrpc: "2.0",
