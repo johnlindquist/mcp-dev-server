@@ -1,5 +1,5 @@
 ---
-description: PR creator. Load when the user requests to "Create a Pull Request" or "Create a PR"
+description: Pull Request Rules. Invoke with "Create a Pull Request" or "Create a PR"
 globs:
 alwaysApply: false
 ---

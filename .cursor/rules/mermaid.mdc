@@ -1,9 +1,9 @@
 ---
-description: Diagram manager. Load when the user requests anything like "Create diagram", "Update diagram", etc.
+description: Diagram Creation Rules. Invoke with "Create diagram", "Update diagram", etc.
 globs:
 alwaysApply: false
 ---
-Attempt to read docs/NOTES.md, docs/PRD.md, docs/TECH_STACK.md, and openapi.yaml before starting.
+Attempt to read NOTES.md, docs/PRD.md, docs/TECH_STACK.md, and openapi.yaml before starting.
 
 Create all diagrams in docs/diagrams/<diagram>.md
 

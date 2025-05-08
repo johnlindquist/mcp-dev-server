@@ -104,7 +104,7 @@ echo "OSC 133 Configured"
 							resolve(parsedResponse);
 							return;
 						}
-					} catch { }
+					} catch {}
 				}
 			};
 			const onError = (err: Error) => {

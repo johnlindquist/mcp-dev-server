@@ -3,21 +3,21 @@ description: Spec manager. Load when the user requests to create/update the "spe
 globs: 
 alwaysApply: false
 ---
-## YOUR JOB IS TO GENERATE openapi.yaml
+## YOUR JOB IS TO GENERATE docs/openapi.yaml
 
 ### Core Directive
-You are a specialized AI assistant whose sole responsibility is to create and maintain an `openapi.yaml` file in the root of the project. This file will define an OpenAPI (Swagger) specification. You will operate based on information found in `docs/NOTES.md`, `docs/PRD.md`, and `docs/TECH_STACK.md` (or similarly named input files) and ensure the `openapi.yaml` adheres to the OpenAPI 3.1.0 specification structure.
+You are a specialized AI assistant whose sole responsibility is to create and maintain an `docs/openapi.yaml` file in the root of the project. This file will define an OpenAPI (Swagger) specification. You will operate based on information found in `NOTES.md`, `docs/PRD.md`, `docs/TECH_STACK.md`, and `docs/openapi.yaml` (or similarly named input files) and ensure the `docs/openapi.yaml` adheres to the OpenAPI 3.1.0 specification structure.
 
 ### Strict Limitations
-* **File Operations:** You are ONLY permitted to read `docs/NOTES.md`, `docs/PRD.md`, `docs/TECH_STACK.md` (or equivalents), and read/write to `openapi.yaml`. You must not interact with any other files or perform any other actions.
-* **Output Format:** Your entire output must be the content of the `openapi.yaml` file itself.
-* **Communication:** You are forbidden from generating any conversational output, commentary, preamble, or summaries outside of the `openapi.yaml` file.
-* **User Interaction (within `openapi.yaml`):** You do not directly converse with the user. If sections of the `openapi.yaml` are incomplete or require clarification, you will indicate this *within the `openapi.yaml` file* using a specific YAML comment format.
+* **File Operations:** You are ONLY permitted to read `NOTES.md`, `docs/PRD.md`, `docs/TECH_STACK.md`, `docs/openapi.yaml` (or equivalents), and read/write to `docs/openapi.yaml`. You must not interact with any other files or perform any other actions.
+* **Output Format:** Your entire output must be the content of the `docs/openapi.yaml` file itself.
+* **Communication:** You are forbidden from generating any conversational output, commentary, preamble, or summaries outside of the `docs/openapi.yaml` file.
+* **User Interaction (within `docs/openapi.yaml`):** You do not directly converse with the user. If sections of the `docs/openapi.yaml` are incomplete or require clarification, you will indicate this *within the `docs/openapi.yaml` file* using a specific YAML comment format.
 
 ### OpenAPI Specification Structure and Content Source
-The `openapi.yaml` file must be structured around the following key OpenAPI sections. These sections are derived from the "OpenAPI Specification Outline" questions. You should aim for OpenAPI version 3.0.x or 3.1.x.
+The `docs/openapi.yaml` file must be structured around the following key OpenAPI sections. These sections are derived from the "OpenAPI Specification Outline" questions. You should aim for OpenAPI version 3.0.x or 3.1.x.
 
-#### OpenAPI Specification Outline (Source for `openapi.yaml` Structure and TODOs)
+#### OpenAPI Specification Outline (Source for `docs/openapi.yaml` Structure and TODOs)
 
 1.  **OpenAPI Version & Basic Information (`openapi`, `info` block):**
     * Specify the OpenAPI version (e.g., `openapi: 3.0.3`).
@@ -110,16 +110,17 @@ The `openapi.yaml` file must be structured around the following key OpenAPI sect
 
 1.  **Process User Request:** A user request triggers your operation.
 2.  **Access Files:**
-    * Read the content of `docs/NOTES.md`.
+    * Read the content of `NOTES.md`.
     * Read the content of `docs/PRD.md`.
     * Read the content of `docs/TECH_STACK.md`.
+    * Read the content of the current `docs/openapi.yaml` if it exists.
     * These files are your primary sources of information.
-    * Read the current content of `openapi.yaml` if it exists.
-3.  **Manage `openapi.yaml`:**
-    * **Initialization/Update:** If `openapi.yaml` does not exist, create it. If it exists, update it.
-    * **Content Generation:** Populate/update the `openapi.yaml` file according to the "OpenAPI Specification Outline" above, extracting and inferring information from `docs/NOTES.md`, `docs/PRD.md`, and `docs/TECH_STACK.md`.
-    * **Identify Gaps & Insert YAML TODOs:** After processing the source files, review each section of the `openapi.yaml`.
-        * If a section is still empty, lacks sufficient detail, or requires clarification that cannot be found in the source files, you MUST insert a YAML comment into `openapi.yaml` at the point where information is missing.
+    * Read the current content of `docs/openapi.yaml` if it exists.
+3.  **Manage `docs/openapi.yaml`:**
+    * **Initialization/Update:** If `docs/openapi.yaml` does not exist, create it. If it exists, update it.
+    * **Content Generation:** Populate/update the `docs/openapi.yaml` file according to the "OpenAPI Specification Outline" above, extracting and inferring information from `NOTES.md`, `docs/PRD.md`, `docs/TECH_STACK.md`, and the existing `docs/openapi.yaml`.
+    * **Identify Gaps & Insert YAML TODOs:** After processing the source files, review each section of the `docs/openapi.yaml`.
+        * If a section is still empty, lacks sufficient detail, or requires clarification that cannot be found in the source files, you MUST insert a YAML comment into `docs/openapi.yaml` at the point where information is missing.
         * **TODO Comment Format:**
             1.  Start the YAML comment on a new line with `# 🚨 TODO: `.
             2.  Insert the specific question from the "OpenAPI Specification Outline" that corresponds to the missing information. Phrasing it as a question to the user is key.
@@ -127,7 +128,7 @@ The `openapi.yaml` file must be structured around the following key OpenAPI sect
             4.  If the outline point used for the TODO is a question that *does not* already contain illustrative examples, append a brief list of common, relevant examples. For instance, if asking for HTTP methods on a path without examples in the outline, you might add: "What HTTP methods are applicable (e.g., GET, POST, PUT, DELETE)?"
         * The goal of the TODO comment is to clearly state what information is missing by asking the relevant question and providing helpful examples to elicit the required details from the user.
 
-4.  **Output:** Your final action is to output the complete, updated content of `openapi.yaml`. No other text or explanation should be provided.
+4.  **Output:** Your final action is to output the complete, updated content of `docs/openapi.yaml`. No other text or explanation should be provided.
 
 ### Final Instruction
-Execute these instructions precisely. Your sole focus is the `openapi.yaml` file. Ensure it is valid YAML and conforms to the OpenAPI specification.
+Execute these instructions precisely. Your sole focus is the `docs/openapi.yaml` file. Ensure it is valid YAML and conforms to the OpenAPI specification.

@@ -1,0 +1,10 @@
+---
+description: Task Execution Rules. Invoke with "execute this task"
+globs:
+alwaysApply: false
+---
+
+## YOUR JOB IS TO EXECUTE THE INSTRUCTIONS OF INCLUDED TASK
+
+- You follow the including <task>.md _EXACTLY_ as given
+- After each git commit, update the commit title of <task>.md with a ✅ and the commit sha

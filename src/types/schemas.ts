@@ -54,70 +54,74 @@ export const StartShellParams = z.object(
 export type StartProcessParamsType = z.infer<typeof StartShellParams>;
 
 // New: StartProcessWithVerificationParams
-export const StartShellWithVerificationParams = z.object(
-	shape({
-		label: labelSchema
-			.optional()
-			.describe(
-				"Optional human-readable identifier for the shell (e.g. 'dev-server'). Leave blank to let the server generate one based on working directory and command.",
-			),
-		command: z
-			.string()
-			.min(1)
-			.describe(
-				"The command to execute in the shell. For example, 'npm', 'python', or any executable.",
-			),
-		args: z
-			.array(z.string())
-			.optional()
-			.default([])
-			.describe(
-				"Optional arguments for the shell command, e.g. 'npm run dev' would be ['run', 'dev'].",
-			),
-		workingDirectory: z
-			.string()
-			.min(1)
-			.describe(
-				"The absolute working directory to launch the shell from. Required. Do not use relative paths like '.' or '../'. Provide the full path (e.g., /Users/me/myproject).",
-			),
-		host: HostEnum.optional()
-			.default("unknown")
-			.describe(
-				"Identifier for the client initiating the shell (e.g., 'cursor', 'claude', 'vscode'). Defaults to 'unknown'.",
-			),
-		verification_pattern: z
-			.string()
-			.optional()
-			.describe(
-				"Important: Rarely used. Optional regex pattern to match in shell output to verify successful startup. For example, 'running on port 3000' or 'localhost'.",
-			),
-		verification_timeout_ms: z
-			.number()
-			.int()
-			.min(-1)
-			.optional()
-			.default(cfg.defaultVerificationTimeoutMs)
-			.describe(
-				"IMPORTANT: Rarely used. Milliseconds to wait for the verification pattern in shell output. -1 disables the timer (default).",
-			),
-		retry_delay_ms: z
-			.number()
-			.int()
-			.positive()
-			.optional()
-			.describe(
-				`Optional delay before restarting a crashed shell in milliseconds (default: ${cfg.defaultRetryDelayMs}ms).`,
-			),
-		max_retries: z
-			.number()
-			.int()
-			.min(0)
-			.optional()
-			.describe(
-				`Optional maximum number of restart attempts for a crashed shell (default: ${cfg.maxRetries}). 0 disables restarts.`,
-			),
-	}),
-).describe("Parameters for starting a shell with verification. IMPORTANT: This is rarely used. Prefer 'StartShellParams' unless the user explicitly requests to verify successful shell startup.");
+export const StartShellWithVerificationParams = z
+	.object(
+		shape({
+			label: labelSchema
+				.optional()
+				.describe(
+					"Optional human-readable identifier for the shell (e.g. 'dev-server'). Leave blank to let the server generate one based on working directory and command.",
+				),
+			command: z
+				.string()
+				.min(1)
+				.describe(
+					"The command to execute in the shell. For example, 'npm', 'python', or any executable.",
+				),
+			args: z
+				.array(z.string())
+				.optional()
+				.default([])
+				.describe(
+					"Optional arguments for the shell command, e.g. 'npm run dev' would be ['run', 'dev'].",
+				),
+			workingDirectory: z
+				.string()
+				.min(1)
+				.describe(
+					"The absolute working directory to launch the shell from. Required. Do not use relative paths like '.' or '../'. Provide the full path (e.g., /Users/me/myproject).",
+				),
+			host: HostEnum.optional()
+				.default("unknown")
+				.describe(
+					"Identifier for the client initiating the shell (e.g., 'cursor', 'claude', 'vscode'). Defaults to 'unknown'.",
+				),
+			verification_pattern: z
+				.string()
+				.optional()
+				.describe(
+					"Important: Rarely used. Optional regex pattern to match in shell output to verify successful startup. For example, 'running on port 3000' or 'localhost'.",
+				),
+			verification_timeout_ms: z
+				.number()
+				.int()
+				.min(-1)
+				.optional()
+				.default(cfg.defaultVerificationTimeoutMs)
+				.describe(
+					"IMPORTANT: Rarely used. Milliseconds to wait for the verification pattern in shell output. -1 disables the timer (default).",
+				),
+			retry_delay_ms: z
+				.number()
+				.int()
+				.positive()
+				.optional()
+				.describe(
+					`Optional delay before restarting a crashed shell in milliseconds (default: ${cfg.defaultRetryDelayMs}ms).`,
+				),
+			max_retries: z
+				.number()
+				.int()
+				.min(0)
+				.optional()
+				.describe(
+					`Optional maximum number of restart attempts for a crashed shell (default: ${cfg.maxRetries}). 0 disables restarts.`,
+				),
+		}),
+	)
+	.describe(
+		"Parameters for starting a shell with verification. IMPORTANT: This is rarely used. Prefer 'StartShellParams' unless the user explicitly requests to verify successful shell startup.",
+	);
 
 export const CheckProcessStatusParams = z.object(
 	shape({
