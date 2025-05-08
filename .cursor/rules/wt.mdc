@@ -41,3 +41,6 @@ wt new feature/chat --checkout
 wt new feature/auth -p ./auth-worktree
 wt new feature/deps -i pnpm
 wt new feature/vscode -e code
+
+Assumptions:
+- When running `wt new`, append `-i pnpm` to install packages with pnpm

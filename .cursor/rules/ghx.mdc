@@ -1,5 +1,5 @@
 ---
-description: GitHub Examples Searcher. Load when user requests "Search GitHub" or "Search GitHub for Examples"
+description: GitHub Search Rules. Invoke with "Search GitHub" or "Search GitHub for Examples"
 globs: 
 alwaysApply: false
 ---

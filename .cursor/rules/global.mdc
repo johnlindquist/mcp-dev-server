@@ -1,0 +1,28 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+## Guiding Principles
+1. Observability: add excessive logging
+2. Small files: limit files to 200 lines
+3. Micro-milestones: perform work in commit-sized chunks. Optimize for rewinding.
+
+## Package Managers
+Default to pnpm unless otherwise specified
+
+## Running Terminal Commands
+Avoid newline characters in commit messages, long strings, etc. They break out automated terminal tool
+
+## Git
+- AVOID --no-verify
+- Never push a failing test to the repo
+
+## Project and Config Initialization
+Always use popular CLIs for creating project and configs
+
+Examples: 
+- pnpm init
+- pnpm dlx shadcn@latest add table accordion tabs separator
+- pnpm --package=typescript dlx tsc --init
+- pnpm create cloudflare@latest . --framework=next --platform=pages

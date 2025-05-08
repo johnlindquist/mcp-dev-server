@@ -566,13 +566,13 @@ export async function sendInputImpl(
 
 	if (!processInfo || !processInfo.shell) {
 		const status = processInfo?.status ?? "not_found";
-		const message = `Process "${label}" not running or not found (status: ${status}). Cannot send input.`;
+		const message = `Process \"${label}\" not running or not found (status: ${status}). Cannot send input.`;
 		log.warn(label, message);
 		return fail(textPayload(JSON.stringify({ error: message })));
 	}
 
 	if (processInfo.status !== "running" && processInfo.status !== "verifying") {
-		const message = `Process "${label}" is not in a running or verifying state (status: ${processInfo.status}). Cannot reliably send input.`;
+		const message = `Process \"${label}\" is not in a running or verifying state (status: ${processInfo.status}). Cannot reliably send input.`;
 		log.warn(label, message);
 		return fail(textPayload(JSON.stringify({ error: message })));
 	}
@@ -581,16 +581,28 @@ export async function sendInputImpl(
 		const inputToSend = appendNewline ? `${input}\r` : input;
 		log.debug(
 			label,
-			`Sending input to PTY: "${stripAnsiAndControlChars(inputToSend)}"`,
+			`Sending input to PTY: \"${stripAnsiAndControlChars(inputToSend)}\"`,
 		);
 		await writeToPty(processInfo.shell, inputToSend, label);
 		addLogEntry(label, `[MCP_INPUT] ${input}`);
 
-		const message = `Input sent successfully to process "${label}".`;
+		const message = `Input sent successfully to process \"${label}\". Waiting 1 second before checking status...`;
 		log.info(label, message);
-		return ok(textPayload(JSON.stringify({ message })));
+
+		// Wait for 1 second to allow process to react to input
+		await new Promise((resolve) => setTimeout(resolve, 1000));
+		log.info(
+			label,
+			"1 second elapsed after sending input. Checking process status...",
+		);
+
+		// Call checkProcessStatusImpl to get updated status and logs
+		const params = { label, log_lines: cfg.defaultCheckStatusLogLines };
+		const statusResult = await checkProcessStatusImpl(params);
+		log.info(label, "Returning result of checkProcessStatusImpl after input.");
+		return statusResult;
 	} catch (error) {
-		const message = `Failed to send input to process "${label}".`;
+		const message = `Failed to send input to process \"${label}\".`;
 		log.error(label, message, (error as Error).message);
 		const errorMsg =
 			error instanceof Error ? error.message : "Unknown PTY write error";
