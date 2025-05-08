@@ -189,7 +189,13 @@ echo "OSC 133 Configured"
 			},
 			id: `req-config-${label}`,
 		};
-		await sendRequest(serverProcess, configRequest);
+		const configResponse = (await sendRequest(serverProcess, configRequest)) as {
+			result: { content: { text: string }[] };
+		};
+		const configResult = JSON.parse(configResponse.result.content[0].text);
+		expect(configResult).toHaveProperty("logs");
+		expect(Array.isArray(configResult.logs)).toBe(true);
+		expect(configResult).toHaveProperty("status");
 		// Send echo of the sentinel
 		const echoRequest = {
 			jsonrpc: "2.0",
@@ -203,7 +209,13 @@ echo "OSC 133 Configured"
 			},
 			id: `req-echo-${label}`,
 		};
-		await sendRequest(serverProcess, echoRequest);
+		const echoResponse = (await sendRequest(serverProcess, echoRequest)) as {
+			result: { content: { text: string }[] };
+		};
+		const echoResult = JSON.parse(echoResponse.result.content[0].text);
+		expect(echoResult).toHaveProperty("logs");
+		expect(Array.isArray(echoResult.logs)).toBe(true);
+		expect(echoResult).toHaveProperty("status");
 		// Wait for shell to process config and echo
 		await new Promise((resolve) => setTimeout(resolve, 2000));
 		// Check process status and assert isProbablyAwaitingInput is true
@@ -267,7 +279,13 @@ echo "OSC 133 Configured"
 			},
 			id: `req-config-${label}`,
 		};
-		await sendRequest(serverProcess, configRequest);
+		const configResponse = (await sendRequest(serverProcess, configRequest)) as {
+			result: { content: { text: string }[] };
+		};
+		const configResult = JSON.parse(configResponse.result.content[0].text);
+		expect(configResult).toHaveProperty("logs");
+		expect(Array.isArray(configResult.logs)).toBe(true);
+		expect(configResult).toHaveProperty("status");
 		// Echo sentinel
 		const echoRequest = {
 			jsonrpc: "2.0",
@@ -278,7 +296,13 @@ echo "OSC 133 Configured"
 			},
 			id: `req-echo-${label}`,
 		};
-		await sendRequest(serverProcess, echoRequest);
+		const echoResponse = (await sendRequest(serverProcess, echoRequest)) as {
+			result: { content: { text: string }[] };
+		};
+		const echoResult = JSON.parse(echoResponse.result.content[0].text);
+		expect(echoResult).toHaveProperty("logs");
+		expect(Array.isArray(echoResult.logs)).toBe(true);
+		expect(echoResult).toHaveProperty("status");
 		await new Promise((r) => setTimeout(r, 1000));
 		// Check isProbablyAwaitingInput is true
 		const check1 = {
@@ -388,7 +412,13 @@ echo "OSC 133 Configured"
 			},
 			id: `req-config-${label}`,
 		};
-		await sendRequest(serverProcess, configRequest);
+		const configResponse = (await sendRequest(serverProcess, configRequest)) as {
+			result: { content: { text: string }[] };
+		};
+		const configResult = JSON.parse(configResponse.result.content[0].text);
+		expect(configResult).toHaveProperty("logs");
+		expect(Array.isArray(configResult.logs)).toBe(true);
+		expect(configResult).toHaveProperty("status");
 		for (let i = 0; i < 3; i++) {
 			const echoRequest = {
 				jsonrpc: "2.0",
@@ -399,7 +429,13 @@ echo "OSC 133 Configured"
 				},
 				id: `req-echo-${label}-${i}`,
 			};
-			await sendRequest(serverProcess, echoRequest);
+			const echoResponse = (await sendRequest(serverProcess, echoRequest)) as {
+				result: { content: { text: string }[] };
+			};
+			const echoResult = JSON.parse(echoResponse.result.content[0].text);
+			expect(echoResult).toHaveProperty("logs");
+			expect(Array.isArray(echoResult.logs)).toBe(true);
+			expect(echoResult).toHaveProperty("status");
 			await new Promise((r) => setTimeout(r, 500));
 			const check = {
 				jsonrpc: "2.0",
@@ -448,7 +484,13 @@ echo "OSC 133 Configured"
 			},
 			id: `req-config-${label}`,
 		};
-		await sendRequest(serverProcess, configRequest);
+		const configResponse = (await sendRequest(serverProcess, configRequest)) as {
+			result: { content: { text: string }[] };
+		};
+		const configResult = JSON.parse(configResponse.result.content[0].text);
+		expect(configResult).toHaveProperty("logs");
+		expect(Array.isArray(configResult.logs)).toBe(true);
+		expect(configResult).toHaveProperty("status");
 		const echoRequest = {
 			jsonrpc: "2.0",
 			method: "tools/call",
@@ -458,7 +500,13 @@ echo "OSC 133 Configured"
 			},
 			id: `req-echo-${label}`,
 		};
-		await sendRequest(serverProcess, echoRequest);
+		const echoResponse = (await sendRequest(serverProcess, echoRequest)) as {
+			result: { content: { text: string }[] };
+		};
+		const echoResult = JSON.parse(echoResponse.result.content[0].text);
+		expect(echoResult).toHaveProperty("logs");
+		expect(Array.isArray(echoResult.logs)).toBe(true);
+		expect(echoResult).toHaveProperty("status");
 		await new Promise((r) => setTimeout(r, 1000));
 		const stopRequest = {
 			jsonrpc: "2.0",
@@ -507,7 +555,13 @@ echo "OSC 133 Configured"
 			},
 			id: `req-config-${label}`,
 		};
-		await sendRequest(serverProcess, configRequest);
+		const configResponse = (await sendRequest(serverProcess, configRequest)) as {
+			result: { content: { text: string }[] };
+		};
+		const configResult = JSON.parse(configResponse.result.content[0].text);
+		expect(configResult).toHaveProperty("logs");
+		expect(Array.isArray(configResult.logs)).toBe(true);
+		expect(configResult).toHaveProperty("status");
 		const echoRequest = {
 			jsonrpc: "2.0",
 			method: "tools/call",
@@ -517,7 +571,13 @@ echo "OSC 133 Configured"
 			},
 			id: `req-echo-${label}`,
 		};
-		await sendRequest(serverProcess, echoRequest);
+		const echoResponse = (await sendRequest(serverProcess, echoRequest)) as {
+			result: { content: { text: string }[] };
+		};
+		const echoResult = JSON.parse(echoResponse.result.content[0].text);
+		expect(echoResult).toHaveProperty("logs");
+		expect(Array.isArray(echoResult.logs)).toBe(true);
+		expect(echoResult).toHaveProperty("status");
 		await new Promise((r) => setTimeout(r, 1000));
 		const check = {
 			jsonrpc: "2.0",
@@ -568,8 +628,13 @@ echo "OSC 133 Configured"
 			},
 			id: `req-echo-osc133-${label}`,
 		};
-		await sendRequest(serverProcess, echoRequest);
-		await new Promise((r) => setTimeout(r, 1000));
+		const echoResponse = (await sendRequest(serverProcess, echoRequest)) as {
+			result: { content: { text: string }[] };
+		};
+		const echoResult = JSON.parse(echoResponse.result.content[0].text);
+		expect(echoResult).toHaveProperty("logs");
+		expect(Array.isArray(echoResult.logs)).toBe(true);
+		expect(echoResult).toHaveProperty("status");
 		// Check process status and assert isProbablyAwaitingInput is true
 		const checkRequest = {
 			jsonrpc: "2.0",
