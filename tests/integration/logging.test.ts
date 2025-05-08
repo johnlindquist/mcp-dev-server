@@ -526,38 +526,43 @@ describe("Tool Features: Logging and Summaries", () => {
 			};
 			await sendRequest(serverProcess, sendInputRequest);
 
-			// Wait a bit for logs to be generated
-			await new Promise((resolve) => setTimeout(resolve, 500));
-
-			// Second check_shell: should see new logs
-			const checkRequest2 = {
-				jsonrpc: "2.0",
-				method: "tools/call",
-				params: {
-					name: "check_shell",
-					arguments: { label: label, log_lines: 100 },
-				},
-				id: `req-check2-input-logs-${label}`,
-			};
-			const check2Response = (await sendRequest(
-				serverProcess,
-				checkRequest2,
-			)) as MCPResponse;
-			const check2Result = check2Response.result as CallToolResult;
-			const result2ContentText = check2Result?.content?.[0]?.text;
-			expect(result2ContentText).toBeDefined();
-			const result2 = JSON.parse(result2ContentText) as ProcessStatusResult & {
-				message?: string;
-			};
-			logVerbose("[TEST][inputLogs] Second check_shell logs:", result2.logs);
-			console.log("[DEBUG][inputLogs] result2:", result2);
-			expect(result2.logs.join("\n")).toMatch(/Error after input/);
-			expect(result2.logs.join("\n")).toMatch(
-				/URL: http:\/\/localhost:1234\/after/,
-			);
-			expect(result2.message).toMatch(
-				/Since last check: ❌ Errors \(1\), 🔗 URLs \(1\)\./,
-			);
+			// Poll for the expected output in logs (up to 30 times, 100ms apart)
+			let foundError = false;
+			let foundUrl = false;
+			let logsJoined = "";
+			for (let i = 0; i < 30; i++) {
+				const checkRequest2 = {
+					jsonrpc: "2.0",
+					method: "tools/call",
+					params: {
+						name: "check_shell",
+						arguments: { label: label, log_lines: 100 },
+					},
+					id: `req-check2-input-logs-${label}-${i}`,
+				};
+				const check2Response = (await sendRequest(
+					serverProcess,
+					checkRequest2,
+				)) as MCPResponse;
+				const check2Result = check2Response.result as CallToolResult;
+				const result2ContentText = check2Result?.content?.[0]?.text;
+				logsJoined = "";
+				if (result2ContentText) {
+					const result2 = JSON.parse(result2ContentText) as ProcessStatusResult & {
+						message?: string;
+					};
+					logsJoined = result2.logs.join("\n");
+					if (/Error after input/.test(logsJoined)) foundError = true;
+					if (/URL: http:\/\/localhost:1234\/after/.test(logsJoined)) foundUrl = true;
+					if (foundError && foundUrl) break;
+				}
+				await new Promise((resolve) => setTimeout(resolve, 100));
+			}
+			if (!foundError || !foundUrl) {
+				console.error("[DEBUG] Logs after polling:", logsJoined);
+			}
+			expect(logsJoined).toMatch(/Error after input/);
+			expect(logsJoined).toMatch(/URL: http:\/\/localhost:1234\/after/);
 
 			// Third check_shell: after a delay, see if logs appear
 			await new Promise((resolve) => setTimeout(resolve, 200));

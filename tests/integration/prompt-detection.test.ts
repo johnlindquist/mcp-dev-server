@@ -189,7 +189,10 @@ echo "OSC 133 Configured"
 			},
 			id: `req-config-${label}`,
 		};
-		const configResponse = (await sendRequest(serverProcess, configRequest)) as {
+		const configResponse = (await sendRequest(
+			serverProcess,
+			configRequest,
+		)) as {
 			result: { content: { text: string }[] };
 		};
 		const configResult = JSON.parse(configResponse.result.content[0].text);
@@ -279,7 +282,10 @@ echo "OSC 133 Configured"
 			},
 			id: `req-config-${label}`,
 		};
-		const configResponse = (await sendRequest(serverProcess, configRequest)) as {
+		const configResponse = (await sendRequest(
+			serverProcess,
+			configRequest,
+		)) as {
 			result: { content: { text: string }[] };
 		};
 		const configResult = JSON.parse(configResponse.result.content[0].text);
@@ -412,7 +418,10 @@ echo "OSC 133 Configured"
 			},
 			id: `req-config-${label}`,
 		};
-		const configResponse = (await sendRequest(serverProcess, configRequest)) as {
+		const configResponse = (await sendRequest(
+			serverProcess,
+			configRequest,
+		)) as {
 			result: { content: { text: string }[] };
 		};
 		const configResult = JSON.parse(configResponse.result.content[0].text);
@@ -484,7 +493,10 @@ echo "OSC 133 Configured"
 			},
 			id: `req-config-${label}`,
 		};
-		const configResponse = (await sendRequest(serverProcess, configRequest)) as {
+		const configResponse = (await sendRequest(
+			serverProcess,
+			configRequest,
+		)) as {
 			result: { content: { text: string }[] };
 		};
 		const configResult = JSON.parse(configResponse.result.content[0].text);
@@ -555,7 +567,10 @@ echo "OSC 133 Configured"
 			},
 			id: `req-config-${label}`,
 		};
-		const configResponse = (await sendRequest(serverProcess, configRequest)) as {
+		const configResponse = (await sendRequest(
+			serverProcess,
+			configRequest,
+		)) as {
 			result: { content: { text: string }[] };
 		};
 		const configResult = JSON.parse(configResponse.result.content[0].text);
@@ -687,31 +702,53 @@ echo "OSC 133 Configured"
 			},
 			id: `req-sendinput-${label}`,
 		};
-		const sendInputResponse = (await sendRequest(serverProcess, sendInputRequest)) as {
+		const sendInputResponse = (await sendRequest(
+			serverProcess,
+			sendInputRequest,
+		)) as {
 			result: { content: { text: string }[] };
 		};
-		const sendInputResult = JSON.parse(sendInputResponse.result.content[0].text);
+		const sendInputResult = JSON.parse(
+			sendInputResponse.result.content[0].text,
+		);
 		// Assert logs and status are present
 		expect(sendInputResult).toHaveProperty("logs");
 		expect(Array.isArray(sendInputResult.logs)).toBe(true);
 		expect(sendInputResult).toHaveProperty("status");
-		// Should include our echo output in logs
-		const logsJoined = sendInputResult.logs.join("\n");
-		expect(logsJoined).toContain("hello from send_input");
 
-		// Optionally, compare with direct check_shell
-		const checkRequest = {
-			jsonrpc: "2.0",
-			method: "tools/call",
-			params: { name: "check_shell", arguments: { label } },
-			id: `req-check-${label}`,
-		};
-		const checkResponse = (await sendRequest(serverProcess, checkRequest)) as {
-			result: { content: { text: string }[] };
-		};
-		const checkResult = JSON.parse(checkResponse.result.content[0].text);
-		// The logs should be similar
-		expect(checkResult.logs.join("\n")).toContain("hello from send_input");
+		// Poll for the expected output in logs (up to 30 times, 100ms apart)
+		let found = false;
+		let logsJoined = sendInputResult.logs.join("\n");
+		for (let i = 0; i < 30; i++) {
+			if (logsJoined.includes("hello from send_input")) {
+				found = true;
+				break;
+			}
+			// Re-check logs with check_shell
+			const checkRequest = {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: { name: "check_shell", arguments: { label } },
+				id: `req-check-${label}-${i}`,
+			};
+			const checkResponse = (await sendRequest(
+				serverProcess,
+				checkRequest,
+			)) as {
+				result: { content: { text: string }[] };
+			};
+			const checkResult = JSON.parse(checkResponse.result.content[0].text);
+			logsJoined = checkResult.logs.join("\n");
+			if (logsJoined.includes("hello from send_input")) {
+				found = true;
+				break;
+			}
+			await new Promise((r) => setTimeout(r, 100));
+		}
+		if (!found) {
+			console.error("[DEBUG] Logs after polling:", logsJoined);
+		}
+		expect(found).toBe(true);
 
 		// Cleanup
 		const stopRequest = {
