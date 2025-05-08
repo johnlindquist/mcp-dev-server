@@ -472,7 +472,7 @@ describe("Tool Features: Logging and Summaries", () => {
 						command: "node",
 						args: [
 							"-e",
-							"console.log('Initial log'); process.stdin.once('data', () => { console.error('Error after input'); console.log('URL: http://localhost:1234/after'); setTimeout(() => { console.log('Flushing and exiting...'); process.exit(0); }, 500); });",
+							"console.log('Initial log'); process.stdin.once('data', () => { console.error('Error after input'); console.log('URL: http://localhost:1234/after'); setTimeout(() => { console.log('Flushing and exiting...'); process.exit(0); }, 1500); });",
 						],
 						workingDirectory: path.join(__dirname),
 						label: label,
